@@ -1,13 +1,13 @@
 """管理员 API：用户管理、系统统计、审计日志、系统设置、全局文件。全部需要 admin token。"""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from pydantic import BaseModel
 
-from ..db.models import User, File, AccessLog, SystemSetting, get_db, get_setting, set_setting
-from ..core.security import hash_password
+from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, get_db, get_setting, set_setting
+from ..core.security import hash_password, generate_token_hash
 from ..core import storage
 from ..config import settings
 from .auth import get_current_admin, _log
@@ -27,7 +27,9 @@ class UpdateUserRequest(BaseModel):
     password: str = ""
 
 
-
+class CreateTokenRequest(BaseModel):
+    label: str = "device"
+    expires_days: int = 0
 
 
 # ---- 管理员信息 ----
@@ -113,7 +115,8 @@ def delete_user(user_id: str, request: Request, db: Session = Depends(get_db), a
     username = user.username
     storage.delete_user_storage(user_id)
     db.query(File).filter_by(owner_id=user_id).delete()
-    from ..db.models import ChatMessage, SyncEvent, AccessToken
+    db.query(FileGroup).filter_by(owner_id=user_id).delete()
+    from ..db.models import ChatMessage, SyncEvent
     db.query(ChatMessage).filter_by(user_id=user_id).delete()
     db.query(SyncEvent).filter_by(user_id=user_id).delete()
     db.query(AccessToken).filter_by(user_id=user_id).delete()
@@ -147,6 +150,8 @@ def user_detail(user_id: str, db: Session = Depends(get_db), admin=Depends(get_c
         "files": [{
             "id": f.id, "path": f.path, "name": f.name, "size": f.size,
             "tag": f.tag, "guard_status": f.guard_status,
+            "group_id": f.group_id or "",
+            "group_name": (db.query(FileGroup).filter_by(id=f.group_id).first().name if f.group_id else ""),
             "uploaded_at": str(f.uploaded_at),
         } for f in files],
         "logs": [{
@@ -154,6 +159,73 @@ def user_detail(user_id: str, db: Session = Depends(get_db), admin=Depends(get_c
             "ip": l.ip, "time": str(l.created_at),
         } for l in logs],
     }
+
+
+# ---- 用户访问令牌管理 ----
+
+@router.get("/users/{user_id}/tokens")
+def list_user_tokens(user_id: str, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """列出指定用户的全部访问令牌（含已吊销/已过期，便于审计）。"""
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(404, "用户不存在")
+    tokens = db.query(AccessToken).filter_by(user_id=user_id).order_by(AccessToken.created_at.desc()).all()
+    return [{
+        "id": t.id, "label": t.label, "revoked": t.revoked,
+        "expires_at": str(t.expires_at) if t.expires_at else "",
+        "last_used_at": str(t.last_used_at) if t.last_used_at else "",
+        "created_at": str(t.created_at),
+    } for t in tokens]
+
+
+@router.post("/users/{user_id}/tokens")
+def create_user_token(user_id: str, req: CreateTokenRequest, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """为指定用户创建访问令牌，原始令牌仅返回一次。"""
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(404, "用户不存在")
+    if not req.label.strip():
+        req.label = "device"
+    raw, h = generate_token_hash()
+    expires = None
+    if req.expires_days > 0:
+        expires = datetime.utcnow() + timedelta(days=req.expires_days)
+    db.add(AccessToken(user_id=user_id, label=req.label, token_hash=h, expires_at=expires))
+    db.commit()
+    _log(db, user_id, "admin_create_token", f"为用户「{user.username}」创建令牌「{req.label}」", request)
+    return {"token": raw, "label": req.label, "expires_at": str(expires) if expires else ""}
+
+
+@router.delete("/users/{user_id}/tokens/{token_id}")
+def revoke_user_token(user_id: str, token_id: str, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """吊销指定用户的某个访问令牌。"""
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(404, "用户不存在")
+    t = db.query(AccessToken).filter_by(id=token_id, user_id=user_id).first()
+    if not t:
+        raise HTTPException(404, "令牌不存在")
+    label = t.label
+    t.revoked = True
+    db.commit()
+    _log(db, user_id, "admin_revoke_token", f"吊销用户「{user.username}」的令牌「{label}」", request)
+    return {"message": f"已吊销令牌: {label}"}
+
+
+@router.delete("/users/{user_id}/tokens")
+def revoke_all_user_tokens(user_id: str, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """一键吊销指定用户全部有效令牌（应急下线设备）。"""
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(404, "用户不存在")
+    tokens = db.query(AccessToken).filter_by(user_id=user_id, revoked=False).all()
+    count = 0
+    for t in tokens:
+        t.revoked = True
+        count += 1
+    db.commit()
+    _log(db, user_id, "admin_revoke_all_tokens", f"吊销用户「{user.username}」的全部令牌（{count} 个）", request)
+    return {"message": f"已吊销 {count} 个令牌", "count": count}
 
 
 # ---- 系统统计 ----
@@ -215,17 +287,67 @@ def all_files(
         q = q.filter(or_(File.name.contains(search), File.path.contains(search)))
     total = q.count()
     rows = q.order_by(File.uploaded_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    # 批量解析分组名
+    gids = {f.group_id for f, _ in rows if f.group_id}
+    group_map = {}
+    if gids:
+        for g in db.query(FileGroup).filter(FileGroup.id.in_(gids)).all():
+            group_map[g.id] = g.name
     return {
         "files": [{
             "id": f.id, "owner": uname, "owner_id": f.owner_id,
             "path": f.path, "name": f.name, "size": f.size,
             "tag": f.tag, "guard_status": f.guard_status,
+            "group_id": f.group_id or "",
+            "group_name": group_map.get(f.group_id, "") if f.group_id else "",
             "uploaded_at": str(f.uploaded_at),
         } for f, uname in rows],
         "total": total,
         "page": page,
         "page_size": page_size,
     }
+
+
+# ---- 全局分组总览 ----
+
+@router.get("/groups")
+def all_groups(
+    search: str = Query(""),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    """列出全部用户的分组，便于管理员跟进分组使用情况。"""
+    q = db.query(FileGroup, User.username).join(User, FileGroup.owner_id == User.id)
+    if search:
+        q = q.filter(or_(FileGroup.name.contains(search), User.username.contains(search)))
+    rows = q.order_by(FileGroup.created_at.desc()).all()
+    result = []
+    for g, uname in rows:
+        files = db.query(File).filter_by(group_id=g.id).all()
+        total_size = sum(f.size for f in files)
+        result.append({
+            "id": g.id, "name": g.name, "owner_id": g.owner_id,
+            "owner": uname, "file_count": len(files),
+            "size": total_size,
+            "created_at": str(g.created_at),
+            "updated_at": str(g.updated_at),
+        })
+    return {"groups": result, "total": len(result)}
+
+
+@router.delete("/groups/{group_id}")
+def admin_delete_group(group_id: str, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """管理员删除任意用户的分组（文件保留，仅解除关联）。"""
+    g = db.query(FileGroup).filter_by(id=group_id).first()
+    if not g:
+        raise HTTPException(404, "分组不存在")
+    name = g.name
+    owner_id = g.owner_id
+    db.query(File).filter_by(group_id=group_id).update({File.group_id: None})
+    db.delete(g)
+    db.commit()
+    _log(db, owner_id, "admin_delete_group", f"管理员删除分组「{name}」", request)
+    return {"message": f"分组「{name}」已删除"}
 
 
 # ---- 审计日志 ----

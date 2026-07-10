@@ -7,7 +7,7 @@ from pathlib import Path
 class Config:
     # 服务器地址
     SERVER_URL = os.getenv("SERVER_URL", "https://your-domain.com")
-    # JWT 令牌（从 Web 设置页创建）
+    # 设备访问令牌（在 Web 设置页或管理后台创建，可吊销）
     TOKEN = os.getenv("DAEMON_TOKEN", "")
     # 要同步的本地目录
     WATCH_DIR = os.getenv("WATCH_DIR", str(Path.home() / "suixingdang-sync"))

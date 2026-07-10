@@ -8,7 +8,14 @@ const API = {
     const headers = { ...opts.headers };
     if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
     if (opts.body) headers['Content-Type'] = 'application/json';
-    return fetch(url, { ...opts, headers });
+    const res = await fetch(url, { ...opts, headers });
+    // token 失效/过期：清掉本地令牌并回到登录页，避免显示误导性的"加载失败"
+    if (res.status === 401 && this._token) {
+      this.clear();
+      Toast.show('登录已失效，请重新登录', 'warning', 2000);
+      setTimeout(() => location.reload(), 800);
+    }
+    return res;
   },
   get(u) { return this.req(u); },
   post(u, b) { return this.req(u, { method: 'POST', body: JSON.stringify(b) }); },
@@ -29,7 +36,15 @@ const ACTION_LABELS = {
   admin_create_user: '创建用户',
   admin_update_user: '修改用户',
   admin_delete_user: '删除用户',
+  admin_create_token: '创建令牌',
+  admin_revoke_token: '吊销令牌',
+  admin_revoke_all_tokens: '全部吊销令牌',
   admin_update_settings: '修改系统设置',
+  group_create: '创建分组',
+  group_rename: '重命名分组',
+  group_delete: '删除分组',
+  file_move_group: '移动到分组',
+  admin_delete_group: '管理员删除分组',
 };
 function actionLabel(a) { return ACTION_LABELS[a] || a; }
 
@@ -48,6 +63,7 @@ const ICONS = {
   dashboard: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>',
   users: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>',
   file: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
+  groups: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/><path d="M2 5h6V3H2v2zm0 6h6V9H2v2zm0 6h6v-2H2v2zm14-12v2h6V5h-6z"/></svg>',
   log: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>',
   logout: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>',
@@ -107,6 +123,7 @@ function renderLayout() {
           <div class="admin-nav-item active" data-view="dashboard">${ICONS.dashboard} 系统概览</div>
           <div class="admin-nav-item" data-view="users">${ICONS.users} 用户管理</div>
           <div class="admin-nav-item" data-view="files">${ICONS.file} 全局文件</div>
+          <div class="admin-nav-item" data-view="groups">${ICONS.groups} 分组管理</div>
           <div class="admin-nav-item" data-view="settings">${ICONS.settings} 系统设置</div>
           <div class="admin-nav-item" data-view="logs">${ICONS.log} 审计日志</div>
         </div>
@@ -130,6 +147,7 @@ function navigate(view) {
   if (view === 'dashboard') renderDashboard();
   else if (view === 'users') renderUsers();
   else if (view === 'files') renderFiles();
+  else if (view === 'groups') renderGroups();
   else if (view === 'settings') renderSettings();
   else if (view === 'logs') renderLogs();
 }
@@ -243,17 +261,25 @@ async function viewUserDetail(userId) {
       <div style="margin-bottom:8px;font-size:13px;color:var(--text-muted)">
         创建: ${u.created_at.split('.')[0]} | 最近登录: ${u.last_login ? u.last_login.split('.')[0] : '从未'} | 双因子: ${u.totp_enabled ? '已启用' : '未启用'} | 密保: ${u.has_security_question ? '已设置' : '未设置'}
       </div>
+      <h3 style="margin:20px 0 8px;font-size:14px;display:flex;align-items:center;gap:8px">
+        访问令牌 (<span id="user-tokens-count">0</span>)
+        <div class="admin-spacer" style="flex:1"></div>
+        <button class="btn btn-primary" onclick="createUserToken('${u.id}')">${ICONS.add} 创建令牌</button>
+        <button class="btn btn-danger" onclick="revokeAllUserTokens('${u.id}')">全部吊销</button>
+      </h3>
+      <div id="user-tokens-content">加载中...</div>
       <h3 style="margin:20px 0 8px;font-size:14px">最近文件 (${d.files.length})</h3>
       <table class="data-table">
-        <thead><tr><th>文件名</th><th>大小</th><th>标签</th><th>Guard</th><th>上传时间</th></tr></thead>
+        <thead><tr><th>文件名</th><th>大小</th><th>分组</th><th>标签</th><th>Guard</th><th>上传时间</th></tr></thead>
         <tbody>
           ${d.files.length ? d.files.map(f => `<tr>
             <td>${esc(f.name)}</td>
             <td>${f.size} B</td>
+            <td>${f.group_name ? '<span class="badge badge-info">' + esc(f.group_name) + '</span>' : '-'}</td>
             <td>${f.tag ? '<span class="badge badge-success">' + esc(f.tag) + '</span>' : '-'}</td>
             <td>${f.guard_status === 'safe' ? '-' : '<span class="badge badge-danger">' + esc(f.guard_status) + '</span>'}</td>
             <td style="font-size:12px;color:var(--text-muted)">${f.uploaded_at.split('.')[0]}</td>
-          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">暂无文件</td></tr>'}
+          </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">暂无文件</td></tr>'}
         </tbody>
       </table>
       <h3 style="margin:20px 0 8px;font-size:14px">操作日志 (${d.logs.length})</h3>
@@ -268,6 +294,7 @@ async function viewUserDetail(userId) {
           </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">暂无日志</td></tr>'}
         </tbody>
       </table>`;
+    loadUserTokens(u.id);
   } catch { Toast.show('加载用户详情失败', 'error'); }
 }
 window.viewUserDetail = viewUserDetail;
@@ -279,6 +306,84 @@ async function toggleUser(id, status) {
   } catch { Toast.show('操作失败', 'error'); }
 }
 window.toggleUser = toggleUser;
+
+// ============ User Access Tokens ============
+async function loadUserTokens(userId) {
+  const el = document.getElementById('user-tokens-content');
+  if (!el) return;
+  try {
+    const res = await API.get(`/api/admin/users/${userId}/tokens`);
+    const tokens = await res.json();
+    const countEl = document.getElementById('user-tokens-count');
+    if (countEl) countEl.textContent = tokens.length;
+    if (!tokens.length) {
+      el.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-top:4px">暂无访问令牌</p>';
+      return;
+    }
+    const now = Date.now();
+    el.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>标签</th><th>状态</th><th>创建时间</th><th>最后使用</th><th>过期时间</th><th>操作</th></tr></thead>
+        <tbody>
+          ${tokens.map(t => {
+            const expired = t.expires_at && new Date(t.expires_at).getTime() < now;
+            let badge;
+            if (t.revoked) badge = '<span class="badge badge-danger">已吊销</span>';
+            else if (expired) badge = '<span class="badge badge-danger">已过期</span>';
+            else badge = '<span class="badge badge-success">有效</span>';
+            const action = (t.revoked || expired) ? '-' : `<button class="btn btn-danger btn-icon" onclick="revokeUserToken('${userId}','${t.id}')" title="吊销">${ICONS.trash}</button>`;
+            return `<tr>
+              <td>${esc(t.label) || '-'}</td>
+              <td>${badge}</td>
+              <td style="font-size:12px;color:var(--text-muted)">${t.created_at ? t.created_at.split('.')[0] : '-'}</td>
+              <td style="font-size:12px;color:var(--text-muted)">${t.last_used_at ? t.last_used_at.split('.')[0] : '从未'}</td>
+              <td style="font-size:12px;color:var(--text-muted)">${t.expires_at ? t.expires_at.split('.')[0] : '永久'}</td>
+              <td>${action}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch { el.innerHTML = '<p style="color:var(--text-muted)">加载令牌失败</p>'; }
+}
+window.loadUserTokens = loadUserTokens;
+
+async function createUserToken(userId) {
+  const label = prompt('令牌标签（如：家里电脑、公司电脑、守护进程）：', 'device');
+  if (label === null) return;
+  const daysStr = prompt('过期天数（0=永久）：', '0');
+  if (daysStr === null) return;
+  const days = parseInt(daysStr);
+  try {
+    const res = await API.post(`/api/admin/users/${userId}/tokens`, { label: label.trim() || 'device', expires_days: isNaN(days) ? 0 : days });
+    if (res.ok) {
+      const data = await res.json();
+      prompt('访问令牌已创建（请妥善保存，仅显示一次）：', data.token);
+      Toast.show('令牌已创建', 'success');
+      loadUserTokens(userId);
+    } else { const d = await res.json(); Toast.show(d.detail || '创建失败', 'error'); }
+  } catch { Toast.show('创建失败', 'error'); }
+}
+window.createUserToken = createUserToken;
+
+async function revokeUserToken(userId, tokenId) {
+  if (!confirm('确定吊销该访问令牌？吊销后相关设备将立即无法访问。')) return;
+  try {
+    const res = await API.del(`/api/admin/users/${userId}/tokens/${tokenId}`);
+    if (res.ok) { Toast.show('令牌已吊销', 'success'); loadUserTokens(userId); }
+    else { const d = await res.json(); Toast.show(d.detail || '吊销失败', 'error'); }
+  } catch { Toast.show('吊销失败', 'error'); }
+}
+window.revokeUserToken = revokeUserToken;
+
+async function revokeAllUserTokens(userId) {
+  if (!confirm('确定吊销该用户的全部有效令牌？所有设备将立即下线。')) return;
+  try {
+    const res = await API.del(`/api/admin/users/${userId}/tokens`);
+    if (res.ok) { const d = await res.json(); Toast.show(d.message, 'success'); loadUserTokens(userId); }
+    else { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); }
+  } catch { Toast.show('操作失败', 'error'); }
+}
+window.revokeAllUserTokens = revokeAllUserTokens;
 
 // ============ User Modal ============
 function showUserModal(id, username, quota, status) {
@@ -358,12 +463,13 @@ async function loadFiles(search) {
     }
     document.getElementById('files-content').innerHTML = `
       <table class="data-table">
-        <thead><tr><th>文件名</th><th>所属用户</th><th>大小</th><th>标签</th><th>Guard</th><th>上传时间</th></tr></thead>
+        <thead><tr><th>文件名</th><th>所属用户</th><th>大小</th><th>分组</th><th>标签</th><th>Guard</th><th>上传时间</th></tr></thead>
         <tbody>
           ${data.files.map(f => `<tr>
             <td>${esc(f.name)}</td>
             <td><strong>${esc(f.owner)}</strong></td>
             <td>${f.size > 1048576 ? (f.size/1048576).toFixed(1) + ' MB' : f.size > 1024 ? (f.size/1024).toFixed(1) + ' KB' : f.size + ' B'}</td>
+            <td>${f.group_name ? '<span class="badge badge-info">' + esc(f.group_name) + '</span>' : '-'}</td>
             <td>${f.tag ? '<span class="badge badge-success">' + esc(f.tag) + '</span>' : '-'}</td>
             <td>${f.guard_status === 'safe' ? '-' : '<span class="badge badge-danger">' + esc(f.guard_status) + '</span>'}</td>
             <td style="font-size:12px;color:var(--text-muted)">${f.uploaded_at.split('.')[0]}</td>
@@ -373,6 +479,65 @@ async function loadFiles(search) {
       <p style="margin-top:12px;font-size:12px;color:var(--text-muted)">共 ${data.total} 个文件</p>`;
   } catch { document.getElementById('files-content').innerHTML = '<p>加载失败</p>'; }
 }
+
+// ============ Groups ============
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
+}
+
+async function renderGroups() {
+  document.getElementById('admin-main').innerHTML = `
+    <div class="admin-topbar">
+      <h2>分组管理</h2>
+      <div class="admin-spacer"></div>
+      <div class="search-box">${ICONS.search}<input type="text" id="group-search" placeholder="搜索分组或用户..." style="background:transparent;border:none;outline:none;color:var(--text);font-size:13px;width:180px"></div>
+      <button class="btn btn-secondary btn-icon" id="btn-refresh-groups" title="刷新">${ICONS.refresh}</button>
+    </div>
+    <div id="groups-content">加载中...</div>`;
+  document.getElementById('btn-refresh-groups').addEventListener('click', () => loadGroups(''));
+  let st;
+  document.getElementById('group-search').addEventListener('input', (e) => {
+    clearTimeout(st); st = setTimeout(() => loadGroups(e.target.value), 300);
+  });
+  await loadGroups('');
+}
+
+async function loadGroups(search) {
+  try {
+    const url = search ? `/api/admin/groups?search=${encodeURIComponent(search)}` : '/api/admin/groups';
+    const res = await API.get(url);
+    const data = await res.json();
+    const el = document.getElementById('groups-content');
+    if (!data.groups.length) {
+      el.innerHTML = '<p style="color:var(--text-muted);padding:20px">暂无分组</p>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>分组名称</th><th>所属用户</th><th>文件数</th><th>占用空间</th><th>创建时间</th><th>操作</th></tr></thead>
+        <tbody>
+          ${data.groups.map(g => `<tr>
+            <td><strong>${esc(g.name)}</strong></td>
+            <td><a href="javascript:viewUserDetail('${g.owner_id}')" style="color:var(--primary);text-decoration:none">${esc(g.owner)}</a></td>
+            <td>${g.file_count}</td>
+            <td>${fmtBytes(g.size)}</td>
+            <td style="font-size:12px;color:var(--text-muted)">${g.created_at.split('.')[0]}</td>
+            <td><button class="btn btn-danger btn-sm" onclick="adminDeleteGroup('${g.id}','${esc(g.name)}')">删除</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <p style="margin-top:12px;font-size:12px;color:var(--text-muted)">共 ${data.total} 个分组</p>`;
+  } catch { document.getElementById('groups-content').innerHTML = '<p>加载失败</p>'; }
+}
+
+async function adminDeleteGroup(id, name) {
+  if (!confirm(`确定删除分组 "${name}"？分组内文件不会被删除，仅解除关联。`)) return;
+  const res = await API.del(`/api/admin/groups/${id}`);
+  if (res.ok) { Toast.show('分组已删除', 'success'); loadGroups(document.getElementById('group-search') ? document.getElementById('group-search').value : ''); }
+  else { const d = await res.json(); Toast.show(d.detail || '删除失败', 'error'); }
+}
+window.adminDeleteGroup = adminDeleteGroup;
 
 // ============ Settings ============
 async function renderSettings() {

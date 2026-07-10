@@ -57,6 +57,17 @@ class SystemSetting(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 
+class FileGroup(Base):
+    """用户自定义文件分组。"""
+    __tablename__ = "file_groups"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    owner_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
 class File(Base):
     __tablename__ = "files"
 
@@ -68,6 +79,7 @@ class File(Base):
     content_hash = Column(String, index=True)
     mime_type = Column(String, default="application/octet-stream")
     tag = Column(String, default="")
+    group_id = Column(String, ForeignKey("file_groups.id"), nullable=True, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     modified_at = Column(DateTime, default=datetime.utcnow)
     source = Column(String, default="manual")
@@ -175,6 +187,19 @@ def _migrate_columns():
                 cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {coltype}")
             except Exception:
                 pass
+
+    # files 表新增 group_id 列（关联 file_groups）
+    cursor.execute("PRAGMA table_info(files)")
+    fcols = [r[1] for r in cursor.fetchall()]
+    if "group_id" not in fcols:
+        try:
+            cursor.execute('ALTER TABLE files ADD COLUMN group_id TEXT DEFAULT NULL')
+            try:
+                cursor.execute('CREATE INDEX IF NOT EXISTS ix_files_group_id ON files (group_id)')
+            except Exception:
+                pass
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 

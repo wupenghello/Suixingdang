@@ -84,21 +84,48 @@ from fastapi import Security
 security_scheme = HTTPBearer(auto_error=False)
 
 
+def _resolve_device_token(raw: str, db: Session) -> Optional[User]:
+    """通过 opaque 设备令牌解析用户；校验吊销/过期状态并节流更新最后使用时间。"""
+    token_hash = hashlib.sha256(raw.encode()).hexdigest()
+    t = db.query(AccessToken).filter_by(token_hash=token_hash).first()
+    if not t or not t.user_id:
+        return None
+    if t.revoked:
+        raise HTTPException(401, "令牌已被吊销")
+    if t.expires_at and t.expires_at < datetime.utcnow():
+        raise HTTPException(401, "令牌已过期")
+    user = db.query(User).filter_by(id=t.user_id).first()
+    if not user:
+        return None
+    now = datetime.utcnow()
+    if not t.last_used_at or (now - t.last_used_at).total_seconds() > 60:
+        t.last_used_at = now
+        db.commit()
+    return user
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Security(security_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     if not credentials:
         raise HTTPException(401, "未提供认证信息")
-    payload = decode_token(credentials.credentials)
-    if not payload or payload.get("type") != "access":
-        raise HTTPException(401, "无效或过期的令牌")
-    if payload.get("role") != "user":
-        raise HTTPException(403, "此接口需要普通用户权限")
-    user_id = payload.get("sub")
-    user = db.query(User).filter_by(id=user_id).first()
-    if not user:
-        raise HTTPException(401, "用户不存在")
+    raw = credentials.credentials
+    user = None
+    # JWT 形如 header.payload.signature（含两个 "."）；否则按 opaque 设备令牌解析
+    if raw.count(".") == 2:
+        payload = decode_token(raw)
+        if not payload or payload.get("type") != "access":
+            raise HTTPException(401, "无效或过期的令牌")
+        if payload.get("role") != "user":
+            raise HTTPException(403, "此接口需要普通用户权限")
+        user = db.query(User).filter_by(id=payload.get("sub")).first()
+        if not user:
+            raise HTTPException(401, "用户不存在")
+    else:
+        user = _resolve_device_token(raw, db)
+        if not user:
+            raise HTTPException(401, "无效或已吊销的令牌")
     if user.status == "disabled":
         raise HTTPException(403, "账户已被禁用")
     return user
@@ -381,6 +408,8 @@ def get_me(user=Depends(get_current_user)):
         "status": user.status,
         "quota_mb": user.quota_mb,
         "totp_enabled": user.totp_enabled,
+        "last_login_at": str(user.last_login_at) if user.last_login_at else "",
+        "created_at": str(user.created_at) if user.created_at else "",
     }
 
 

@@ -71,6 +71,7 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); c
 .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
 .badge-success { background: rgba(61,214,140,0.15); color: var(--success); }
 .badge-danger { background: var(--danger-light); color: var(--danger); }
+.badge-info { background: rgba(91,141,239,0.14); color: #5b8def; }
 
 .login-container { display: flex; align-items: center; justify-content: center; height: 100vh; background: radial-gradient(ellipse at top, #1a1d27, var(--bg)); }
 .login-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 40px; width: 380px; box-shadow: var(--shadow); }

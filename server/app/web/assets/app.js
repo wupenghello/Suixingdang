@@ -47,6 +47,9 @@ const API = {
   async post(url, body) {
     return this.request(url, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) });
   },
+  async put(url, body) {
+    return this.request(url, { method: 'PUT', body: typeof body === 'string' ? body : JSON.stringify(body) });
+  },
   async postForm(url, formData) { return this.request(url, { method: 'POST', body: formData }); },
   async del(url) { return this.request(url, { method: 'DELETE' }); },
 };
@@ -146,6 +149,8 @@ const UploadManager = {
 // ============ Icons ============
 const ICONS = {
   folder: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>',
+  groups: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/><path d="M3 6h18v2H3z" opacity="0"/><path d="M2 5h6V3H2v2zm0 6h6V9H2v2zm0 6h6v-2H2v2zm14-12v2h6V5h-6z"/></svg>',
+  add: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>',
   file: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
   fileCode: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>',
   fileText: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
@@ -162,7 +167,15 @@ const ICONS = {
   refresh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
   more: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>',
   rename: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
-  logout: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5-5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>',
+ logout: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5-5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>',
+ eye: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>',
+ close: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+ fileAudio: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
+ database: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/></svg>',
+ shield: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>',
+ key: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10A6 6 0 1 0 7 18a6 6 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 15a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>',
+ lock: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm2-9H8V6a2 2 0 0 1 4 0v2z"/></svg>',
+  user: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
 };
 
 // ============ Utils ============
@@ -178,6 +191,16 @@ function formatDate(ts) {
   const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
   return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 }
+function formatDateTime(ts) {
+  if (!ts) return '';
+  let s = String(ts);
+  // 服务器时间为 UTC（naive datetime），补齐为 ISO 并按 UTC 解析后转本地时区
+  if (s.indexOf('T') === -1) s = s.replace(' ', 'T');
+  if (!/[+-]\d{2}:?\d{2}$/.test(s) && !s.endsWith('Z')) s += 'Z';
+  const d = new Date(s);
+  if (isNaN(d)) return String(ts);
+  return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
 function getFileIcon(name, isDir) {
   if (isDir) return { cls: 'folder', icon: ICONS.folder };
   const ext = name.split('.').pop().toLowerCase();
@@ -185,7 +208,23 @@ function getFileIcon(name, isDir) {
   if (['md','txt','pdf','doc','docx','rst'].includes(ext)) return { cls: 'doc', icon: ICONS.fileText };
   if (['png','jpg','jpeg','gif','svg','webp'].includes(ext)) return { cls: 'image', icon: ICONS.fileImage };
   if (['mp4','avi','mov','mkv','webm'].includes(ext)) return { cls: 'video', icon: ICONS.fileVideo };
+  if (['mp3','wav','ogg','flac','m4a','aac','opus'].includes(ext)) return { cls: 'audio', icon: ICONS.fileAudio };
   return { cls: 'other', icon: ICONS.file };
+}
+const PREVIEW_IMAGE_EXT = ['png','jpg','jpeg','gif','svg','webp','bmp','ico','avif'];
+const PREVIEW_VIDEO_EXT = ['mp4','webm','ogg','mov','mkv','avi','m4v'];
+const PREVIEW_AUDIO_EXT = ['mp3','wav','ogg','flac','m4a','aac','opus'];
+const PREVIEW_TEXT_EXT = ['txt','md','rst','json','yml','yaml','xml','html','htm','css','scss','less','js','ts','jsx','tsx','py','java','go','rs','c','cpp','h','hpp','sh','bash','rb','php','sql','log','conf','ini','toml','env','csv','tsv','vue','svelte','swift','kt','dart','lua','pl','r','scala','clj','dockerfile','makefile','gitignore','graphql','proto'];
+const PREVIEW_PDF_EXT = ['pdf'];
+function getPreviewType(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  const baseName = name.split('/').pop().toLowerCase();
+  if (PREVIEW_IMAGE_EXT.includes(ext)) return 'image';
+  if (PREVIEW_VIDEO_EXT.includes(ext)) return 'video';
+  if (PREVIEW_AUDIO_EXT.includes(ext)) return 'audio';
+  if (PREVIEW_PDF_EXT.includes(ext)) return 'pdf';
+  if (PREVIEW_TEXT_EXT.includes(ext) || ['dockerfile','makefile','.gitignore'].includes(baseName)) return 'text';
+  return null;
 }
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -234,7 +273,8 @@ function setupDragDrop() {
       if (!overlay) {
         overlay = document.createElement('div');
         overlay.className = 'upload-overlay';
-        overlay.innerHTML = `<div class="upload-overlay-box">${ICONS.upload}<p>松开以上传文件到当前目录</p></div>`;
+        const dropTarget = selectedGroup ? '当前分组' : (currentDir || '主目录');
+        overlay.innerHTML = `<div class="upload-overlay-box">${ICONS.upload}<p>松开以上传文件到${dropTarget}</p></div>`;
         document.body.appendChild(overlay);
       }
     }
@@ -443,6 +483,8 @@ function renderLogin() {
 // ============ File Browser ============
 let currentDir = '';
 let searchQuery = '';
+let selectedGroup = '';  // 当前选中的分组 id（'' = 全部）
+let userGroups = [];    // 缓存当前用户的分组列表
 
 async function renderFiles() {
   document.getElementById('main-content').innerHTML = `
@@ -450,6 +492,7 @@ async function renderFiles() {
       <div class="topbar-title">文件</div>
       <div class="topbar-spacer"></div>
       <button class="btn btn-secondary btn-icon-only" id="btn-refresh" title="刷新">${ICONS.refresh}</button>
+      <button class="btn btn-secondary" id="btn-groups" title="分组管理">${ICONS.groups}<span>分组</span></button>
       <button class="btn btn-primary" id="btn-upload">${ICONS.upload}<span>上传</span></button>
     </div>
     <div class="file-browser">
@@ -462,6 +505,7 @@ async function renderFiles() {
     <input type="file" id="file-input" style="display:none" multiple>
   `;
   document.getElementById('btn-refresh').addEventListener('click', () => { Toast.show('刷新中', 'info', 1000); loadFiles(); });
+  document.getElementById('btn-groups').addEventListener('click', showGroupManager);
   document.getElementById('btn-upload').addEventListener('click', () => document.getElementById('file-input').click());
   document.getElementById('file-input').addEventListener('change', (e) => { if (e.target.files.length) handleFilesUpload(e.target.files); e.target.value = ''; });
 
@@ -471,12 +515,175 @@ async function renderFiles() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => { searchQuery = e.target.value; loadFiles(); }, 300);
   });
+  await loadGroups();
   loadFiles();
+}
+
+// ============ Groups ============
+async function loadGroups() {
+  try {
+    const res = await API.get('/api/files/groups');
+    const data = await res.json();
+    userGroups = data.groups || [];
+  } catch { userGroups = []; }
+  return userGroups;
+}
+
+function showGroupManager() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="width:480px">
+      <h3>分组管理</h3>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <input type="text" id="new-group-name" class="form-input" placeholder="新分组名称" style="flex:1">
+        <button class="btn btn-primary" id="btn-create-group">${ICONS.add} 创建</button>
+      </div>
+      <div id="group-list" style="max-height:320px;overflow:auto">加载中...</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">关闭</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('btn-create-group').addEventListener('click', createGroup);
+  document.getElementById('new-group-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') createGroup(); });
+  renderGroupManagerList();
+}
+
+function renderGroupManagerList() {
+  const el = document.getElementById('group-list');
+  if (!el) return;
+  if (!userGroups.length) {
+    el.innerHTML = '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px 0">还没有分组，在上方创建一个吧</p>';
+    return;
+  }
+  el.innerHTML = `<table class="data-table"><thead><tr><th>名称</th><th>文件数</th><th>大小</th><th>操作</th></tr></thead><tbody>
+    ${userGroups.map(g => `<tr>
+      <td><strong>${escapeHtml(g.name)}</strong></td>
+      <td>${g.file_count}</td>
+      <td>${formatSize(g.size)}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="renameGroup('${escapeHtml(g.id)}','${escapeHtml(g.name)}')">重命名</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteGroup('${escapeHtml(g.id)}','${escapeHtml(g.name)}')">删除</button>
+      </td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+async function createGroup() {
+  const input = document.getElementById('new-group-name');
+  const name = input.value.trim();
+  if (!name) { Toast.show('请输入分组名称', 'error'); return; }
+  try {
+    const res = await API.post('/api/files/groups', { name });
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '创建失败', 'error'); return; }
+    input.value = '';
+    Toast.show('分组已创建', 'success');
+    await loadGroups();
+    renderGroupManagerList();
+  } catch { Toast.show('创建失败', 'error'); }
+}
+
+async function renameGroup(id, oldName) {
+  const name = prompt('重命名分组：', oldName);
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === oldName) return;
+  try {
+    const res = await API.put(`/api/files/groups/${id}`, { name: trimmed });
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '重命名失败', 'error'); return; }
+    Toast.show('已重命名', 'success');
+    await loadGroups();
+    renderGroupManagerList();
+    if (selectedGroup === id) loadFiles();
+  } catch { Toast.show('重命名失败', 'error'); }
+}
+
+async function deleteGroup(id, name) {
+  if (!confirm(`确定删除分组「${name}」？\n分组内的文件不会被删除，仅移出分组。`)) return;
+  try {
+    const res = await API.del(`/api/files/groups/${id}`);
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '删除失败', 'error'); return; }
+    Toast.show('分组已删除', 'success');
+    if (selectedGroup === id) selectedGroup = '';
+    await loadGroups();
+    renderGroupManagerList();
+    loadFiles();
+  } catch { Toast.show('删除失败', 'error'); }
+}
+
+function showGroupFolderMenu(eventOrX, y, gid, name) {
+  let x;
+  if (eventOrX && eventOrX.clientX !== undefined) { x = eventOrX.clientX; y = eventOrX.clientY; }
+  else { x = eventOrX; }
+  const items = [
+    { action: 'open', label: '打开', icon: ICONS.folder, onClick: () => {
+      selectedGroup = gid; currentDir = ''; searchQuery = '';
+      const si = document.getElementById('search-input'); if (si) si.value = '';
+      loadFiles();
+    }},
+    { action: 'rename', label: '重命名', icon: ICONS.rename, onClick: () => renameGroup(gid, name) },
+    { action: 'delete', label: '删除分组', icon: ICONS.trash, danger: true, onClick: () => deleteGroup(gid, name) },
+  ];
+  showContextMenu(x, y, items);
+}
+
+function showMoveToGroupMenu(x, y, path) {
+  const items = [];
+  if (userGroups.length) {
+    userGroups.forEach(g => {
+      items.push({ action: 'g_' + g.id, label: g.name, icon: ICONS.folder, onClick: () => moveFileToGroup(path, g.id, g.name) });
+    });
+    items.push({ divider: true });
+  }
+  items.push({ action: 'new_group', label: '新建分组…', icon: ICONS.add, onClick: () => quickCreateGroupAndMove(path) });
+  items.push({ action: 'remove', label: '移出分组', icon: ICONS.close, onClick: () => moveFileToGroup(path, '', '') });
+  showContextMenu(x, y, items);
+}
+
+async function moveFileToGroup(path, groupId, groupName) {
+  try {
+    const res = await API.post(`/api/files/move-to-group?path=${encodeURIComponent(path)}&group_id=${encodeURIComponent(groupId)}`);
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '移动失败', 'error'); return; }
+    Toast.show(groupId ? `已移入「${groupName}」` : '已移出分组', 'success');
+    await loadGroups();
+    loadFiles();
+  } catch { Toast.show('移动失败', 'error'); }
+}
+
+async function quickCreateGroupAndMove(path) {
+  const name = prompt('新分组名称：');
+  if (!name || !name.trim()) return;
+  try {
+    const res = await API.post('/api/files/groups', { name: name.trim() });
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '创建失败', 'error'); return; }
+    const data = await res.json();
+    await loadGroups();
+    await moveFileToGroup(path, data.id, data.name);
+  } catch { Toast.show('创建失败', 'error'); }
 }
 
 function renderBreadcrumb() {
   const bc = document.getElementById('breadcrumb');
   if (!bc) return;
+  // 分组视图：主目录 / [分组名]
+  if (selectedGroup) {
+    const g = userGroups.find(x => x.id === selectedGroup);
+    const name = g ? g.name : '分组';
+    bc.innerHTML = `<span class="breadcrumb-item" data-dir="" data-action="root">主目录</span><span class="breadcrumb-sep">/</span><span class="breadcrumb-item current">${ICONS.groups}${escapeHtml(name)}</span>`;
+    bc.querySelectorAll('.breadcrumb-item').forEach(el => {
+      el.addEventListener('click', () => {
+        if (el.dataset.action === 'root') {
+          selectedGroup = '';
+          currentDir = '';
+          loadFiles();
+        }
+      });
+    });
+    return;
+  }
+  // 目录视图
   const parts = currentDir ? currentDir.split('/') : [];
   let html = `<span class="breadcrumb-item${!currentDir ? ' current' : ''}" data-dir="">主目录</span>`;
   let path = '';
@@ -489,6 +696,7 @@ function renderBreadcrumb() {
   bc.querySelectorAll('.breadcrumb-item').forEach(el => {
     el.addEventListener('click', () => {
       currentDir = el.dataset.dir;
+      selectedGroup = '';
       searchQuery = '';
       const si = document.getElementById('search-input');
       if (si) si.value = '';
@@ -507,6 +715,15 @@ async function loadFiles() {
       const data = await res.json();
       renderSearchResults(data.results || []);
     } catch { content.innerHTML = '<div class="empty-state">搜索失败</div>'; }
+  } else if (selectedGroup) {
+    // 分组视图：展示该分组全部文件
+    renderBreadcrumb();
+    content.innerHTML = '<div class="empty-state">加载中...</div>';
+    try {
+      const res = await API.get(`/api/files/list?group_id=${encodeURIComponent(selectedGroup)}`);
+      const data = await res.json();
+      renderFileList(data.items || []);
+    } catch { content.innerHTML = '<div class="empty-state">加载失败</div>'; }
   } else {
     renderBreadcrumb();
     content.innerHTML = '<div class="empty-state">加载中...</div>';
@@ -521,46 +738,92 @@ async function loadFiles() {
 function renderFileList(items) {
   const content = document.getElementById('file-content');
   if (!content) return;
-  if (!items.length) {
-    content.innerHTML = `<div class="file-list"><div class="empty-state">${ICONS.folder}<div>这个目录是空的</div><div style="font-size:13px;margin-top:4px">拖拽文件到此或点击"上传"</div></div></div>`;
+  const isRoot = !currentDir && !selectedGroup && !searchQuery;
+
+  // 根目录：把分组作为虚拟文件夹插入列表顶部，并隐藏已分组文件（它们在分组文件夹里）
+  let displayItems = items;
+  if (isRoot) {
+    const groupFolders = userGroups.map(g => ({
+      name: g.name, path: '__group__:' + g.id, is_dir: true, is_group: true,
+      group_id: g.id, file_count: g.file_count, size: g.size, modified: 0,
+    }));
+    // 已分组的根级文件不重复显示（通过分组文件夹访问）
+    const ungrouped = items.filter(i => i.is_dir || !i.group_id);
+    displayItems = groupFolders.concat(ungrouped);
+  }
+
+  if (!displayItems.length) {
+    const emptyMsg = selectedGroup
+      ? '<div>该分组暂无文件</div><div style="font-size:13px;margin-top:4px">点击"上传"将文件加入此分组</div>'
+      : isRoot
+        ? `${ICONS.groups}<div>还没有分组或文件</div><div style="font-size:13px;margin-top:4px">点击"分组"创建分组，或直接"上传"文件</div>`
+        : '<div>这个目录是空的</div><div style="font-size:13px;margin-top:4px">拖拽文件到此或点击"上传"</div>';
+    content.innerHTML = `<div class="file-list"><div class="empty-state">${emptyMsg}</div></div>`;
     return;
   }
-  content.innerHTML = `<div class="file-list">${items.map(item => {
+  content.innerHTML = `<div class="file-list">${displayItems.map(item => {
+    if (item.is_group) {
+      const cnt = item.file_count > 0 ? `${item.file_count} 个文件` : '空';
+      return `
+       <div class="file-row group-folder" data-gid="${escapeHtml(item.group_id)}" data-isgroup="true" data-name="${escapeHtml(item.name)}">
+         <div class="file-icon folder">${ICONS.groups}</div>
+         <div class="file-name">${escapeHtml(item.name)}</div>
+         <span class="badge badge-group">${cnt}</span>
+         <div class="file-meta"><span class="file-size">${formatSize(item.size)}</span></div>
+         <div class="file-actions">
+           <button class="icon-btn" onclick="event.stopPropagation();showGroupFolderMenu(event,'${escapeHtml(item.group_id)}','${escapeHtml(item.name)}')" title="更多">${ICONS.more}</button>
+         </div>
+       </div>`;
+    }
     const icon = getFileIcon(item.name, item.is_dir);
     const tagHtml = item.tag ? `<span class="file-tag tag-${item.tag}">${item.tag}</span>` : '';
+    const groupHtml = (!selectedGroup && item.group_name) ? `<span class="badge badge-group">${escapeHtml(item.group_name)}</span>` : '';
     const guardHtml = item.guard_status === 'warning' ? '<span class="badge badge-warning">注意</span>' : item.guard_status === 'blocked' ? '<span class="badge badge-danger">敏感</span>' : '';
-    return `
-      <div class="file-row" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}">
-        <div class="file-icon ${icon.cls}">${icon.icon}</div>
-        <div class="file-name">${escapeHtml(item.name)}</div>
-        ${tagHtml}${guardHtml}
-        <div class="file-meta">
-          <span class="file-size">${item.is_dir ? '-' : formatSize(item.size)}</span>
-          <span class="file-date">${formatDate(item.modified)}</span>
-        </div>
-        <div class="file-actions">
-          ${!item.is_dir ? `<button class="icon-btn" onclick="event.stopPropagation();downloadFile('${escapeHtml(item.path)}')" title="下载">${ICONS.download}</button>` : ''}
-          <button class="icon-btn danger" onclick="event.stopPropagation();deleteFile('${escapeHtml(item.path)}')" title="删除">${ICONS.trash}</button>
-          <button class="icon-btn" onclick="event.stopPropagation();showFileMenu(event, '${escapeHtml(item.path)}', '${escapeHtml(item.name)}', ${item.is_dir})" title="更多">${ICONS.more}</button>
-        </div>
-      </div>`;
-  }).join('')}</div>`;
+   return `
+     <div class="file-row" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}">
+       <div class="file-icon ${icon.cls}">${icon.icon}</div>
+       <div class="file-name">${escapeHtml(item.name)}</div>
+       ${tagHtml}${groupHtml}${guardHtml}
+       <div class="file-meta">
+         <span class="file-size">${item.is_dir ? '-' : formatSize(item.size)}</span>
+         <span class="file-date">${formatDate(item.modified)}</span>
+       </div>
+       <div class="file-actions">
+         ${!item.is_dir ? `<button class="icon-btn" onclick="event.stopPropagation();previewFile('${escapeHtml(item.path)}','${escapeHtml(item.name)}')" title="预览">${ICONS.eye}</button>` : ''}
+         ${!item.is_dir ? `<button class="icon-btn" onclick="event.stopPropagation();downloadFile('${escapeHtml(item.path)}')" title="下载">${ICONS.download}</button>` : ''}
+         <button class="icon-btn danger" onclick="event.stopPropagation();deleteFile('${escapeHtml(item.path)}')" title="删除">${ICONS.trash}</button>
+         <button class="icon-btn" onclick="event.stopPropagation();showFileMenu(event, '${escapeHtml(item.path)}', '${escapeHtml(item.name)}', ${item.is_dir})" title="更多">${ICONS.more}</button>
+       </div>
+     </div>`;
+ }).join('')}</div>`;
 
-  content.querySelectorAll('.file-row').forEach(row => {
-    row.addEventListener('click', () => {
-      if (row.dataset.isdir === 'true') {
-        currentDir = row.dataset.path;
-        searchQuery = '';
-        const si = document.getElementById('search-input');
-        if (si) si.value = '';
-        loadFiles();
-      } else {
-        downloadFile(row.dataset.path);
-      }
-    });
+ content.querySelectorAll('.file-row').forEach(row => {
+   row.addEventListener('click', () => {
+     if (row.dataset.isgroup === 'true') {
+       selectedGroup = row.dataset.gid;
+       currentDir = '';
+       searchQuery = '';
+       const si = document.getElementById('search-input');
+       if (si) si.value = '';
+       loadFiles();
+     } else if (row.dataset.isdir === 'true') {
+       currentDir = row.dataset.path;
+       selectedGroup = '';
+       searchQuery = '';
+       const si = document.getElementById('search-input');
+       if (si) si.value = '';
+       loadFiles();
+     } else {
+       previewFile(row.dataset.path, row.dataset.name);
+     }
+   });
     row.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      showFileMenu(e.clientX, e.clientY, row.dataset.path, row.dataset.name, row.dataset.isdir === 'true');
+      if (row.dataset.isgroup === 'true') {
+        showGroupFolderMenu(e.clientX, e.clientY, row.dataset.gid, row.dataset.name);
+      } else {
+        showFileMenu(e.clientX, e.clientY, row.dataset.path, row.dataset.name, row.dataset.isdir === 'true');
+      }
     });
   });
 }
@@ -575,12 +838,15 @@ function showFileMenu(eventOrX, path, name, isDir) {
     x = eventOrX.clientX; y = eventOrX.clientY;
   }
 
-  const items = [];
-  if (!isDir) {
-    items.push({ action: 'download', label: '下载', icon: ICONS.download, onClick: () => downloadFile(path) });
-  } else {
-    items.push({ action: 'open', label: '打开', icon: ICONS.folder, onClick: () => { currentDir = path; searchQuery = ''; document.getElementById('search-input').value = ''; loadFiles(); } });
-  }
+ const items = [];
+ if (!isDir) {
+   items.push({ action: 'preview', label: '预览', icon: ICONS.eye, onClick: () => previewFile(path, name) });
+   items.push({ action: 'download', label: '下载', icon: ICONS.download, onClick: () => downloadFile(path) });
+   items.push({ action: 'move-group', label: '移动到分组', icon: ICONS.groups, onClick: () => showMoveToGroupMenu(x, y, path) });
+   items.push({ divider: true });
+ } else {
+   items.push({ action: 'open', label: '打开', icon: ICONS.folder, onClick: () => { currentDir = path; searchQuery = ''; document.getElementById('search-input').value = ''; loadFiles(); } });
+ }
   items.push({ action: 'delete', label: '删除', icon: ICONS.trash, danger: true, onClick: () => deleteFile(path) });
   showContextMenu(x, y, items);
 }
@@ -594,21 +860,22 @@ function renderSearchResults(results) {
   content.innerHTML = `<div class="file-list">${results.map(r => {
     const icon = getFileIcon(r.name || r.path, false);
     const score = r.score ? Math.round(r.score * 100) : '';
-    return `
-      <div class="file-row" data-path="${escapeHtml(r.path)}">
-        <div class="file-icon ${icon.cls}">${icon.icon}</div>
-        <div class="file-name">${escapeHtml(r.name || r.path)}</div>
-        ${r.tag ? `<span class="file-tag tag-${r.tag}">${r.tag}</span>` : ''}
-        <div class="file-meta">${score ? `<span>匹配 ${score}%</span>` : ''}</div>
-        <div class="file-actions">
-          <button class="icon-btn" onclick="event.stopPropagation();downloadFile('${escapeHtml(r.path)}')" title="下载">${ICONS.download}</button>
-          <button class="icon-btn danger" onclick="event.stopPropagation();deleteFile('${escapeHtml(r.path)}')" title="删除">${ICONS.trash}</button>
-        </div>
-      </div>`;
-  }).join('')}</div>`;
-  content.querySelectorAll('.file-row').forEach(row => {
-    row.addEventListener('click', () => downloadFile(row.dataset.path));
-  });
+   return `
+     <div class="file-row" data-path="${escapeHtml(r.path)}" data-name="${escapeHtml(r.name || r.path)}">
+       <div class="file-icon ${icon.cls}">${icon.icon}</div>
+       <div class="file-name">${escapeHtml(r.name || r.path)}</div>
+       ${r.tag ? `<span class="file-tag tag-${r.tag}">${r.tag}</span>` : ''}
+       <div class="file-meta">${score ? `<span>匹配 ${score}%</span>` : ''}</div>
+       <div class="file-actions">
+         <button class="icon-btn" onclick="event.stopPropagation();previewFile('${escapeHtml(r.path)}','${escapeHtml(r.name || r.path)}')" title="预览">${ICONS.eye}</button>
+         <button class="icon-btn" onclick="event.stopPropagation();downloadFile('${escapeHtml(r.path)}')" title="下载">${ICONS.download}</button>
+         <button class="icon-btn danger" onclick="event.stopPropagation();deleteFile('${escapeHtml(r.path)}')" title="删除">${ICONS.trash}</button>
+       </div>
+     </div>`;
+ }).join('')}</div>`;
+ content.querySelectorAll('.file-row').forEach(row => {
+   row.addEventListener('click', () => previewFile(row.dataset.path, row.dataset.name));
+ });
 }
 
 // ============ Upload with Progress ============
@@ -620,7 +887,8 @@ async function handleFilesUpload(fileList) {
       const formData = new FormData();
       formData.append('file', file);
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `/api/files/upload?directory=${encodeURIComponent(currentDir)}&source=manual`);
+      const gidParam = selectedGroup ? `&group_id=${encodeURIComponent(selectedGroup)}` : ''
+      xhr.open('POST', `/api/files/upload?directory=${encodeURIComponent(currentDir)}&source=manual${gidParam}`);
       xhr.setRequestHeader('Authorization', `Bearer ${API._token}`);
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
@@ -650,7 +918,86 @@ async function handleFilesUpload(fileList) {
     }
   }
   UploadManager.hide();
-  loadFiles();
+ loadFiles();
+}
+
+// ============ File Preview ============
+async function previewFile(path, name) {
+  const fileName = name || path.split('/').pop();
+  const previewType = getPreviewType(fileName);
+  if (!previewType) {
+    Toast.show('此文件类型不支持预览，请下载查看', 'info');
+    downloadFile(path);
+    return;
+  }
+
+  // Create modal overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'preview-overlay';
+  overlay.innerHTML = `
+    <div class="preview-header">
+      <div class="preview-title" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+      <div class="preview-actions">
+        <button class="icon-btn" id="btn-preview-download" title="下载">${ICONS.download}</button>
+        <button class="icon-btn" id="btn-preview-close" title="关闭">${ICONS.close}</button>
+      </div>
+    </div>
+    <div class="preview-body" id="preview-body">
+      <div class="preview-loading">加载中...</div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+
+  const closePreview = () => { overlay.remove(); document.body.style.overflow = ''; };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closePreview(); });
+  document.getElementById('btn-preview-close').addEventListener('click', closePreview);
+  document.getElementById('btn-preview-download').addEventListener('click', () => downloadFile(path));
+  const escHandler = (e) => { if (e.key === 'Escape') { closePreview(); document.removeEventListener('keydown', escHandler); } };
+  document.addEventListener('keydown', escHandler);
+
+  const body = document.getElementById('preview-body');
+
+  try {
+    if (previewType === 'text') {
+      const res = await API.get(`/api/files/preview-text?path=${encodeURIComponent(path)}`);
+      if (!res.ok) { body.innerHTML = '<div class="preview-error">加载失败</div>'; return; }
+      const data = await res.json();
+      const lines = data.content.split('\n');
+      const lineNumbers = lines.map((_, i) => i + 1).join('\n');
+      body.innerHTML = `
+        <div class="preview-text-wrapper">
+          <div class="preview-line-numbers">${lineNumbers}</div>
+          <pre class="preview-text-code"></pre>
+        </div>
+        ${data.truncated ? '<div class="preview-truncated">文件过大，仅显示前 1MB 内容，请下载查看完整文件</div>' : ''}`;
+      body.querySelector('.preview-text-code').textContent = data.content;
+    } else {
+      const res = await API.get(`/api/files/preview?path=${encodeURIComponent(path)}`);
+      if (!res.ok) { body.innerHTML = '<div class="preview-error">加载失败</div>'; return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      overlay._closeExtra = () => URL.revokeObjectURL(url);
+      if (previewType === 'image') {
+        body.innerHTML = `<img class="preview-image" src="${url}" alt="${escapeHtml(fileName)}">`;
+      } else if (previewType === 'video') {
+        body.innerHTML = `<video class="preview-video" src="${url}" controls autoplay></video>`;
+      } else if (previewType === 'audio') {
+        body.innerHTML = `<div class="preview-audio-wrapper">${ICONS.fileAudio}<audio class="preview-audio" src="${url}" controls autoplay></audio></div>`;
+      } else if (previewType === 'pdf') {
+        body.innerHTML = `<iframe class="preview-pdf" src="${url}"></iframe>`;
+      }
+    }
+  } catch (err) {
+    body.innerHTML = `<div class="preview-error">加载出错: ${escapeHtml(err.message)}</div>`;
+  }
+
+  const _origRemove = overlay.remove.bind(overlay);
+  overlay.remove = () => {
+    if (overlay._closeExtra) overlay._closeExtra();
+    document.removeEventListener('keydown', escHandler);
+    _origRemove();
+    document.body.style.overflow = '';
+  };
 }
 
 async function downloadFile(path) {
@@ -766,38 +1113,72 @@ async function renderSettings() {
   document.getElementById('main-content').innerHTML = `
     <div class="topbar"><div class="topbar-title">设置</div></div>
     <div class="settings-container">
-      <div class="settings-section">
-        <h3>存储统计</h3>
-        <p class="section-desc">查看文件存储使用情况</p>
-        <div id="stats-content">加载中...</div>
-      </div>
-      <div class="settings-section">
-        <h3>设备访问令牌</h3>
-        <p class="section-desc">管理设备访问权限。离职时吊销"公司电脑"令牌即可切断访问。</p>
-        <button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button>
-        <div class="token-list" id="tokens-content"></div>
-      </div>
-      <div class="settings-section">
-        <h3>双因子验证</h3>
-        <p class="section-desc">增强安全性。公司电脑建议开启。</p>
-        <div id="totp-content">加载中...</div>
-      </div>
-      <div class="settings-section">
-        <h3>全文索引</h3>
-        <p class="section-desc">重建文件索引以支持语义搜索</p>
-        <button class="btn btn-secondary" id="btn-reindex">重建索引</button>
-      </div>
-      <div class="settings-section">
-        <h3>个人设置</h3>
-        <p class="section-desc">修改密码</p>
-        <div class="form-group" style="margin-bottom:8px"><label>原密码</label><input type="password" id="old-pass" class="form-input" style="max-width:300px"></div>
-        <div class="form-group" style="margin-bottom:8px"><label>新密码</label><input type="password" id="new-pass" class="form-input" style="max-width:300px"></div>
-        <button class="btn btn-primary" id="btn-change-pwd">修改密码</button>
+      <div class="settings-group">
+        <div class="settings-group-title">存储与索引</div>
+        <div class="settings-section">
+          <div class="setting-head">
+            <div class="setting-head-icon icon-primary">${ICONS.database}</div>
+            <div class="setting-head-text"><h3>存储统计</h3><p class="section-desc">查看文件存储使用情况</p></div>
+          </div>
+          <div class="setting-body" id="stats-content">加载中...</div>
+        </div>
+        <div class="settings-section">
+          <div class="setting-head">
+            <div class="setting-head-icon icon-purple">${ICONS.refresh}</div>
+            <div class="setting-head-text"><h3>全文索引</h3><p class="section-desc">重建文件索引以支持语义搜索</p></div>
+            <div class="setting-head-action"><button class="btn btn-secondary" id="btn-reindex">${ICONS.refresh}<span>重建索引</span></button></div>
+          </div>
+        </div>
       </div>
 
-      <div class="settings-section">
-        <h3>退出登录</h3>
-        <button class="btn btn-danger" id="btn-logout">退出</button>
+      <div class="settings-group">
+        <div class="settings-group-title">安全</div>
+        <div class="settings-section">
+          <div class="setting-head">
+            <div class="setting-head-icon icon-success">${ICONS.key}</div>
+            <div class="setting-head-text"><h3>设备访问令牌</h3><p class="section-desc">管理设备访问权限，离职时吊销令牌即可切断访问。</p></div>
+            <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
+          </div>
+          <div class="setting-body"><div class="token-list" id="tokens-content"></div></div>
+        </div>
+        <div class="settings-section">
+          <div class="setting-head">
+            <div class="setting-head-icon icon-warning">${ICONS.shield}</div>
+            <div class="setting-head-text"><h3>双因子验证</h3><p class="section-desc">增强账户安全性，公用设备建议开启。</p></div>
+          </div>
+          <div class="setting-body" id="totp-content">加载中...</div>
+        </div>
+        <div class="settings-section">
+          <div class="setting-head">
+            <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
+            <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">定期更换密码以保障账户安全</p></div>
+          </div>
+          <div class="setting-body">
+            <div class="setting-form">
+              <div class="form-group"><label>原密码</label><input type="password" id="old-pass" class="form-input" placeholder="请输入原密码"></div>
+              <div class="form-group"><label>新密码</label><input type="password" id="new-pass" class="form-input" placeholder="请输入新密码"></div>
+              <button class="btn btn-primary" id="btn-change-pwd">修改密码</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">账户</div>
+        <div class="settings-section">
+          <div class="setting-head">
+            <div class="setting-head-icon icon-primary">${ICONS.user}</div>
+            <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">当前登录的账号身份与状态</p></div>
+          </div>
+          <div class="setting-body" id="account-info">加载中...</div>
+        </div>
+        <div class="settings-section">
+          <div class="setting-head">
+            <div class="setting-head-icon icon-danger">${ICONS.logout}</div>
+            <div class="setting-head-text"><h3>退出登录</h3><p class="section-desc">退出当前账户，需要重新登录</p></div>
+            <div class="setting-head-action"><button class="btn btn-danger" id="btn-logout">${ICONS.logout}<span>退出</span></button></div>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -814,7 +1195,50 @@ async function renderSettings() {
   });
   document.getElementById('btn-create-token').addEventListener('click', createToken);
   document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
-  loadStats(); loadTokens(); loadTOTP();
+  loadStats(); loadTokens(); loadTOTP(); loadAccountInfo();
+}
+
+async function loadAccountInfo() {
+  const el = document.getElementById('account-info');
+  if (!el) return;
+  try {
+    let me = App.currentUser;
+    if (!me) {
+      const res = await API.get('/api/auth/me');
+      if (!res || !res.ok) { el.innerHTML = '<p class="setting-empty">加载失败</p>'; return; }
+      me = await res.json();
+      App.currentUser = me;
+    }
+    const roleMap = { user: '普通用户', admin: '管理员' };
+    const statusBadge = me.status === 'active'
+      ? '<span class="badge badge-success">正常</span>'
+      : '<span class="badge badge-danger">已禁用</span>';
+    const quotaText = me.quota_mb && me.quota_mb > 0 ? `${me.quota_mb} MB` : '不限';
+    const totpBadge = me.totp_enabled
+      ? '<span class="badge badge-success">已开启</span>'
+      : '<span class="badge badge-warning">未开启</span>';
+    el.innerHTML = `
+      <div class="account-info">
+        <div class="account-row">
+          <div class="account-avatar">${escapeHtml(me.username.charAt(0).toUpperCase())}</div>
+          <div class="account-name">
+            <div class="account-username">${escapeHtml(me.username)}</div>
+            <div class="account-sub">${roleMap[me.role] || me.role} · ${statusBadge}</div>
+          </div>
+        </div>
+        <div class="account-grid">
+          <div class="account-field"><span class="account-label">用户名</span><span class="account-value">${escapeHtml(me.username)}</span></div>
+          <div class="account-field"><span class="account-label">角色</span><span class="account-value">${roleMap[me.role] || me.role}</span></div>
+          <div class="account-field"><span class="account-label">账户状态</span><span class="account-value">${statusBadge}</span></div>
+          <div class="account-field"><span class="account-label">存储配额</span><span class="account-value">${quotaText}</span></div>
+          <div class="account-field"><span class="account-label">双因子验证</span><span class="account-value">${totpBadge}</span></div>
+          <div class="account-field"><span class="account-label">最近登录</span><span class="account-value">${me.last_login_at ? formatDateTime(me.last_login_at) : '-'}</span></div>
+          <div class="account-field"><span class="account-label">注册时间</span><span class="account-value">${me.created_at ? formatDateTime(me.created_at) : '-'}</span></div>
+        </div>
+      </div>`;
+  } catch {
+    el.innerHTML = '<p class="setting-empty">加载失败</p>';
+  }
 }
 
 async function loadStats() {
@@ -824,14 +1248,14 @@ async function loadStats() {
     const data = await res.json();
     el.innerHTML = `
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-label">文件总数</div><div class="stat-value">${data.total_files}</div></div>
-        <div class="stat-card"><div class="stat-label">占用空间</div><div class="stat-value">${data.total_size_mb}<span class="stat-unit"> MB</span></div></div>
-        <div class="stat-card"><div class="stat-label">磁盘总量</div><div class="stat-value">${data.disk.total_gb}<span class="stat-unit"> GB</span></div></div>
-        <div class="stat-card"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
+        <div class="stat-card" style="--stat-accent:var(--primary)"><div class="stat-label">文件总数</div><div class="stat-value">${data.total_files}</div></div>
+        <div class="stat-card" style="--stat-accent:var(--success)"><div class="stat-label">占用空间</div><div class="stat-value">${data.total_size_mb}<span class="stat-unit"> MB</span></div></div>
+        <div class="stat-card" style="--stat-accent:#a78bfa"><div class="stat-label">磁盘总量</div><div class="stat-value">${data.disk.total_gb}<span class="stat-unit"> GB</span></div></div>
+        <div class="stat-card" style="--stat-accent:var(--warning)"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
       </div>
-      ${Object.keys(data.by_tag).length ? `<div style="margin-top:16px"><div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">分类分布</div>${Object.entries(data.by_tag).map(([tag, count]) => `<span class="file-tag tag-${tag}">${tag}: ${count}</span>`).join('')}</div>` : ''}
+      ${Object.keys(data.by_tag).length ? `<div class="stats-tags"><div class="stats-tags-title">分类分布</div><div>${Object.entries(data.by_tag).map(([tag, count]) => `<span class="file-tag tag-${tag}">${tag}: ${count}</span>`).join('')}</div></div>` : ''}
     `;
-  } catch { el.innerHTML = '<p>加载失败</p>'; }
+  } catch { el.innerHTML = '<p class="setting-empty">加载失败</p>'; }
 }
 
 async function loadTokens() {
@@ -839,17 +1263,16 @@ async function loadTokens() {
   try {
     const res = await API.get('/api/auth/tokens');
     const tokens = await res.json();
-    if (!tokens.length) { el.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-top:12px">暂无设备令牌</p>'; return; }
+    if (!tokens.length) { el.innerHTML = '<p class="setting-empty">暂无设备令牌，点击右上角"创建令牌"添加。</p>'; return; }
     el.innerHTML = tokens.map(t => `
       <div class="token-row">
-        <div>
-          <strong>${escapeHtml(t.label)}</strong>
-          ${t.revoked ? '<span class="badge badge-danger">已吊销</span>' : '<span class="badge badge-success">有效</span>'}
-          <div style="font-size:12px;color:var(--text-muted)">创建于 ${formatDate(t.created_at)}</div>
+        <div class="token-info">
+          <div class="token-label">${escapeHtml(t.label)} ${t.revoked ? '<span class="badge badge-danger">已吊销</span>' : '<span class="badge badge-success">有效</span>'}</div>
+          <div class="token-date">创建于 ${formatDate(t.created_at)}</div>
         </div>
         ${!t.revoked ? `<button class="btn btn-danger" onclick="revokeToken('${t.id}')">吊销</button>` : ''}
       </div>`).join('');
-  } catch { el.innerHTML = '<p>加载失败</p>'; }
+  } catch { el.innerHTML = '<p class="setting-empty">加载失败</p>'; }
 }
 
 async function createToken() {
@@ -873,7 +1296,7 @@ async function revokeToken(id) {
 
 async function loadTOTP() {
   const el = document.getElementById('totp-content');
-  el.innerHTML = `<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">使用 Google Authenticator 等 App 扫码绑定。</p><button class="btn btn-secondary" id="btn-setup-totp">设置双因子验证</button>`;
+  el.innerHTML = `<p class="setting-empty" style="margin-top:0">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。</p><button class="btn btn-secondary" id="btn-setup-totp">设置双因子验证</button>`;
   document.getElementById('btn-setup-totp').addEventListener('click', setupTOTP);
 }
 
@@ -920,8 +1343,17 @@ async function rebuildIndex() {
 // ============ App ============
 const App = {
   currentView: 'files',
-  init() {
+  currentUser: null,
+  async init() {
     if (!API._token) { renderLogin(); return; }
+    // 拉取当前账号信息，解决“不知是哪个账号”的痛点；失败则回到登录页
+    try {
+      const res = await API.get('/api/auth/me');
+      if (!res || !res.ok) { API.clearTokens(); renderLogin(); return; }
+      this.currentUser = await res.json();
+    } catch {
+      API.clearTokens(); renderLogin(); return;
+    }
     this.renderLayout();
     this.navigate('files');
     setupDragDrop();
@@ -931,7 +1363,7 @@ const App = {
     document.getElementById('app').innerHTML = `
       <div class="app-layout">
         <div class="sidebar">
-          <div class="sidebar-logo">档</div>
+          <div class="sidebar-logo" id="sidebar-logo" title="${this.currentUser ? (this.currentUser.username + ' · 点击查看账户信息') : '随行档'}">${this.currentUser ? this.currentUser.username.charAt(0).toUpperCase() : '档'}</div>
           <button class="nav-btn active" data-view="files" title="文件">${ICONS.files}</button>
           <button class="nav-btn" data-view="chat" title="AI助手">${ICONS.chat}</button>
           <button class="nav-btn" data-view="settings" title="设置">${ICONS.settings}</button>
@@ -946,6 +1378,8 @@ const App = {
     });
     const logoutBtn = document.querySelector('.nav-logout');
     if (logoutBtn) logoutBtn.addEventListener('click', () => this.logout());
+    const logoBtn = document.getElementById('sidebar-logo');
+    if (logoBtn) logoBtn.style.cursor = 'pointer', logoBtn.addEventListener('click', () => this.navigate('settings'));
   },
   navigate(view) {
     this.currentView = view;
@@ -960,8 +1394,14 @@ const App = {
 // Expose for inline handlers
 window.downloadFile = downloadFile;
 window.deleteFile = deleteFile;
+window.previewFile = previewFile;
 window.revokeToken = revokeToken;
 window.showFileMenu = showFileMenu;
+window.showGroupManager = showGroupManager;
+window.showGroupFolderMenu = showGroupFolderMenu;
+window.createGroup = createGroup;
+window.renameGroup = renameGroup;
+window.deleteGroup = deleteGroup;
 window.UploadManager = UploadManager;
 
 App.init();
