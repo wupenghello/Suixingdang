@@ -261,19 +261,31 @@ def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Sessio
 # ---- 刷新令牌 ----
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh_token(req: RefreshRequest):
+def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
     payload = decode_token(req.refresh_token)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(401, "无效的刷新令牌")
+    role = payload.get("role", "user")
+    # 校验账户仍然有效（被禁用的用户不能刷新令牌）
+    if role == "user":
+        user = db.query(User).filter_by(id=payload.get("sub")).first()
+        if not user:
+            raise HTTPException(401, "用户不存在")
+        if user.status == "disabled":
+            raise HTTPException(403, "账户已被禁用")
+    elif role == "admin":
+        admin = db.query(Admin).filter_by(id=payload.get("sub")).first()
+        if not admin:
+            raise HTTPException(401, "管理员不存在")
     token_data = {
         "sub": payload.get("sub"),
         "username": payload.get("username"),
-        "role": payload.get("role", "user"),
+        "role": role,
     }
     return TokenResponse(
         access_token=create_access_token(token_data),
         refresh_token=create_refresh_token(token_data),
-        role=token_data["role"],
+        role=role,
     )
 
 

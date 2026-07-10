@@ -79,6 +79,41 @@ let currentView = 'dashboard';
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
+// ============ 分页组件 ============
+const pager = {
+  users: { page: 1, pageSize: 10, total: 0 },
+  files: { page: 1, pageSize: 10, total: 0 },
+  groups: { page: 1, pageSize: 10, total: 0 },
+  logs: { page: 1, pageSize: 10, total: 0 },
+};
+
+function paginationHTML(view, fnName) {
+  const p = pager[view];
+  const totalPages = Math.ceil(p.total / p.pageSize) || 1;
+  if (totalPages <= 1) return `<div class="pagination"><span class="page-info">共 ${p.total} 条</span></div>`;
+  const cur = p.page;
+  let pages = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (cur > 4) pages.push('...');
+    for (let i = Math.max(2, cur - 1); i <= Math.min(totalPages - 1, cur + 1); i++) pages.push(i);
+    if (cur < totalPages - 3) pages.push('...');
+    pages.push(totalPages);
+  }
+  const btns = pages.map(pg => pg === '...'
+    ? '<span class="page-ellipsis">...</span>'
+    : `<button class="page-btn ${pg === cur ? 'active' : ''}" onclick="${fnName}(${pg})">${pg}</button>`
+  ).join('');
+  return `<div class="pagination">
+    <button class="page-btn" ${cur === 1 ? 'disabled' : ''} onclick="${fnName}(${cur - 1})">上一页</button>
+    ${btns}
+    <button class="page-btn" ${cur === totalPages ? 'disabled' : ''} onclick="${fnName}(${cur + 1})">下一页</button>
+    <span class="page-info">共 ${p.total} 条 / ${totalPages} 页</span>
+  </div>`;
+}
+
 // ============ Login ============
 function renderLogin() {
   document.getElementById('admin-app').innerHTML = `
@@ -200,16 +235,20 @@ async function renderUsers() {
   document.getElementById('btn-add-user').addEventListener('click', () => showUserModal());
   let st;
   document.getElementById('user-search').addEventListener('input', (e) => {
-    clearTimeout(st); st = setTimeout(() => loadUsers(e.target.value), 300);
+    clearTimeout(st); st = setTimeout(() => loadUsers(e.target.value, 1), 300);
   });
   await loadUsers('');
 }
 
-async function loadUsers(search) {
+async function loadUsers(search, page) {
+  page = page || 1;
+  pager.users.page = page;
   try {
-    const url = search ? `/api/admin/users?search=${encodeURIComponent(search)}` : '/api/admin/users';
+    let url = `/api/admin/users?page=${page}&page_size=${pager.users.pageSize}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
     const res = await API.get(url);
     const data = await res.json();
+    pager.users.total = data.total || 0;
     if (!data.users.length) {
       document.getElementById('users-content').innerHTML = '<p style="color:var(--text-muted);padding:20px">没有匹配的用户</p>';
       return;
@@ -233,7 +272,8 @@ async function loadUsers(search) {
             </td>
           </tr>`).join('')}
         </tbody>
-      </table>`;
+      </table>
+      ${paginationHTML('users', 'goUsersPage')}`;
   } catch { document.getElementById('users-content').innerHTML = '<p>加载失败</p>'; }
 }
 
@@ -270,16 +310,15 @@ async function viewUserDetail(userId) {
       <div id="user-tokens-content">加载中...</div>
       <h3 style="margin:20px 0 8px;font-size:14px">最近文件 (${d.files.length})</h3>
       <table class="data-table">
-        <thead><tr><th>文件名</th><th>大小</th><th>分组</th><th>标签</th><th>Guard</th><th>上传时间</th></tr></thead>
+        <thead><tr><th>文件名</th><th>大小</th><th>分组</th><th>Guard</th><th>上传时间</th></tr></thead>
         <tbody>
           ${d.files.length ? d.files.map(f => `<tr>
             <td>${esc(f.name)}</td>
             <td>${f.size} B</td>
             <td>${f.group_name ? '<span class="badge badge-info">' + esc(f.group_name) + '</span>' : '-'}</td>
-            <td>${f.tag ? '<span class="badge badge-success">' + esc(f.tag) + '</span>' : '-'}</td>
             <td>${f.guard_status === 'safe' ? '-' : '<span class="badge badge-danger">' + esc(f.guard_status) + '</span>'}</td>
             <td style="font-size:12px;color:var(--text-muted)">${f.uploaded_at.split('.')[0]}</td>
-          </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">暂无文件</td></tr>'}
+          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">暂无文件</td></tr>'}
         </tbody>
       </table>
       <h3 style="margin:20px 0 8px;font-size:14px">操作日志 (${d.logs.length})</h3>
@@ -444,39 +483,42 @@ async function renderFiles() {
       <button class="btn btn-secondary btn-icon" id="btn-refresh-files" title="刷新">${ICONS.refresh}</button>
     </div>
     <div id="files-content">加载中...</div>`;
-  document.getElementById('btn-refresh-files').addEventListener('click', () => loadFiles(''));
+  document.getElementById('btn-refresh-files').addEventListener('click', () => loadFiles('', 1));
   let st;
   document.getElementById('file-search').addEventListener('input', (e) => {
-    clearTimeout(st); st = setTimeout(() => loadFiles(e.target.value), 300);
+    clearTimeout(st); st = setTimeout(() => loadFiles(e.target.value, 1), 300);
   });
   await loadFiles('');
 }
 
-async function loadFiles(search) {
+async function loadFiles(search, page) {
+  page = page || 1;
+  pager.files.page = page;
   try {
-    const url = search ? `/api/admin/files?search=${encodeURIComponent(search)}` : '/api/admin/files';
+    let url = `/api/admin/files?page=${page}&page_size=${pager.files.pageSize}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
     const res = await API.get(url);
     const data = await res.json();
+    pager.files.total = data.total || 0;
     if (!data.files.length) {
       document.getElementById('files-content').innerHTML = '<p style="color:var(--text-muted);padding:20px">没有文件</p>';
       return;
     }
     document.getElementById('files-content').innerHTML = `
       <table class="data-table">
-        <thead><tr><th>文件名</th><th>所属用户</th><th>大小</th><th>分组</th><th>标签</th><th>Guard</th><th>上传时间</th></tr></thead>
+        <thead><tr><th>文件名</th><th>所属用户</th><th>大小</th><th>分组</th><th>Guard</th><th>上传时间</th></tr></thead>
         <tbody>
           ${data.files.map(f => `<tr>
             <td>${esc(f.name)}</td>
             <td><strong>${esc(f.owner)}</strong></td>
             <td>${f.size > 1048576 ? (f.size/1048576).toFixed(1) + ' MB' : f.size > 1024 ? (f.size/1024).toFixed(1) + ' KB' : f.size + ' B'}</td>
             <td>${f.group_name ? '<span class="badge badge-info">' + esc(f.group_name) + '</span>' : '-'}</td>
-            <td>${f.tag ? '<span class="badge badge-success">' + esc(f.tag) + '</span>' : '-'}</td>
             <td>${f.guard_status === 'safe' ? '-' : '<span class="badge badge-danger">' + esc(f.guard_status) + '</span>'}</td>
             <td style="font-size:12px;color:var(--text-muted)">${f.uploaded_at.split('.')[0]}</td>
           </tr>`).join('')}
         </tbody>
       </table>
-      <p style="margin-top:12px;font-size:12px;color:var(--text-muted)">共 ${data.total} 个文件</p>`;
+      ${paginationHTML('files', 'goFilesPage')}`;
   } catch { document.getElementById('files-content').innerHTML = '<p>加载失败</p>'; }
 }
 
@@ -495,19 +537,23 @@ async function renderGroups() {
       <button class="btn btn-secondary btn-icon" id="btn-refresh-groups" title="刷新">${ICONS.refresh}</button>
     </div>
     <div id="groups-content">加载中...</div>`;
-  document.getElementById('btn-refresh-groups').addEventListener('click', () => loadGroups(''));
+  document.getElementById('btn-refresh-groups').addEventListener('click', () => loadGroups('', 1));
   let st;
   document.getElementById('group-search').addEventListener('input', (e) => {
-    clearTimeout(st); st = setTimeout(() => loadGroups(e.target.value), 300);
+    clearTimeout(st); st = setTimeout(() => loadGroups(e.target.value, 1), 300);
   });
   await loadGroups('');
 }
 
-async function loadGroups(search) {
+async function loadGroups(search, page) {
+  page = page || 1;
+  pager.groups.page = page;
   try {
-    const url = search ? `/api/admin/groups?search=${encodeURIComponent(search)}` : '/api/admin/groups';
+    let url = `/api/admin/groups?page=${page}&page_size=${pager.groups.pageSize}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
     const res = await API.get(url);
     const data = await res.json();
+    pager.groups.total = data.total || 0;
     const el = document.getElementById('groups-content');
     if (!data.groups.length) {
       el.innerHTML = '<p style="color:var(--text-muted);padding:20px">暂无分组</p>';
@@ -527,14 +573,14 @@ async function loadGroups(search) {
           </tr>`).join('')}
         </tbody>
       </table>
-      <p style="margin-top:12px;font-size:12px;color:var(--text-muted)">共 ${data.total} 个分组</p>`;
+      ${paginationHTML('groups', 'goGroupsPage')}`;
   } catch { document.getElementById('groups-content').innerHTML = '<p>加载失败</p>'; }
 }
 
 async function adminDeleteGroup(id, name) {
   if (!confirm(`确定删除分组 "${name}"？分组内文件不会被删除，仅解除关联。`)) return;
   const res = await API.del(`/api/admin/groups/${id}`);
-  if (res.ok) { Toast.show('分组已删除', 'success'); loadGroups(document.getElementById('group-search') ? document.getElementById('group-search').value : ''); }
+  if (res.ok) { Toast.show('分组已删除', 'success'); loadGroups(document.getElementById('group-search') ? document.getElementById('group-search').value : '', pager.groups.page); }
   else { const d = await res.json(); Toast.show(d.detail || '删除失败', 'error'); }
 }
 window.adminDeleteGroup = adminDeleteGroup;
@@ -599,16 +645,20 @@ async function renderLogs() {
     <div id="logs-content">加载中...</div>`;
   let st;
   document.getElementById('log-search').addEventListener('input', (e) => {
-    clearTimeout(st); st = setTimeout(() => loadLogs(e.target.value), 300);
+    clearTimeout(st); st = setTimeout(() => loadLogs(e.target.value, 1), 300);
   });
   await loadLogs('');
 }
 
-async function loadLogs(action) {
+async function loadLogs(action, page) {
+  page = page || 1;
+  pager.logs.page = page;
   try {
-    const url = action ? `/api/admin/logs?action=${encodeURIComponent(action)}&limit=200` : '/api/admin/logs?limit=200';
+    let url = `/api/admin/logs?page=${page}&page_size=${pager.logs.pageSize}`;
+    if (action) url += `&action=${encodeURIComponent(action)}`;
     const res = await API.get(url);
     const data = await res.json();
+    pager.logs.total = data.total || 0;
     document.getElementById('logs-content').innerHTML = `
       <table class="data-table">
         <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th><th>IP</th></tr></thead>
@@ -622,9 +672,19 @@ async function loadLogs(action) {
           </tr>`).join('')}
         </tbody>
       </table>
-      <p style="margin-top:12px;font-size:12px;color:var(--text-muted)">共 ${data.total} 条日志</p>`;
+      ${paginationHTML('logs', 'goLogsPage')}`;
   } catch { document.getElementById('logs-content').innerHTML = '<p>加载失败</p>'; }
 }
+
+// ============ 分页跳转 ============
+function goUsersPage(page) { loadUsers(document.getElementById('user-search') ? document.getElementById('user-search').value : '', page); }
+function goFilesPage(page) { loadFiles(document.getElementById('file-search') ? document.getElementById('file-search').value : '', page); }
+function goGroupsPage(page) { loadGroups(document.getElementById('group-search') ? document.getElementById('group-search').value : '', page); }
+function goLogsPage(page) { loadLogs(document.getElementById('log-search') ? document.getElementById('log-search').value : '', page); }
+window.goUsersPage = goUsersPage;
+window.goFilesPage = goFilesPage;
+window.goGroupsPage = goGroupsPage;
+window.goLogsPage = goLogsPage;
 
 // ============ Init ============
 function init() {

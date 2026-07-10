@@ -142,11 +142,17 @@ uvicorn app.main:app --reload --port 8000
 - [x] 独立管理后台（用户 CRUD / 系统统计 / 审计日志）
 - [x] JWT 认证 + TOTP 双因子
 - [x] 设备令牌管理（可吊销）
-- [x] 家里守护进程（watchdog 实时 + 定时全量同步）
-- [x] Guard 敏感文件检测（凭据/隐私/机密）
-- [x] 文件语义搜索（Chroma 向量库）
-- [x] 自动分类标签（work/study/project/personal）
-- [x] AI 对话助手（DeepSeek / OpenAI，function-calling）
+- [x] 家里守护进程（watchdog 实时 + 定时全量同步，支持双向删除同步）
+- [x] Guard 敏感文件检测（凭据/隐私/机密，方向感知）
+- [x] 文件语义搜索（Chroma 向量库，支持 Word/Excel/PPT 内容解析）
+- [x] AI 对话助手（DeepSeek / OpenAI，function-calling，SSE 流式回复）
+- [x] 文件内容问答（RAG：检索相关文件后回答）
+- [x] 文件内容摘要（LLM 驱动）
+- [x] 同步管理（对话中查看状态 / 推送文件）
+- [x] 离职清理助手（设备令牌审计 + 敏感文件清单）
+- [x] 智能同步建议（基于文件使用习惯）
+- [x] 文件传输助手（文字便签 + 文件自动入库，类微信传输助手）
+- [x] content_hash 自动去重（相同内容不重复存储）
 - [x] 存储统计 + 磁盘监控
 - [x] 清理建议（长期未用文件）
 - [x] 全文索引重建

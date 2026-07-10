@@ -51,7 +51,7 @@ def list_files(
                 "name": f.name, "path": f.path, "is_dir": False,
                 "size": f.size,
                 "modified": f.modified_at.timestamp() if f.modified_at else 0,
-                "tag": f.tag or "", "guard_status": f.guard_status or "safe",
+                "guard_status": f.guard_status or "safe",
                 "file_id": f.id, "group_id": f.group_id or "",
                 "group_name": group_map.get(f.group_id, "") if f.group_id else "",
             })
@@ -65,19 +65,16 @@ def list_files(
         if not item["is_dir"]:
             f = db.query(FileModel).filter_by(owner_id=user.id, path=item["path"]).first()
             if f:
-                item["tag"] = f.tag
                 item["guard_status"] = f.guard_status
                 item["file_id"] = f.id
                 item["group_id"] = f.group_id or ""
                 item["group_name"] = group_map.get(f.group_id, "") if f.group_id else ""
             else:
-                item["tag"] = ""
                 item["guard_status"] = "safe"
                 item["file_id"] = None
                 item["group_id"] = ""
                 item["group_name"] = ""
         else:
-            item["tag"] = ""
             item["guard_status"] = ""
             item["file_id"] = None
             item["group_id"] = ""
@@ -115,15 +112,23 @@ async def upload_file(
     # 配额精确检查
     _check_quota(db, user, meta["size"])
 
-    c_status, c_reason = guard.check_content(user.id, rel_path)
+    # 自动去重：相同 content_hash 的文件不重复入库
+    dup = db.query(FileModel).filter(
+        FileModel.owner_id == user.id,
+        FileModel.content_hash == meta["content_hash"],
+        FileModel.path != meta["path"],
+    ).first()
+    if dup:
+        storage.delete_file(user.id, rel_path)
+        raise HTTPException(409, f"文件内容已存在（重复）: {dup.path}")
+
+    c_status, c_reason = guard.check_content(user.id, rel_path, direction="upload")
     if c_status == "blocked" and not skip_guard:
         storage.delete_file(user.id, rel_path)
         raise HTTPException(403, f"Guard 拦截: {c_reason}")
 
     final_status = c_status if c_status != "safe" else status
     final_reason = c_reason if c_reason else reason
-    tag = indexer.auto_tag(user.id, rel_path)
-
     existing = db.query(FileModel).filter_by(owner_id=user.id, path=meta["path"]).first()
     if existing:
         existing.size = meta["size"]
@@ -131,14 +136,13 @@ async def upload_file(
         existing.modified_at = datetime.utcnow()
         existing.guard_status = final_status
         existing.guard_reason = final_reason
-        existing.tag = tag
         existing.group_id = group_id or None
         f = existing
     else:
         f = FileModel(
             owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
             content_hash=meta["content_hash"], mime_type=meta["mime_type"],
-            source=source, guard_status=final_status, guard_reason=final_reason, tag=tag,
+            source=source, guard_status=final_status, guard_reason=final_reason,
             group_id=group_id or None,
         )
         db.add(f)
@@ -146,7 +150,7 @@ async def upload_file(
     db.refresh(f)
 
     try:
-        indexer.index_file(user.id, f.id, rel_path, tag)
+        indexer.index_file(user.id, f.id, rel_path)
     except Exception:
         pass
 
@@ -157,7 +161,7 @@ async def upload_file(
 
     return {
         "id": f.id, "path": f.path, "name": f.name, "size": f.size,
-        "tag": f.tag, "guard_status": f.guard_status, "guard_reason": f.guard_reason,
+        "guard_status": f.guard_status, "guard_reason": f.guard_reason,
         "message": "上传成功",
     }
 
@@ -326,18 +330,12 @@ def search_files(q: str = Query(...), limit: int = Query(10), db: Session = Depe
 def storage_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
     files = db.query(FileModel).filter_by(owner_id=user.id).all()
     total_size = sum(f.size for f in files)
-    tags = {}
-    for f in files:
-        t = f.tag or "other"
-        tags[t] = tags.get(t, 0) + 1
-
     import shutil
     disk = shutil.disk_usage(settings.storage_path)
 
     return {
         "total_files": len(files),
         "total_size_mb": round(total_size / 1024 / 1024, 2),
-        "by_tag": tags,
         "quota_mb": user.quota_mb,
         "disk": {
             "total_gb": round(disk.total / 1024 / 1024 / 1024, 2),
@@ -345,20 +343,6 @@ def storage_stats(db: Session = Depends(get_db), user=Depends(get_current_user))
             "free_gb": round(disk.free / 1024 / 1024 / 1024, 2),
         },
     }
-
-
-@router.post("/tag")
-def update_tag(path: str = Query(...), tag: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
-    if not f:
-        raise HTTPException(404, "文件不存在")
-    f.tag = tag
-    db.commit()
-    try:
-        indexer.index_file(user.id, f.id, f.path, tag)
-    except Exception:
-        pass
-    return {"message": "标签已更新", "tag": tag}
 
 
 @router.post("/index-all")
@@ -371,4 +355,4 @@ def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
     results = db.query(FileModel).filter(
         FileModel.owner_id == user_id, FileModel.name.contains(q)
     ).limit(limit).all()
-    return [{"file_id": f.id, "path": f.path, "name": f.name, "tag": f.tag, "score": 1.0} for f in results]
+    return [{"file_id": f.id, "path": f.path, "name": f.name, "score": 1.0} for f in results]

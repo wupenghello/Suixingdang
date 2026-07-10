@@ -162,6 +162,7 @@ const ICONS = {
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
   chat: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>',
+  transfer: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>',
   files: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
@@ -273,8 +274,8 @@ function setupDragDrop() {
       if (!overlay) {
         overlay = document.createElement('div');
         overlay.className = 'upload-overlay';
-        const dropTarget = selectedGroup ? '当前分组' : (currentDir || '主目录');
-        overlay.innerHTML = `<div class="upload-overlay-box">${ICONS.upload}<p>松开以上传文件到${dropTarget}</p></div>`;
+        const dropTarget = App.currentView === 'transfer' ? '传输助手' : (selectedGroup ? '当前分组' : (currentDir || '主目录'));
+        overlay.innerHTML = `<div class="upload-overlay-box">${ICONS.upload}<p>松开以发送文件到${dropTarget}</p></div>`;
         document.body.appendChild(overlay);
       }
     }
@@ -292,7 +293,8 @@ function setupDragDrop() {
     dragCounter = 0;
     if (overlay) { overlay.remove(); overlay = null; }
     if (e.dataTransfer.files.length > 0) {
-      handleFilesUpload(e.dataTransfer.files);
+      if (App.currentView === 'transfer') handleTransferFiles(e.dataTransfer.files);
+      else handleFilesUpload(e.dataTransfer.files);
     }
   });
 }
@@ -776,14 +778,13 @@ function renderFileList(items) {
        </div>`;
     }
     const icon = getFileIcon(item.name, item.is_dir);
-    const tagHtml = item.tag ? `<span class="file-tag tag-${item.tag}">${item.tag}</span>` : '';
     const groupHtml = (!selectedGroup && item.group_name) ? `<span class="badge badge-group">${escapeHtml(item.group_name)}</span>` : '';
     const guardHtml = item.guard_status === 'warning' ? '<span class="badge badge-warning">注意</span>' : item.guard_status === 'blocked' ? '<span class="badge badge-danger">敏感</span>' : '';
    return `
      <div class="file-row" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}">
        <div class="file-icon ${icon.cls}">${icon.icon}</div>
        <div class="file-name">${escapeHtml(item.name)}</div>
-       ${tagHtml}${groupHtml}${guardHtml}
+       ${groupHtml}${guardHtml}
        <div class="file-meta">
          <span class="file-size">${item.is_dir ? '-' : formatSize(item.size)}</span>
          <span class="file-date">${formatDate(item.modified)}</span>
@@ -864,7 +865,6 @@ function renderSearchResults(results) {
      <div class="file-row" data-path="${escapeHtml(r.path)}" data-name="${escapeHtml(r.name || r.path)}">
        <div class="file-icon ${icon.cls}">${icon.icon}</div>
        <div class="file-name">${escapeHtml(r.name || r.path)}</div>
-       ${r.tag ? `<span class="file-tag tag-${r.tag}">${r.tag}</span>` : ''}
        <div class="file-meta">${score ? `<span>匹配 ${score}%</span>` : ''}</div>
        <div class="file-actions">
          <button class="icon-btn" onclick="event.stopPropagation();previewFile('${escapeHtml(r.path)}','${escapeHtml(r.name || r.path)}')" title="预览">${ICONS.eye}</button>
@@ -1085,27 +1085,242 @@ async function sendChatMessage() {
   input.value = ''; input.style.height = 'auto';
   renderChatMessages();
   const container = document.getElementById('chat-messages');
+  const btn = document.getElementById('btn-send');
+  btn.disabled = true;
+
+  // 创建一条空的 assistant 消息，用于流式追加
+  const assistantMsg = { role: 'assistant', content: '', tool_calls: [] };
+  chatMessages.push(assistantMsg);
   const typingEl = document.createElement('div');
   typingEl.className = 'typing-indicator';
   typingEl.id = 'typing';
   typingEl.innerHTML = '正在思考<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
   container.appendChild(typingEl);
   container.scrollTop = container.scrollHeight;
-  const btn = document.getElementById('btn-send');
-  btn.disabled = true;
+
   try {
-    const res = await API.post('/api/chat', { message: text });
-    const data = await res.json();
+    const res = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(API._token ? { 'Authorization': `Bearer ${API._token}` } : {}),
+      },
+      body: JSON.stringify({ message: text }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.detail || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
     const typing = document.getElementById('typing');
     if (typing) typing.remove();
-    chatMessages.push({ role: 'assistant', content: data.reply || '(无回复)', tool_calls: data.tool_calls || [] });
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = JSON.parse(line.slice(6));
+        if (payload.type === 'tool') {
+          assistantMsg.tool_calls = assistantMsg.tool_calls || [];
+          assistantMsg.tool_calls.push(payload.data);
+          renderChatMessages();
+        } else if (payload.type === 'delta') {
+          assistantMsg.content += payload.data;
+          renderChatMessages();
+          const c = document.getElementById('chat-messages');
+          if (c) c.scrollTop = c.scrollHeight;
+        } else if (payload.type === 'done') {
+          assistantMsg.content = payload.data.reply || assistantMsg.content || '(无回复)';
+          assistantMsg.tool_calls = payload.data.tool_calls || assistantMsg.tool_calls;
+          renderChatMessages();
+        } else if (payload.type === 'error') {
+          assistantMsg.content = '出错了: ' + payload.data;
+          renderChatMessages();
+        }
+      }
+    }
+    if (!assistantMsg.content) assistantMsg.content = '(无回复)';
     renderChatMessages();
   } catch (err) {
     const typing = document.getElementById('typing');
     if (typing) typing.remove();
-    chatMessages.push({ role: 'assistant', content: '出错了: ' + err.message, tool_calls: [] });
+    assistantMsg.content = '出错了: ' + err.message;
     renderChatMessages();
   } finally { chatSending = false; btn.disabled = false; }
+}
+
+// ============ Transfer Assistant (文件传输助手) ============
+let transferMessages = [];
+let transferSending = false;
+
+async function renderTransfer() {
+  document.getElementById('main-content').innerHTML = `
+    <div class="topbar">
+      <div class="topbar-title">传输助手</div>
+      <div class="topbar-spacer"></div>
+      <button class="btn btn-secondary btn-icon-only" id="btn-transfer-refresh" title="刷新">${ICONS.refresh}</button>
+    </div>
+    <div class="chat-container transfer-container">
+      <div class="chat-messages transfer-messages" id="transfer-messages"></div>
+      <div class="chat-input-area transfer-input-area">
+        <input type="file" id="transfer-file-input" multiple hidden>
+        <div class="chat-input-wrapper transfer-input-wrapper">
+          <button class="btn btn-secondary btn-icon-only" id="btn-transfer-attach" title="发送文件">${ICONS.add}</button>
+          <textarea class="chat-input" id="transfer-input" placeholder="发送文字或文件给自己..." rows="1"></textarea>
+          <button class="btn btn-primary btn-icon-only" id="btn-transfer-send" title="发送">${ICONS.send}</button>
+        </div>
+      </div>
+    </div>`;
+  await loadTransferMessages();
+  document.getElementById('btn-transfer-send').addEventListener('click', sendTransferText);
+  document.getElementById('btn-transfer-refresh').addEventListener('click', loadTransferMessages);
+  document.getElementById('btn-transfer-attach').addEventListener('click', () => document.getElementById('transfer-file-input').click());
+  document.getElementById('transfer-file-input').addEventListener('change', (e) => {
+    if (e.target.files.length) handleTransferFiles(e.target.files);
+    e.target.value = '';
+  });
+  const input = document.getElementById('transfer-input');
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTransferText(); } });
+  input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; });
+  input.focus();
+}
+
+async function loadTransferMessages() {
+  try {
+    const res = await API.get('/api/transfer/messages?limit=200');
+    const data = await res.json();
+    transferMessages = data.messages || [];
+  } catch { transferMessages = []; }
+  renderTransferMessages();
+}
+
+function renderTransferMessages() {
+  const container = document.getElementById('transfer-messages');
+  if (!container) return;
+  if (!transferMessages.length) {
+    container.innerHTML = `
+      <div class="transfer-empty">
+        <div class="transfer-empty-icon">${ICONS.transfer}</div>
+        <p class="transfer-empty-title">文件传输助手</p>
+        <p class="transfer-empty-desc">把文字或文件发给自己，文字随手记，文件自动存入文件库。</p>
+      </div>`;
+    return;
+  }
+  container.innerHTML = transferMessages.map(msg => {
+    const time = formatDateTime(msg.created_at);
+    const delBtn = `<button class="transfer-del" title="删除" onclick="deleteTransferMessage('${msg.id}')">${ICONS.trash}</button>`;
+    if (msg.type === 'text') {
+      return `<div class="transfer-msg">
+        <div class="transfer-msg-body">
+          <div class="transfer-text-bubble">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
+          <span class="transfer-time">${time}</span>
+        </div>
+        ${delBtn}
+      </div>`;
+    }
+    const f = msg.file;
+    if (!f) return '';
+    const fi = getFileIcon(f.name, false);
+    const guardBadge = f.guard_status === 'warning'
+      ? `<span class="transfer-file-guard warning">敏感提醒</span>` : '';
+    return `<div class="transfer-msg">
+      <div class="transfer-msg-body">
+        <div class="transfer-file-card" onclick="previewTransferFile('${escapeHtml(f.path)}','${escapeHtml(f.name)}')">
+          <div class="transfer-file-icon ${fi.cls}">${fi.icon}</div>
+          <div class="transfer-file-info">
+            <div class="transfer-file-name">${escapeHtml(f.name)}</div>
+            <div class="transfer-file-meta">
+              <span>${formatSize(f.size)}</span>
+              <span class="transfer-saved">✓ 已存入文件库</span>
+            </div>
+          </div>
+          <button class="transfer-file-dl" title="下载" onclick="event.stopPropagation();downloadFile('${escapeHtml(f.path)}')">${ICONS.download}</button>
+        </div>
+        <span class="transfer-time">${time}</span>
+        ${guardBadge}
+      </div>
+      ${delBtn}
+    </div>`;
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendTransferText() {
+  if (transferSending) return;
+  const input = document.getElementById('transfer-input');
+  const text = input.value.trim();
+  if (!text) return;
+  transferSending = true;
+  const btn = document.getElementById('btn-transfer-send');
+  btn.disabled = true;
+  try {
+    const res = await API.post('/api/transfer/text', { content: text });
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '发送失败', 'error'); return; }
+    const msg = await res.json();
+    transferMessages.push(msg);
+    input.value = ''; input.style.height = 'auto';
+    renderTransferMessages();
+  } catch (err) {
+    Toast.show('发送失败: ' + err.message, 'error');
+  } finally { transferSending = false; btn.disabled = false; }
+}
+
+async function handleTransferFiles(fileList) {
+  const files = Array.from(fileList);
+  for (const file of files) {
+    const item = UploadManager.add(file.name, file.size);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/transfer/file');
+      xhr.setRequestHeader('Authorization', `Bearer ${API._token}`);
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          UploadManager.update(item.id, { progress: Math.round((e.loaded / e.total) * 100) });
+        }
+      });
+      const result = await new Promise((resolve, reject) => {
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
+          else { try { reject(JSON.parse(xhr.responseText)); } catch { reject({ detail: `HTTP ${xhr.status}` }); } }
+        };
+        xhr.onerror = () => reject({ detail: '网络错误' });
+        xhr.send(formData);
+      });
+      UploadManager.update(item.id, { progress: 100, status: 'done' });
+      transferMessages.push(result);
+      renderTransferMessages();
+      if (result.guard_warning) Toast.show(`Guard 提醒: 该文件可能含敏感内容`, 'warning', 5000);
+    } catch (err) {
+      UploadManager.update(item.id, { progress: 100, status: 'error' });
+      Toast.show(`${file.name} 发送失败: ${err.detail || '未知错误'}`, 'error');
+    }
+  }
+  UploadManager.hide();
+}
+
+async function deleteTransferMessage(id) {
+  if (!confirm('确定删除这条记录？')) return;
+  try {
+    const res = await API.del(`/api/transfer/${id}`);
+    if (res.ok) {
+      transferMessages = transferMessages.filter(m => m.id !== id);
+      renderTransferMessages();
+      Toast.show('已删除', 'success');
+    } else { const d = await res.json(); Toast.show(d.detail || '删除失败', 'error'); }
+  } catch (err) { Toast.show('删除出错: ' + err.message, 'error'); }
+}
+
+function previewTransferFile(path, name) {
+  previewFile(path, name);
 }
 
 // ============ Settings ============
@@ -1253,7 +1468,6 @@ async function loadStats() {
         <div class="stat-card" style="--stat-accent:#a78bfa"><div class="stat-label">磁盘总量</div><div class="stat-value">${data.disk.total_gb}<span class="stat-unit"> GB</span></div></div>
         <div class="stat-card" style="--stat-accent:var(--warning)"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
       </div>
-      ${Object.keys(data.by_tag).length ? `<div class="stats-tags"><div class="stats-tags-title">分类分布</div><div>${Object.entries(data.by_tag).map(([tag, count]) => `<span class="file-tag tag-${tag}">${tag}: ${count}</span>`).join('')}</div></div>` : ''}
     `;
   } catch { el.innerHTML = '<p class="setting-empty">加载失败</p>'; }
 }
@@ -1342,7 +1556,7 @@ async function rebuildIndex() {
 
 // ============ App ============
 const App = {
-  currentView: 'files',
+  currentView: 'transfer',
   currentUser: null,
   async init() {
     if (!API._token) { renderLogin(); return; }
@@ -1355,7 +1569,7 @@ const App = {
       API.clearTokens(); renderLogin(); return;
     }
     this.renderLayout();
-    this.navigate('files');
+    this.navigate('transfer');
     setupDragDrop();
     document.addEventListener('click', closeContextMenu);
   },
@@ -1364,8 +1578,9 @@ const App = {
       <div class="app-layout">
         <div class="sidebar">
           <div class="sidebar-logo" id="sidebar-logo" title="${this.currentUser ? (this.currentUser.username + ' · 点击查看账户信息') : '随行档'}">${this.currentUser ? this.currentUser.username.charAt(0).toUpperCase() : '档'}</div>
-          <button class="nav-btn active" data-view="files" title="文件">${ICONS.files}</button>
+          <button class="nav-btn active" data-view="transfer" title="传输助手">${ICONS.transfer}</button>
           <button class="nav-btn" data-view="chat" title="AI助手">${ICONS.chat}</button>
+          <button class="nav-btn" data-view="files" title="文件">${ICONS.files}</button>
           <button class="nav-btn" data-view="settings" title="设置">${ICONS.settings}</button>
           <div class="nav-spacer"></div>
           <button class="nav-btn nav-logout" title="退出登录">${ICONS.logout}</button>
@@ -1386,9 +1601,10 @@ const App = {
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
     if (view === 'files') renderFiles();
     else if (view === 'chat') renderChat();
+    else if (view === 'transfer') renderTransfer();
     else if (view === 'settings') renderSettings();
   },
-  logout() { API.clearTokens(); this.currentView = 'files'; renderLogin(); }
+  logout() { API.clearTokens(); this.currentView = 'transfer'; renderLogin(); }
 };
 
 // Expose for inline handlers
@@ -1403,5 +1619,7 @@ window.createGroup = createGroup;
 window.renameGroup = renameGroup;
 window.deleteGroup = deleteGroup;
 window.UploadManager = UploadManager;
+window.deleteTransferMessage = deleteTransferMessage;
+window.previewTransferFile = previewTransferFile;
 
 App.init();

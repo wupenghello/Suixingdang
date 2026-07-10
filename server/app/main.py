@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from .config import settings
 from .db.models import init_db
 from .core.storage import ensure_storage
-from .api import auth, files, chat, sync, admin
+from .api import auth, files, chat, sync, admin, transfer
 
 
 @asynccontextmanager
@@ -39,6 +39,7 @@ app.include_router(chat.router)
 app.include_router(sync.router)
 # admin 路由也挂载（API 层共用），但前端入口不在此端口提供
 app.include_router(admin.router)
+app.include_router(transfer.router)
 
 
 @app.get("/api/health")
@@ -56,6 +57,12 @@ if WEB_DIR.exists():
     def serve_spa(full_path: str):
         if full_path.startswith("api/"):
             return {"detail": "Not Found"}
+        # 管理后台前端入口：/admin 及其子路径返回 admin/index.html
+        admin_index = WEB_DIR / "admin" / "index.html"
+        if full_path == "admin" or full_path.startswith("admin/"):
+            if admin_index.exists():
+                return FileResponse(str(admin_index))
+            return {"detail": "Admin frontend not built."}
         index = WEB_DIR / "index.html"
         if index.exists():
             return FileResponse(str(index))

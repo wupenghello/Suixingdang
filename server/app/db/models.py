@@ -78,7 +78,6 @@ class File(Base):
     size = Column(Integer, default=0)
     content_hash = Column(String, index=True)
     mime_type = Column(String, default="application/octet-stream")
-    tag = Column(String, default="")
     group_id = Column(String, ForeignKey("file_groups.id"), nullable=True, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     modified_at = Column(DateTime, default=datetime.utcnow)
@@ -133,6 +132,18 @@ class AccessLog(Base):
     action = Column(String, nullable=False)
     detail = Column(Text, default="")
     ip = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TransferMessage(Base):
+    """文件传输助手消息：文本便签或已入库文件，统一时间线。"""
+    __tablename__ = "transfer_messages"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    type = Column(String, nullable=False)            # text / file
+    content = Column(Text, default="")               # 文本内容（type=text）
+    file_id = Column(String, ForeignKey("files.id"), nullable=True)  # 关联文件（type=file）
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

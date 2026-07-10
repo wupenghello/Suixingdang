@@ -105,9 +105,8 @@
  | 工具名 | 功能 | 说明 |
  |--------|------|------|
  | `search_files` | 语义 + 关键字找文件 | "上个月那份报价"也能命中 |
- | `sync` | 发起同步/推送 | 按自然语言意图执行文件搬运 |
- | `auto_tag` | 自动归类 | 学习/工作/项目/个人，自动去重 |
- | `summarize` | 文档摘要 | 不打开就能了解内容 |
+| `sync` | 发起同步/推送 | 按自然语言意图执行文件搬运 |
+| `summarize` | 文档摘要 | 不打开就能了解内容 |
  | `qa` | 内容问答 | RAG 检索，"这份合同的关键条款" |
  | `guard` | 敏感文件提醒 | 同步前扫描，提醒而非硬拦 |
  | `cleanup_hint` | 清理建议 | 识别长期不用、该归档、该删的文件 |
@@ -247,9 +246,8 @@
  | name | TEXT | 文件名 |
  | size | INTEGER | 文件大小（字节）|
  | content_hash | TEXT | 内容哈希（去重用）|
- | mime_type | TEXT | MIME 类型 |
- | tag | TEXT | 自动分类标签 |
- | uploaded_at | DATETIME | 上传时间 |
+| mime_type | TEXT | MIME 类型 |
+| uploaded_at | DATETIME | 上传时间 |
  | modified_at | DATETIME | 修改时间 |
  | source | TEXT | 来源（home/company/manual）|
  | guard_status | TEXT | guard 检测状态（safe/warning/blocked）|
@@ -306,9 +304,8 @@
  | GET | `/api/files/{id}` | 获取文件详情 |
  | GET | `/api/files/{id}/download` | 下载文件 |
  | POST | `/api/files/upload` | 上传文件 |
- | DELETE | `/api/files/{id}` | 删除文件 |
- | PUT | `/api/files/{id}/tag` | 修改标签 |
- | GET | `/api/files/search?q=` | 语义搜索 |
+| DELETE | `/api/files/{id}` | 删除文件 |
+| GET | `/api/files/search?q=` | 语义搜索 |
  
  ### 7.3 对话
  
@@ -384,16 +381,15 @@
  
  ### Phase 2：索引与智能
  
- **目标**：文件全量索引，语义搜索，自动归类，Guard 上线。
+ **目标**：文件全量索引，语义搜索，Guard 上线。
  
  - [ ] Chroma 向量库集成
  - [ ] 文件全量索引（文件名 + 内容）
- - [ ] 语义搜索
- - [ ] 自动分类标签（auto_tag）
- - [ ] Guard 规则引擎 + 内容扫描
+- [ ] 语义搜索
+- [ ] Guard 规则引擎 + 内容扫描
  - [ ] 自动去重（content_hash）
  
- **交付标准**：搜"上个月那份报价"能命中；上传时自动归类；敏感文件同步前提醒。
+ **交付标准**：搜"上个月那份报价"能命中；敏感文件同步前提醒。
  
  ### Phase 3：贴心层
  

@@ -88,8 +88,15 @@ def check_filename(rel_path: str) -> tuple[GuardStatus, str]:
     return "safe", ""
 
 
-def check_content(user_id: str, rel_path: str) -> tuple[GuardStatus, str]:
-    """扫描文件内容，识别密钥、隐私信息等。"""
+def check_content(user_id: str, rel_path: str, direction: str = "") -> tuple[GuardStatus, str]:
+    """扫描文件内容，识别密钥、隐私信息等。
+
+    direction 方向感知：
+      - "home_to_server" / "upload"：往服务器带，重点查公司机密外泄
+      - "server_to_home"：往家里带，重点查公司机密
+      - "server_to_company"：往公司带，重点查个人隐私（身份证、简历等）
+      - ""（未知方向）：两类关键词都查
+    """
     p = Path(rel_path)
     suffix = p.suffix.lower()
 
@@ -108,7 +115,7 @@ def check_content(user_id: str, rel_path: str) -> tuple[GuardStatus, str]:
 
     reasons = []
 
-    # 密钥/凭据
+    # 密钥/凭据（任何方向都检查）
     for pattern, desc in SECRET_PATTERNS:
         if re.search(pattern, text):
             reasons.append(f"检测到{desc}")
@@ -121,15 +128,22 @@ def check_content(user_id: str, rel_path: str) -> tuple[GuardStatus, str]:
     if PHONE_RE.search(text):
         reasons.append("疑似手机号")
 
-    # 中文关键词
-    for kw in PERSONAL_PRIVACY_KEYWORDS:
-        if kw in text:
-            reasons.append(f"包含隐私关键词: {kw}")
-            break
-    for kw in COMPANY_CONFIDENTIAL_KEYWORDS:
-        if kw in text:
-            reasons.append(f"包含机密关键词: {kw}")
-            break
+    # 方向感知：根据同步方向决定查哪类关键词
+    to_company = direction in ("server_to_company", "upload")
+    to_home = direction in ("home_to_server", "server_to_home")
+    check_privacy = not to_home          # 往家带不查个人隐私
+    check_company = not to_company       # 往公司带不查公司机密
+
+    if check_privacy:
+        for kw in PERSONAL_PRIVACY_KEYWORDS:
+            if kw in text:
+                reasons.append(f"包含隐私关键词: {kw}")
+                break
+    if check_company:
+        for kw in COMPANY_CONFIDENTIAL_KEYWORDS:
+            if kw in text:
+                reasons.append(f"包含机密关键词: {kw}")
+                break
 
     if reasons:
         # 只有凭据类才 blocked，其他都 warning
@@ -140,13 +154,13 @@ def check_content(user_id: str, rel_path: str) -> tuple[GuardStatus, str]:
     return "safe", ""
 
 
-def guard_file(user_id: str, rel_path: str) -> tuple[GuardStatus, str]:
-    """对文件执行完整 Guard 检查，返回 (status, reason)。"""
+def guard_file(user_id: str, rel_path: str, direction: str = "") -> tuple[GuardStatus, str]:
+    """对文件执行完整 Guard 检查（带方向感知），返回 (status, reason)。"""
     status, reason = check_filename(rel_path)
     if status == "blocked":
         return status, reason
 
-    c_status, c_reason = check_content(user_id, rel_path)
+    c_status, c_reason = check_content(user_id, rel_path, direction=direction)
     if c_status == "blocked":
         return c_status, c_reason
     if c_status == "warning" and status == "safe":

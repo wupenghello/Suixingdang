@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o-mini"
 
-    # 嵌入
-    EMBEDDING_PROVIDER: str = "deepseek"
+    # 嵌入：default=ChromaDB 内置 all-MiniLM-L6-v2（零配置）/ openai=OpenAI Embedding API
+    EMBEDDING_PROVIDER: str = "default"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
     # JWT

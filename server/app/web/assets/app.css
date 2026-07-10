@@ -416,23 +416,6 @@ body {
   white-space: nowrap;
 }
 
-.file-tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  margin: 0 8px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.tag-work { background: rgba(91,141,239,0.15); color: #5b8def; }
-.tag-study { background: rgba(61,214,140,0.15); color: #3dd68c; }
-.tag-project { background: rgba(167,139,250,0.15); color: #a78bfa; }
-.tag-personal { background: rgba(251,191,36,0.15); color: #fbbf24; }
-.tag-other { background: rgba(156,163,175,0.15); color: #9ca3af; }
-
 .file-meta {
   display: flex;
   align-items: center;
@@ -878,16 +861,6 @@ body {
   font-weight: 400;
 }
 
-.stats-tags {
-  margin-top: 16px;
-}
-
-.stats-tags-title {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
 .token-list {
   margin-top: 4px;
 }
@@ -1059,7 +1032,6 @@ body {
   .file-actions { opacity: 1; }
   .chat-messages { padding: 12px; }
   .chat-message { max-width: 95%; }
-  .file-tag { display: none; }
   .file-meta .file-date { display: none; }
   .upload-list { width: calc(100vw - 24px); right: 12px; bottom: 12px; }
 }
@@ -1299,4 +1271,236 @@ body {
   color: var(--text);
   font-weight: 500;
   word-break: break-all;
+}
+
+/* ---- Transfer Assistant (文件传输助手) ---- */
+.transfer-container {
+  background: var(--bg);
+}
+
+.transfer-messages {
+  padding: 24px;
+  gap: 14px;
+}
+
+.transfer-msg {
+  align-self: flex-end;
+  max-width: 80%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  position: relative;
+}
+
+.transfer-msg-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.transfer-text-bubble {
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--primary);
+  color: white;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+  border-bottom-right-radius: 4px;
+}
+
+.transfer-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  border-bottom-right-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  min-width: 240px;
+  max-width: 360px;
+}
+
+.transfer-file-card:hover {
+  border-color: var(--border-light);
+  background: var(--bg-surface-hover);
+}
+
+.transfer-file-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+
+.transfer-file-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.transfer-file-icon.folder { color: #fbbf24; }
+.transfer-file-icon.code { color: #5b8def; }
+.transfer-file-icon.doc { color: #60a5fa; }
+.transfer-file-icon.image { color: #34d399; }
+.transfer-file-icon.video { color: #a78bfa; }
+.transfer-file-icon.audio { color: #f472b6; }
+.transfer-file-icon.other { color: var(--text-muted); }
+
+.transfer-file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.transfer-file-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.transfer-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.transfer-saved {
+  color: var(--success);
+  font-size: 12px;
+}
+
+.transfer-file-dl {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.transfer-file-dl:hover {
+  background: var(--bg-elevated);
+  color: var(--primary);
+}
+
+.transfer-file-dl svg {
+  width: 18px;
+  height: 18px;
+}
+
+.transfer-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.transfer-file-guard {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.transfer-file-guard.warning {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--warning);
+}
+
+.transfer-del {
+  opacity: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  align-self: center;
+}
+
+.transfer-msg:hover .transfer-del {
+  opacity: 1;
+}
+
+.transfer-del:hover {
+  color: var(--danger);
+  background: var(--danger-light);
+}
+
+.transfer-del svg {
+  width: 16px;
+  height: 16px;
+}
+
+.transfer-input-area {
+  padding: 12px 24px;
+}
+
+.transfer-input-wrapper {
+  gap: 8px;
+}
+
+.transfer-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-muted);
+  padding: 40px 20px;
+}
+
+.transfer-empty-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-light);
+  color: var(--primary);
+  border-radius: 50%;
+}
+
+.transfer-empty-icon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.transfer-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.transfer-empty-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .transfer-msg { max-width: 90%; }
+  .transfer-file-card { min-width: 0; max-width: 100%; }
 }

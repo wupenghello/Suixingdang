@@ -42,11 +42,18 @@ def admin_info(admin=Depends(get_current_admin)):
 # ---- 用户管理 ----
 
 @router.get("/users")
-def list_users(search: str = Query(""), db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+def list_users(
+    search: str = Query(""),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=200),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
     q = db.query(User)
     if search:
         q = q.filter(User.username.contains(search))
-    users = q.order_by(User.created_at.desc()).all()
+    total = q.count()
+    users = q.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     result = []
     for u in users:
         file_count = db.query(File).filter_by(owner_id=u.id).count()
@@ -59,7 +66,7 @@ def list_users(search: str = Query(""), db: Session = Depends(get_db), admin=Dep
             "last_login": str(u.last_login_at).split(".")[0] if u.last_login_at else "",
             "created_at": str(u.created_at),
         })
-    return {"users": result}
+    return {"users": result, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/users")
@@ -148,11 +155,11 @@ def user_detail(user_id: str, db: Session = Depends(get_db), admin=Depends(get_c
             "created_at": str(user.created_at),
         },
         "files": [{
-            "id": f.id, "path": f.path, "name": f.name, "size": f.size,
-            "tag": f.tag, "guard_status": f.guard_status,
-            "group_id": f.group_id or "",
-            "group_name": (db.query(FileGroup).filter_by(id=f.group_id).first().name if f.group_id else ""),
-            "uploaded_at": str(f.uploaded_at),
+           "id": f.id, "path": f.path, "name": f.name, "size": f.size,
+            "guard_status": f.guard_status,
+           "group_id": f.group_id or "",
+           "group_name": (db.query(FileGroup).filter_by(id=f.group_id).first().name if f.group_id else ""),
+           "uploaded_at": str(f.uploaded_at),
         } for f in files],
         "logs": [{
             "id": l.id, "action": l.action, "detail": l.detail,
@@ -278,7 +285,7 @@ def system_stats(db: Session = Depends(get_db), admin=Depends(get_current_admin)
 def all_files(
     search: str = Query(""),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(10, ge=1, le=200),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
@@ -296,11 +303,11 @@ def all_files(
     return {
         "files": [{
             "id": f.id, "owner": uname, "owner_id": f.owner_id,
-            "path": f.path, "name": f.name, "size": f.size,
-            "tag": f.tag, "guard_status": f.guard_status,
-            "group_id": f.group_id or "",
-            "group_name": group_map.get(f.group_id, "") if f.group_id else "",
-            "uploaded_at": str(f.uploaded_at),
+           "path": f.path, "name": f.name, "size": f.size,
+            "guard_status": f.guard_status,
+           "group_id": f.group_id or "",
+           "group_name": group_map.get(f.group_id, "") if f.group_id else "",
+           "uploaded_at": str(f.uploaded_at),
         } for f, uname in rows],
         "total": total,
         "page": page,
@@ -313,6 +320,8 @@ def all_files(
 @router.get("/groups")
 def all_groups(
     search: str = Query(""),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=200),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
@@ -320,7 +329,8 @@ def all_groups(
     q = db.query(FileGroup, User.username).join(User, FileGroup.owner_id == User.id)
     if search:
         q = q.filter(or_(FileGroup.name.contains(search), User.username.contains(search)))
-    rows = q.order_by(FileGroup.created_at.desc()).all()
+    total = q.count()
+    rows = q.order_by(FileGroup.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     result = []
     for g, uname in rows:
         files = db.query(File).filter_by(group_id=g.id).all()
@@ -332,7 +342,7 @@ def all_groups(
             "created_at": str(g.created_at),
             "updated_at": str(g.updated_at),
         })
-    return {"groups": result, "total": len(result)}
+    return {"groups": result, "total": total, "page": page, "page_size": page_size}
 
 
 @router.delete("/groups/{group_id}")
@@ -354,9 +364,9 @@ def admin_delete_group(group_id: str, request: Request, db: Session = Depends(ge
 
 @router.get("/logs")
 def audit_logs(
-    limit: int = Query(100),
-    offset: int = Query(0),
     action: str = Query(""),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=200),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
@@ -364,7 +374,7 @@ def audit_logs(
     if action:
         q = q.filter(AccessLog.action.contains(action))
     total = q.count()
-    logs = q.order_by(AccessLog.created_at.desc()).offset(offset).limit(limit).all()
+    logs = q.order_by(AccessLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     # 关联用户名
     user_map = {}
     if logs:
@@ -380,7 +390,7 @@ def audit_logs(
         "detail": l.detail,
         "ip": l.ip,
         "time": str(l.created_at),
-    } for l in logs], "total": total}
+    } for l in logs], "total": total, "page": page, "page_size": page_size}
 
 
 # ---- 系统设置 ----

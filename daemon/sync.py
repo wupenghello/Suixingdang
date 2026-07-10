@@ -117,7 +117,7 @@ async def delete_remote(rel_path: str) -> bool:
 
 
 async def full_sync():
-    """全量差异比对同步。"""
+    """全量差异比对同步（支持真正的双向同步）。"""
     print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] 开始全量同步...")
     state = _state_load()
     local = _scan_local()
@@ -131,7 +131,7 @@ async def full_sync():
     uploaded = downloaded = deleted = skipped = 0
     new_state = {}
 
-    # 本地有 -> 上传（如果服务器没有或本地更新）
+    # ---- 上行：本地 -> 服务器 ----
     for rel, info in local.items():
         new_state[rel] = info
         remote_info = remote.get(rel)
@@ -158,25 +158,57 @@ async def full_sync():
         else:
             skipped += 1
 
-    # 服务器有但本地没有 -> 下载（two_way 模式）
+    # ---- 下行：服务器 -> 本地（two_way 模式） ----
     if config.SYNC_MODE == "two_way":
-        for rel, info in remote.items():
-            if rel not in local:
+        for rel, remote_info in remote.items():
+            local_info = local.get(rel)
+            prev_info = state.get(rel)
+
+            if not local_info:
+                # 本地没有 -> 下载
                 if await download_file(rel):
                     downloaded += 1
-                    local_info = _scan_local().get(rel)
-                    if local_info:
-                        new_state[rel] = local_info
+                    scanned = _scan_local().get(rel)
+                    if scanned:
+                        new_state[rel] = scanned
                 else:
                     skipped += 1
+            elif prev_info and remote_info.get("modified", 0) > prev_info.get("remote_mtime", 0):
+                # 服务器端文件比上次记录的更新，下载覆盖本地
+                if await download_file(rel):
+                    downloaded += 1
+                    scanned = _scan_local().get(rel)
+                    if scanned:
+                        new_state[rel] = scanned
+                    new_state.setdefault(rel, {})["remote_mtime"] = remote_info.get("modified", 0)
+                else:
+                    skipped += 1
+            else:
+                # 记录远程 mtime 以便下次比较
+                if rel in new_state:
+                    new_state[rel]["remote_mtime"] = remote_info.get("modified", 0)
 
-    # 之前有但现在本地和远程都没有 -> 清理
+        # ---- 双向删除同步：之前在服务器上有但现在远程没有了 -> 本地也删除 ----
+        for rel in list(state.keys()):
+            prev = state.get(rel, {})
+            was_on_remote = prev.get("remote_mtime") is not None
+            if was_on_remote and rel not in remote and rel in local:
+                local_file = Path(config.WATCH_DIR) / rel
+                try:
+                    local_file.unlink()
+                    deleted += 1
+                    print(f"  [本地删除] {rel}（远程已删除）")
+                    new_state.pop(rel, None)
+                except Exception:
+                    pass
+
+    # 清理：之前有但现在本地和远程都没有的 state 记录
     for rel in list(state.keys()):
         if rel not in local and rel not in remote:
             new_state.pop(rel, None)
 
     _state_save(new_state)
-    print(f"  同步完成: 上传 {uploaded}, 下载 {downloaded}, 跳过 {skipped}")
+    print(f"  同步完成: 上传 {uploaded}, 下载 {downloaded}, 删除 {deleted}, 跳过 {skipped}")
 
 
 async def sync_single_file(rel_path: str, action: str = "upload"):

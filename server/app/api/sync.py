@@ -20,14 +20,27 @@ async def sync_upload(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    status, reason = guard.guard_file(user.id, relative_path)
+    status, reason = guard.guard_file(user.id, relative_path, direction="home_to_server")
     if status == "blocked":
         db.add(SyncEvent(user_id=user.id, file_name=relative_path, direction="home_to_server", status="failed", detail=f"Guard拦截: {reason}"))
         db.commit()
         raise HTTPException(403, f"Guard 拦截: {reason}")
 
     meta = storage.save_fileobj(user.id, relative_path, file.file, source=source)
-    tag = indexer.auto_tag(user.id, relative_path)
+
+    # 自动去重：守护进程上传时，若服务器已有相同内容的文件则跳过
+    dup = db.query(FileModel).filter(
+        FileModel.owner_id == user.id,
+        FileModel.content_hash == meta["content_hash"],
+        FileModel.path != meta["path"],
+    ).first()
+    if dup:
+        storage.delete_file(user.id, relative_path)
+        db.add(SyncEvent(user_id=user.id, file_name=relative_path,
+                         direction="home_to_server", status="completed",
+                         detail=f"跳过上传: 内容已存在 {dup.path}"))
+        db.commit()
+        return {"status": "ok", "path": dup.path, "guard_status": status, "deduplicated": True}
 
     existing = db.query(FileModel).filter_by(owner_id=user.id, path=meta["path"]).first()
     if existing:
@@ -37,20 +50,19 @@ async def sync_upload(
         existing.source = source
         existing.guard_status = status
         existing.guard_reason = reason
-        existing.tag = tag
         f = existing
     else:
         f = FileModel(
             owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
             content_hash=meta["content_hash"], mime_type=meta["mime_type"],
-            source=source, guard_status=status, guard_reason=reason, tag=tag,
+            source=source, guard_status=status, guard_reason=reason,
         )
         db.add(f)
     db.commit()
     db.refresh(f)
 
     try:
-        indexer.index_file(user.id, f.id, relative_path, tag)
+        indexer.index_file(user.id, f.id, relative_path)
     except Exception:
         pass
 
