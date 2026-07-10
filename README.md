@@ -4,11 +4,13 @@
 
 ## 快速部署（服务器端）
 
+> 前置条件：服务器已安装 Docker 与 Docker Compose；域名已解析到服务器 IP（Caddy 会自动签发 HTTPS 证书）。
+
 ### 1. 准备环境
 
 ```bash
 # 克隆或上传项目到服务器
-git clone <repo> suixingdang && cd suixingdang
+git clone https://github.com/wupenghello/Suixingdang.git suixingdang && cd suixingdang
 
 # 创建配置
 cp .env.example .env
@@ -31,7 +33,8 @@ DEFAULT_QUOTA_MB=100              # 新用户默认存储配额（0=无限）
 ### 3. 创建数据目录
 
 ```bash
-mkdir -p /data/files /data/chroma
+# 与 .env.example 中 DATA_DIR 一致；Docker 会把该目录挂载到容器 /data
+mkdir -p /data/suixingdang
 ```
 
 ### 4. 启动
@@ -107,6 +110,20 @@ docker run -d --name suixingdang-daemon \
 打开浏览器，访问 `https://files.yourdomain.com`，登录即可上传下载文件。
 
 离职时：在服务器设置页吊销"公司电脑"令牌 → 清一下浏览器记录 → 走人。
+
+## 本地开发（不用 Docker）
+
+仓库自带 `.env.test`（仅含本地测试用占位值，无真实密钥），可在不装 Docker 的情况下跑起服务端：
+
+```bash
+cd server
+pip install -r requirements.txt
+cp ../.env.test .env          # 复制为本地配置（该 .env 已被 gitignore，不会提交）
+# 把 .env 里的 DEEPSEEK_API_KEY 换成你自己的密钥后再启动
+uvicorn app.main:app --reload --port 8000
+```
+
+默认数据写到 `/tmp/suixingdang-test/`（见 `.env.test`），不影响正式部署的数据目录。
 
 ## 架构概览
 
