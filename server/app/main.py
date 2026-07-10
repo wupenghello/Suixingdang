@@ -1,0 +1,66 @@
+"""FastAPI 用户端应用入口（多账户版）。"""
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+from .config import settings
+from .db.models import init_db
+from .core.storage import ensure_storage
+from .api import auth, files, chat, sync, admin
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
+    ensure_storage()
+    init_db()
+    print(f"[Suixingdang] 用户端启动")
+    print(f"[Suixingdang] 存储目录: {settings.storage_path}")
+    print(f"[Suixingdang] 数据库: {settings.DATABASE_PATH}")
+    print(f"[Suixingdang] LLM: {settings.LLM_PROVIDER} / {settings.llm_model}")
+    print(f"[Suixingdang] 注册开关: {'开放' if settings.ALLOW_REGISTER else '关闭'}")
+    yield
+
+
+app = FastAPI(title="随行档 Suixingdang", version="2.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
+
+app.include_router(auth.router)
+app.include_router(files.router)
+app.include_router(chat.router)
+app.include_router(sync.router)
+# admin 路由也挂载（API 层共用），但前端入口不在此端口提供
+app.include_router(admin.router)
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "service": "Suixingdang", "version": "2.0.0"}
+
+
+# 用户端前端
+WEB_DIR = Path(__file__).parent / "web"
+
+if WEB_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            return {"detail": "Not Found"}
+        index = WEB_DIR / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
+        return {"detail": "Frontend not built."}
+else:
+    @app.get("/")
+    def root():
+        return {"service": "随行档", "status": "running", "api_docs": "/docs"}
