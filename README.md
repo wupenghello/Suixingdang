@@ -55,6 +55,8 @@ docker compose up -d --build
 
 Caddy 会自动签发 HTTPS 证书。
 
+> 日后更换服务器时，账户与文件数据的迁移步骤见 [docs/MIGRATION.md](docs/MIGRATION.md)。
+
 ## 多账户系统（v2.0）
 
 随行档支持多用户，每个用户拥有独立的文件空间。管理员通过独立的后台管理系统进行用户管理。
