@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
+      # 建议将主机 ${DATA_DIR} 置于 LUKS/dm-crypt 加密卷上，
+      # 一次覆盖文件 + SQLite + ChromaDB，防磁盘失窃/备份泄露。详见 docs/DEPLOY_SECURITY.md。
       - ${DATA_DIR:-/data/suixingdang}:/data
     ports:
       - "8000:8000"

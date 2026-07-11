@@ -28,9 +28,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="随行档 Suixingdang", version="2.0.0", lifespan=lifespan)
 
+# 认证全程使用 Bearer token（非 Cookie），无需 allow_credentials；
+# 来源白名单从 CORS_ORIGINS 派生，缺省按 DOMAIN 推导，避免通配源 + credentials 的非法组合。
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(auth.router)

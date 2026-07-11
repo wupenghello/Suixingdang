@@ -406,7 +406,7 @@ async function renderRegister() {
         <p class="subtitle">创建你的私人文件中枢</p>
         <form id="register-form">
           <div class="form-group"><label>用户名</label><input type="text" id="reg-username" class="form-input" placeholder="2个字符以上" autofocus></div>
-          <div class="form-group"><label>密码</label><input type="password" id="reg-password" class="form-input" placeholder="4个字符以上"></div>
+          <div class="form-group"><label>密码</label><input type="password" id="reg-password" class="form-input" placeholder="8个字符以上"></div>
           <div class="form-group"><label>密保问题</label><input type="text" id="reg-question" class="form-input" placeholder="如：你最喜爱的运动是什么？"></div>
           <div class="form-group"><label>密保答案</label><input type="text" id="reg-answer" class="form-input" placeholder="用于找回密码"></div>
           <button type="submit" class="btn btn-primary btn-block" id="reg-btn" style="padding:10px 16px">注册</button>
@@ -452,9 +452,9 @@ function renderForgotPassword() {
         <form id="forgot-form">
           <div class="form-group"><label>用户名</label><input type="text" id="fp-username" class="form-input" placeholder="输入你的用户名" autofocus></div>
           <div id="fp-step2" style="display:none">
-            <div class="form-group"><label>密保问题</label><input type="text" id="fp-question" class="form-input" readonly style="opacity:0.7"></div>
+            <div class="form-group"><label>提示</label><input type="text" id="fp-question" class="form-input" readonly style="opacity:0.7"></div>
             <div class="form-group"><label>密保答案</label><input type="text" id="fp-answer" class="form-input" placeholder="输入密保答案"></div>
-            <div class="form-group"><label>新密码</label><input type="password" id="fp-newpass" class="form-input" placeholder="4个字符以上"></div>
+            <div class="form-group"><label>新密码</label><input type="password" id="fp-newpass" class="form-input" placeholder="8个字符以上"></div>
           </div>
           <button type="submit" class="btn btn-primary btn-block" id="fp-btn" style="padding:10px 16px">下一步</button>
         </form>

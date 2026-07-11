@@ -21,8 +21,11 @@ cp .env.example .env
 ```ini
 DOMAIN=files.yourdomain.com        # 你的域名
 SECRET_KEY=用 openssl rand -hex 32 生成
+# 建议设置两个独立密钥（轮换互不影响，详见 docs/DEPLOY_SECURITY.md）
+JWT_SECRET=用 openssl rand -hex 32 生成
+DATA_ENCRYPTION_KEY=用 openssl rand -hex 32 生成
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=你的强密码
+ADMIN_PASSWORD=你的强密码（至少 8 位，否则首次启动拒绝创建）
 
 # 多账户配置
 ALLOW_REGISTER=true               # 是否开放用户自助注册（false=仅管理员创建用户）
@@ -38,6 +41,9 @@ DEFAULT_QUOTA_MB=100              # 新用户默认存储配额（0=无限）
 # 与 .env.example 中 DATA_DIR 一致；Docker 会把该目录挂载到容器 /data
 mkdir -p /data/suixingdang
 ```
+
+> 安全建议：将 `/data` 置于 LUKS/dm-crypt 加密卷上，一次覆盖文件 + SQLite + ChromaDB，
+> 防磁盘失窃与备份泄露。操作步骤见 [docs/DEPLOY_SECURITY.md](docs/DEPLOY_SECURITY.md)。
 
 ### 4. 启动
 

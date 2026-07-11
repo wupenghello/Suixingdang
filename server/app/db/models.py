@@ -2,8 +2,8 @@
 
 import uuid
 import sqlite3
-from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, ForeignKey, create_engine
+from datetime import datetime, timedelta
+from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, ForeignKey, create_engine, or_
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from pathlib import Path
 
@@ -154,6 +154,16 @@ class AccessLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class LoginAttempt(Base):
+    """登录限流计数（DB 共享，多 worker 生效；按 key 隔离 login/admin/reset）。"""
+    __tablename__ = "login_attempts"
+
+    key = Column(String, primary_key=True)
+    fail_count = Column(Integer, default=0)
+    first_fail_at = Column(DateTime, nullable=True)
+    locked_until = Column(DateTime, nullable=True)
+
+
 class TransferMessage(Base):
     """文件传输助手消息：文本便签或已入库文件，统一时间线。"""
     __tablename__ = "transfer_messages"
@@ -189,13 +199,112 @@ def set_setting(db, key, value):
     db.commit()
 
 
+# ---- 登录限流（DB 共享，跨 worker 生效；按 key 前缀隔离 login/admin/reset）----
+
+LOGIN_LIMIT_WINDOW = 15 * 60        # 失败计数窗口（秒）
+LOGIN_LIMIT_MAX_FAILURES = 5        # 窗口内失败上限
+LOGIN_LIMIT_LOCK_SECONDS = 15 * 60  # 锁定时长（秒）
+
+
+def login_limiter_check(db, key: str) -> int:
+    """返回剩余锁定秒数；未锁定返回 0。过期锁自动清零。"""
+    row = db.query(LoginAttempt).filter_by(key=key).first()
+    if not row or not row.locked_until:
+        return 0
+    now = datetime.utcnow()
+    if row.locked_until > now:
+        return int((row.locked_until - now).total_seconds()) + 1
+    row.locked_until = None
+    row.fail_count = 0
+    row.first_fail_at = None
+    db.commit()
+    return 0
+
+
+def login_limiter_record(db, key: str):
+    """记录一次失败，达到阈值则锁定；顺带清理陈旧记录防表膨胀。"""
+    now = datetime.utcnow()
+    row = db.query(LoginAttempt).filter_by(key=key).first()
+    if row:
+        if row.first_fail_at and (now - row.first_fail_at).total_seconds() > LOGIN_LIMIT_WINDOW:
+            row.fail_count = 0
+            row.first_fail_at = now
+        if not row.first_fail_at:
+            row.first_fail_at = now
+        row.fail_count = (row.fail_count or 0) + 1
+    else:
+        row = LoginAttempt(key=key, fail_count=1, first_fail_at=now)
+        db.add(row)
+    if row.fail_count >= LOGIN_LIMIT_MAX_FAILURES:
+        row.locked_until = now + timedelta(seconds=LOGIN_LIMIT_LOCK_SECONDS)
+    db.commit()
+    # 机会性清理：删除无锁且超出窗口两倍的陈旧记录
+    cutoff = now - timedelta(seconds=LOGIN_LIMIT_WINDOW * 2)
+    db.query(LoginAttempt).filter(
+        LoginAttempt.locked_until.is_(None),
+        or_(LoginAttempt.first_fail_at.is_(None), LoginAttempt.first_fail_at < cutoff),
+    ).delete(synchronize_session=False)
+    db.commit()
+
+
+def login_limiter_reset(db, key: str):
+    """成功后清零计数。"""
+    row = db.query(LoginAttempt).filter_by(key=key).first()
+    if row:
+        row.fail_count = 0
+        row.first_fail_at = None
+        row.locked_until = None
+        db.commit()
+
+
 def init_db():
     Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     _migrate_columns()
     _seed_admin()
-    _seed_initial_user()
     _migrate_llm_from_env()
+    _migrate_fernet_keys()
+
+
+def _migrate_fernet_keys(db=None):
+    """每次启动透明重加密：把任何用历史密钥加密的 API Key 重加密为当前密钥。
+
+    不使用一次性 flag--这样运维在首次启动后才设置或更换 DATA_ENCRYPTION_KEY 时，
+    旧密文（用 HKDF(SECRET_KEY) 或裸 SHA256(SECRET_KEY) 加密）仍能被历史密钥解开
+    并自动重加密为当前密钥，避免密钥轮换导致 API Key 永久不可解。
+    """
+    owns_session = db is None
+    if owns_session:
+        db = SessionLocal()
+    try:
+        from cryptography.fernet import Fernet
+        from ..core.security import _fernet_key, _legacy_fernet_keys, encrypt_api_key
+        cur = _fernet_key()
+        legacy = _legacy_fernet_keys()
+        changed = False
+        for p in db.query(LlmProvider).all():
+            if not p.api_key_enc:
+                continue
+            try:
+                Fernet(cur).decrypt(p.api_key_enc.encode())  # 已是当前密钥
+                continue
+            except Exception:
+                pass
+            plaintext = None
+            for k in legacy:
+                try:
+                    plaintext = Fernet(k).decrypt(p.api_key_enc.encode()).decode()
+                    break
+                except Exception:
+                    continue
+            if plaintext is not None:
+                p.api_key_enc = encrypt_api_key(plaintext)
+                changed = True
+        if changed:
+            db.commit()
+    finally:
+        if owns_session:
+            db.close()
 
 
 def _migrate_columns():
@@ -238,38 +347,27 @@ def _migrate_columns():
 
 
 def _seed_admin():
-    from ..core.security import hash_password
+    from ..core.security import hash_password, validate_password
     db = SessionLocal()
     try:
         existing = db.query(Admin).filter_by(username=settings.ADMIN_USERNAME).first()
-        if not existing:
-            db.add(Admin(
-                username=settings.ADMIN_USERNAME,
-                password_hash=hash_password(settings.ADMIN_PASSWORD),
-            ))
-            db.commit()
-            print(f"[Suixingdang] 管理员账户已创建: {settings.ADMIN_USERNAME}")
-    finally:
-        db.close()
-
-
-def _seed_initial_user():
-    from ..core.security import hash_password
-    import hashlib
-    db = SessionLocal()
-    try:
-        if db.query(User).count() == 0:
-            answer_hash = hashlib.sha256("篮球".strip().lower().encode()).hexdigest()
-            db.add(User(
-                username="demo",
-                password_hash=hash_password("demo"),
-                status="active",
-                quota_mb=0,
-                security_question="你最喜爱的运动是什么？",
-                security_answer=answer_hash,
-            ))
-            db.commit()
-            print("[Suixingdang] 初始用户已创建: demo / demo")
+        if existing:
+            return
+        pwd = settings.ADMIN_PASSWORD
+        err = validate_password(pwd, settings.ADMIN_USERNAME)
+        if err and not settings.ALLOW_WEAK_ADMIN_PASSWORD:
+            raise RuntimeError(
+                f"[Suixingdang] 拒绝创建管理员：{err}。"
+                f"请设置强密码后重试，或在调试环境显式置 ALLOW_WEAK_ADMIN_PASSWORD=true。"
+            )
+        db.add(Admin(
+            username=settings.ADMIN_USERNAME,
+            password_hash=hash_password(pwd),
+        ))
+        db.commit()
+        print(f"[Suixingdang] 管理员账户已创建: {settings.ADMIN_USERNAME}")
+        if err:
+            print(f"[Suixingdang] ⚠️ 安全告警：管理员密码较弱（{err}），建议尽快修改。")
     finally:
         db.close()
 

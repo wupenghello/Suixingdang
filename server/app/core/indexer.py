@@ -70,7 +70,7 @@ def _get_collection(user_id: str):
     return _collections[user_id]
 
 
-def _extract_text(user_id: str, rel_path: str) -> str:
+def _extract_text(user_id: str, rel_path: str, max_chars: int = 50000) -> str:
     from . import storage
     p = storage._user_dir(user_id) / rel_path
     if not p.exists():
@@ -81,7 +81,7 @@ def _extract_text(user_id: str, rel_path: str) -> str:
                   ".go", ".rs", ".c", ".cpp", ".h", ".sh", ".sql",
                   ".ini", ".cfg", ".conf", ".toml", ".properties", ".log", ".tsv"}:
         try:
-            return p.read_text(encoding="utf-8", errors="ignore")[:50000]
+            return p.read_text(encoding="utf-8", errors="ignore")[:max_chars]
         except Exception:
             return ""
     if suffix == ".pdf":
@@ -90,7 +90,7 @@ def _extract_text(user_id: str, rel_path: str) -> str:
             doc = fitz.open(str(p))
             text = "".join(page.get_text() for page in doc)
             doc.close()
-            return text[:50000]
+            return text[:max_chars]
         except Exception:
             return ""
     # Word / Excel / PowerPoint：用 unstructured 解析
@@ -99,7 +99,7 @@ def _extract_text(user_id: str, rel_path: str) -> str:
             from unstructured.partition.auto import partition
             elements = partition(str(p))
             text = "\n".join(str(el) for el in elements)
-            return text[:50000]
+            return text[:max_chars]
         except Exception:
             return ""
     return ""

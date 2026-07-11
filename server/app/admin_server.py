@@ -25,9 +25,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="随行档 Admin", version="2.0.0", lifespan=lifespan)
 
+# 认证用 Bearer token（非 Cookie），无需 allow_credentials；
+# 来源白名单从 CORS_ORIGINS 派生，避免通配源 + credentials 的非法组合。
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 只挂载认证和管理员路由

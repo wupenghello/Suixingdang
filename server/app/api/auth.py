@@ -11,11 +11,15 @@ import qrcode.image.svg
 import io
 import base64
 
-from ..db.models import User, Admin, AccessToken, AccessLog, SystemSetting, get_db, get_setting, set_setting
+from ..db.models import (
+    User, Admin, AccessToken, AccessLog, SystemSetting,
+    get_db, get_setting, set_setting,
+    login_limiter_check, login_limiter_record, login_limiter_reset,
+)
 from ..core.security import (
     verify_password, hash_password, create_access_token, create_refresh_token,
     decode_token, generate_token_hash, generate_totp_secret,
-    get_totp_uri, verify_totp,
+    get_totp_uri, verify_totp, validate_password,
 )
 from ..config import settings
 
@@ -149,12 +153,87 @@ def get_current_admin(
     return admin
 
 
+# ---- 限流 key 构造 ----
+
+def _limiter_key(scope: str, username: str, ip: str) -> str:
+    """限流 key：按 scope 隔离 login / adminlogin / reset，
+    避免用户登录锁定连累密码重置，或用户表爆破连累管理员登录。"""
+    return f"{scope}:{username}|{ip or ''}"
+
+
+# ---- 客户端 IP（信任代理感知）----
+
+def _client_ip(request: Request) -> str:
+    """返回真实客户端 IP。
+
+    仅当 TCP 直连对端是受信任代理（TRUSTED_PROXIES）时才采用 X-Forwarded-For /
+    X-Real-IP；否则用 TCP 对端 IP。这样直连 :8000 时无法靠伪造 XFF 绕过限流。
+    """
+    peer = request.client.host if request.client else ""
+    trusted = settings.trusted_proxies_set
+    if peer and peer in trusted:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            for hop in (h.strip() for h in xff.split(",")):
+                if hop and hop not in trusted:
+                    return hop
+            return xff.split(",")[0].strip()
+        if request.headers.get("x-real-ip"):
+            return request.headers["x-real-ip"].strip()
+    return peer
+
+
+# ---- 密保答案哈希（bcrypt + sha256 预哈希，兼容旧 sha256）----
+
+# 懒加载的 dummy bcrypt 哈希，用于「用户不存在」分支消耗等量时间，规避时序枚举
+_DUMMY_ANSWER_HASH = ""
+
+
+def _dummy_answer_hash() -> str:
+    global _DUMMY_ANSWER_HASH
+    if not _DUMMY_ANSWER_HASH:
+        _DUMMY_ANSWER_HASH = hash_password("suixingdang-dummy-answer")
+    return _DUMMY_ANSWER_HASH
+
+
+def _hash_security_answer(answer: str) -> str:
+    """密保答案 bcrypt 哈希。
+
+    先对归一化（去空格 + 小写）答案做 sha256 再 bcrypt，规避 bcrypt 72 字节输入
+    上限，支持任意长度答案（如长中文串）。
+    """
+    norm = answer.strip().lower()
+    return hash_password(hashlib.sha256(norm.encode()).hexdigest())
+
+
+def _is_legacy_answer(stored: str) -> bool:
+    """旧版 sha256 答案为 64 位十六进制；bcrypt 哈希以 $2 开头。"""
+    if not stored or len(stored) != 64:
+        return False
+    return all(c in "0123456789abcdef" for c in stored.lower())
+
+
+def _verify_security_answer(answer: str, stored: str) -> bool:
+    """校验密保答案，兼容旧 sha256 与新 bcrypt（sha256 预哈希）。"""
+    norm = answer.strip().lower()
+    if _is_legacy_answer(stored):
+        return hashlib.sha256(norm.encode()).hexdigest() == stored
+    return verify_password(hashlib.sha256(norm.encode()).hexdigest(), stored)
+
+
 # ---- 用户登录 ----
 
 @router.post("/login", response_model=TokenResponse)
 def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    ip = _client_ip(request)
+    key = _limiter_key("login", req.username, ip)
+    locked = login_limiter_check(db, key)
+    if locked:
+        _log(db, None, "login_locked", f"{req.username}（限流锁定 {locked}s）", request)
+        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
     user = db.query(User).filter_by(username=req.username).first()
     if not user or not verify_password(req.password, user.password_hash):
+        login_limiter_record(db, key)
         _log(db, None, "login_failed", f"{req.username}（账号或密码错误）", request)
         raise HTTPException(401, "用户名或密码错误")
     if user.status == "disabled":
@@ -162,11 +241,13 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(403, "账户已被禁用")
     if user.totp_enabled:
         if not req.totp_code or not verify_totp(user.totp_secret, req.totp_code):
+            login_limiter_record(db, key)
             _log(db, user.id, "login_totp_failed", "动态验证码错误", request)
             raise HTTPException(401, "需要双因子验证码")
 
     user.last_login_at = datetime.utcnow()
     db.commit()
+    login_limiter_reset(db, key)
 
     token_data = {"sub": user.id, "username": user.username, "role": "user"}
     _log(db, user.id, "login_success", "", request)
@@ -192,15 +273,16 @@ def register(req: RegisterRequest, request: Request, db: Session = Depends(get_d
 
     if len(req.username) < 2:
         raise HTTPException(400, "用户名至少 2 个字符")
-    if len(req.password) < 4:
-        raise HTTPException(400, "密码至少 4 个字符")
+    pwd_err = validate_password(req.password, req.username)
+    if pwd_err:
+        raise HTTPException(400, pwd_err)
     if db.query(User).filter_by(username=req.username).first():
         raise HTTPException(409, "用户名已存在")
     if not req.security_question or not req.security_answer:
         raise HTTPException(400, "请设置密保问题和答案")
 
-    # 密保答案哈希存储
-    answer_hash = hashlib.sha256(req.security_answer.strip().lower().encode()).hexdigest()
+    # 密保答案 bcrypt 哈希存储
+    answer_hash = _hash_security_answer(req.security_answer)
 
     db_quota = get_setting(db, "default_quota_mb", "")
     quota = int(db_quota) if db_quota else settings.DEFAULT_QUOTA_MB
@@ -230,29 +312,53 @@ def register(req: RegisterRequest, request: Request, db: Session = Depends(get_d
 
 @router.post("/forgot-password/question")
 def get_security_question(req: ForgotPasswordStep1Request, db: Session = Depends(get_db)):
-    """根据用户名返回密保问题。"""
-    user = db.query(User).filter_by(username=req.username).first()
-    if not user or not user.security_question:
-        raise HTTPException(404, "用户不存在或未设置密保问题")
-    return {"username": user.username, "question": user.security_question}
+    """返回密保提示。为避免用户名枚举，对所有用户名返回统一提示，
+    不泄露用户是否存在或其密保问题内容。"""
+    return {"username": req.username, "question": "请输入您注册时设置的密保答案"}
 
 
 @router.post("/forgot-password/reset")
 def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Session = Depends(get_db)):
-    """验证密保答案后重置密码。"""
-    user = db.query(User).filter_by(username=req.username).first()
-    if not user or not user.security_answer:
-        raise HTTPException(404, "用户不存在或未设置密保问题")
+    """验证密保答案后重置密码。
 
-    answer_hash = hashlib.sha256(req.answer.strip().lower().encode()).hexdigest()
-    if answer_hash != user.security_answer:
-        _log(db, user.id, "password_reset_failed", "安全问题回答错误", request)
+    - 用户不存在与答案错误返回相同提示，避免枚举；
+    - reset 用独立限流 scope，不被登录锁定连累；
+    - 对不存在用户 / 旧 sha256 用户补一次 dummy bcrypt，使各分支耗时一致，规避时序枚举；
+    - 答案正确后立即清零失败计数，即便新密码校验失败也不再累积。
+    """
+    ip = _client_ip(request)
+    key = _limiter_key("reset", req.username, ip)
+    locked = login_limiter_check(db, key)
+    if locked:
+        _log(db, None, "password_reset_locked", f"{req.username}（限流锁定 {locked}s）", request)
+        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
+
+    user = db.query(User).filter_by(username=req.username).first()
+    # 时序对齐：bcrypt 路径（存在且非 legacy）的真实校验本身就是一次 bcrypt；
+    # 其余分支（不存在 / legacy sha256）补一次 dummy bcrypt，使每次请求耗时近似一致。
+    if not (user and user.security_answer and not _is_legacy_answer(user.security_answer)):
+        verify_password(
+            hashlib.sha256(req.answer.strip().lower().encode()).hexdigest(),
+            _dummy_answer_hash(),
+        )
+
+    if not user or not user.security_answer or not _verify_security_answer(req.answer, user.security_answer):
+        login_limiter_record(db, key)
+        _log(db, user.id if user else None, "password_reset_failed",
+             f"{req.username}（用户不存在或答案错误）", request)
         raise HTTPException(400, "密保答案错误")
 
-    if len(req.new_password) < 4:
-        raise HTTPException(400, "新密码至少 4 个字符")
+    # 答案已验证正确：立即清零失败计数（即便新密码校验失败也不再累积）
+    login_limiter_reset(db, key)
+
+    pwd_err = validate_password(req.new_password, req.username)
+    if pwd_err:
+        raise HTTPException(400, pwd_err)
 
     user.password_hash = hash_password(req.new_password)
+    # 顺带把旧 sha256 密保答案升级为 bcrypt（sha256 预哈希）
+    if _is_legacy_answer(user.security_answer):
+        user.security_answer = _hash_security_answer(req.answer)
     db.commit()
     _log(db, user.id, "password_reset_success", "", request)
     return {"message": "密码已重置，请使用新密码登录"}
@@ -293,14 +399,23 @@ def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
 
 @router.post("/admin/login", response_model=TokenResponse)
 def admin_login(req: AdminLoginRequest, request: Request, db: Session = Depends(get_db)):
+    ip = _client_ip(request)
+    key = _limiter_key("adminlogin", req.username, ip)
+    locked = login_limiter_check(db, key)
+    if locked:
+        _log(db, None, "admin_login_locked", f"{req.username}（限流锁定 {locked}s）", request)
+        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
     admin = db.query(Admin).filter_by(username=req.username).first()
     if not admin or not verify_password(req.password, admin.password_hash):
+        login_limiter_record(db, key)
         _log(db, None, "admin_login_failed", f"{req.username}（账号或密码错误）", request)
         raise HTTPException(401, "管理员用户名或密码错误")
     if admin.totp_enabled:
         if not req.totp_code or not verify_totp(admin.totp_secret, req.totp_code):
+            login_limiter_record(db, key)
             raise HTTPException(401, "需要双因子验证码")
 
+    login_limiter_reset(db, key)
     token_data = {"sub": admin.id, "username": admin.username, "role": "admin"}
     _log(db, None, "admin_login_success", "", request)
     return TokenResponse(
@@ -413,8 +528,9 @@ class ChangePasswordRequest(BaseModel):
 def change_password(req: ChangePasswordRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if not verify_password(req.old_password, user.password_hash):
         raise HTTPException(400, "原密码错误")
-    if len(req.new_password) < 4:
-        raise HTTPException(400, "新密码至少 4 个字符")
+    pwd_err = validate_password(req.new_password, user.username)
+    if pwd_err:
+        raise HTTPException(400, pwd_err)
     user.password_hash = hash_password(req.new_password)
     db.commit()
     return {"message": "密码已修改"}
@@ -440,14 +556,6 @@ def get_me(user=Depends(get_current_user)):
 # ---- 日志 ----
 
 def _log(db: Session, user_id: Optional[str], action: str, detail: str, request: Request):
-    # 优先从反向代理头取真实客户端 IP（Caddy/Nginx 会写入 X-Forwarded-For）
-    ip = ""
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        ip = xff.split(",")[0].strip()
-    elif request.headers.get("x-real-ip"):
-        ip = request.headers["x-real-ip"].strip()
-    elif request.client:
-        ip = request.client.host
+    ip = _client_ip(request) if request else ""
     db.add(AccessLog(user_id=user_id, action=action, detail=detail, ip=ip))
     db.commit()

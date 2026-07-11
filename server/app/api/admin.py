@@ -7,7 +7,7 @@ from sqlalchemy import func, or_
 from pydantic import BaseModel
 
 from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, LlmProvider, get_db, get_setting, set_setting
-from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key
+from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password
 from ..core import storage
 from ..config import settings
 from .auth import get_current_admin, _log
@@ -89,8 +89,9 @@ def list_users(
 def create_user(req: CreateUserRequest, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
     if len(req.username) < 2:
         raise HTTPException(400, "用户名至少 2 个字符")
-    if len(req.password) < 4:
-        raise HTTPException(400, "密码至少 4 个字符")
+    pwd_err = validate_password(req.password, req.username)
+    if pwd_err:
+        raise HTTPException(400, pwd_err)
     if db.query(User).filter_by(username=req.username).first():
         raise HTTPException(409, "用户名已存在")
     user = User(
@@ -116,6 +117,9 @@ def update_user(user_id: str, req: UpdateUserRequest, request: Request, db: Sess
     if req.quota_mb >= 0:
         user.quota_mb = req.quota_mb
     if req.password:
+        pwd_err = validate_password(req.password, user.username)
+        if pwd_err:
+            raise HTTPException(400, pwd_err)
         user.password_hash = hash_password(req.password)
     db.commit()
     changes = []

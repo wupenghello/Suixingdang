@@ -20,13 +20,24 @@ async def sync_upload(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    status, reason = guard.guard_file(user.id, relative_path, direction="home_to_server")
+    # 文件名检查（落盘前）
+    status, reason = guard.check_filename(relative_path)
     if status == "blocked":
         db.add(SyncEvent(user_id=user.id, file_name=relative_path, direction="home_to_server", status="failed", detail=f"Guard拦截: {reason}"))
         db.commit()
         raise HTTPException(403, f"Guard 拦截: {reason}")
 
     meta = storage.save_fileobj(user.id, relative_path, file.file, source=source)
+
+    # 内容检查（落盘后：文件已在磁盘上才能扫描，否则 check_content 永远返回 safe）
+    c_status, c_reason = guard.check_content(user.id, relative_path, direction="home_to_server")
+    if c_status == "blocked":
+        storage.delete_file(user.id, relative_path)
+        db.add(SyncEvent(user_id=user.id, file_name=relative_path, direction="home_to_server", status="failed", detail=f"Guard拦截: {c_reason}"))
+        db.commit()
+        raise HTTPException(403, f"Guard 拦截: {c_reason}")
+    final_status = c_status if c_status != "safe" else status
+    final_reason = c_reason if c_reason else reason
 
     # 自动去重：守护进程上传时，若服务器已有相同内容的文件则跳过
     dup = db.query(FileModel).filter(
@@ -40,7 +51,7 @@ async def sync_upload(
                          direction="home_to_server", status="completed",
                          detail=f"跳过上传: 内容已存在 {dup.path}"))
         db.commit()
-        return {"status": "ok", "path": dup.path, "guard_status": status, "deduplicated": True}
+        return {"status": "ok", "path": dup.path, "guard_status": final_status, "deduplicated": True}
 
     existing = db.query(FileModel).filter_by(owner_id=user.id, path=meta["path"]).first()
     if existing:
@@ -48,14 +59,14 @@ async def sync_upload(
         existing.content_hash = meta["content_hash"]
         existing.modified_at = datetime.utcnow()
         existing.source = source
-        existing.guard_status = status
-        existing.guard_reason = reason
+        existing.guard_status = final_status
+        existing.guard_reason = final_reason
         f = existing
     else:
         f = FileModel(
             owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
             content_hash=meta["content_hash"], mime_type=meta["mime_type"],
-            source=source, guard_status=status, guard_reason=reason,
+            source=source, guard_status=final_status, guard_reason=final_reason,
         )
         db.add(f)
     db.commit()
@@ -68,7 +79,7 @@ async def sync_upload(
 
     db.add(SyncEvent(user_id=user.id, file_id=f.id, file_name=relative_path, direction="home_to_server", status="completed"))
     db.commit()
-    return {"status": "ok", "path": meta["path"], "guard_status": status}
+    return {"status": "ok", "path": meta["path"], "guard_status": final_status}
 
 
 @router.get("/download")

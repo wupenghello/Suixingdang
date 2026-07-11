@@ -59,6 +59,10 @@ BANK_CARD_RE = re.compile(r"\b\d{16,19}\b")
 PHONE_RE = re.compile(r"\b1[3-9]\d{9}\b")
 
 MAX_SCAN_BYTES = 500_000  # 只扫前 500KB
+MAX_SCAN_CHARS = 500_000  # 办公文档提取后的文本扫描上限
+
+# 办公/文档扩展名：需提取文本后扫描（复用 indexer 的提取逻辑）
+OFFICE_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt"}
 
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".rst", ".csv", ".json", ".yaml", ".yml",
@@ -100,17 +104,26 @@ def check_content(user_id: str, rel_path: str, direction: str = "") -> tuple[Gua
     p = Path(rel_path)
     suffix = p.suffix.lower()
 
-    if suffix not in TEXT_EXTENSIONS:
-        return "safe", ""
-
     full_path = storage._user_dir(user_id) / rel_path
     if not full_path.exists():
         return "safe", ""
 
-    try:
-        data = full_path.read_bytes()[:MAX_SCAN_BYTES]
-        text = data.decode("utf-8", errors="ignore")
-    except Exception:
+    # 取文本：纯文本类读原始字节；办公文档提取后取文本；其余类型不扫
+    if suffix in TEXT_EXTENSIONS:
+        try:
+            data = full_path.read_bytes()[:MAX_SCAN_BYTES]
+            text = data.decode("utf-8", errors="ignore")
+        except Exception:
+            return "safe", ""
+    elif suffix in OFFICE_EXTENSIONS:
+        try:
+            from . import indexer
+            text = indexer._extract_text(user_id, rel_path, max_chars=MAX_SCAN_CHARS)
+        except Exception:
+            return "safe", ""
+        if not text:
+            return "safe", ""
+    else:
         return "safe", ""
 
     reasons = []
@@ -129,9 +142,11 @@ def check_content(user_id: str, rel_path: str, direction: str = "") -> tuple[Gua
         reasons.append("疑似手机号")
 
     # 方向感知：根据同步方向决定查哪类关键词
-    to_company = direction in ("server_to_company", "upload")
-    to_home = direction in ("home_to_server", "server_to_home")
-    check_privacy = not to_home          # 往家带不查个人隐私
+    # - home_to_server / upload / server_to_home：往服务器或家里带，重点查公司机密外泄
+    # - server_to_company：往公司带，重点查个人隐私
+    to_home = direction in ("home_to_server", "server_to_home", "upload")
+    to_company = direction in ("server_to_company",)
+    check_privacy = not to_home          # 往家/服务器带不查个人隐私
     check_company = not to_company       # 往公司带不查公司机密
 
     if check_privacy:
