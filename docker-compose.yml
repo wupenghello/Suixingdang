@@ -9,7 +9,9 @@ services:
       # 一次覆盖文件 + SQLite + ChromaDB，防磁盘失窃/备份泄露。详见 docs/DEPLOY_SECURITY.md。
       - ${DATA_DIR:-/data/suixingdang}:/data
     ports:
-      - "8000:8000"
+      # 仅绑定到本机回环：公网无法直连 8000，公网入口只走 Caddy 的 80/443。
+      # Caddy 通过 Docker 内部网络以 server:8000 反代，不依赖此主机端口映射。
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s
