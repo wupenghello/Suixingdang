@@ -5,6 +5,12 @@
 set -e
 cd "$(dirname "$0")/server"
 
+# 本地开发：若 server/.env 不存在，用仓库根目录的 .env.test 提供占位配置，
+# 否则 uvicorn 会读到 config.py 默认路径（/data/...）而非 /tmp 测试目录。
+if [ ! -f .env ] && [ -f ../.env.test ]; then
+  cp ../.env.test .env
+fi
+
 # 清理可能残留的旧进程
 kill $(lsof -ti:8899 2>/dev/null) 2>/dev/null || true
 kill $(lsof -ti:8900 2>/dev/null) 2>/dev/null || true

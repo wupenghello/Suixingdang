@@ -1,10 +1,10 @@
- # 将 {$DOMAIN} 替换为你的实际域名
+ # {$DOMAIN} 由 Caddy 从环境变量自动读取（在 .env 中设置 DOMAIN，docker-compose 已注入）
  # Caddy 会自动申请并续期 Let's Encrypt HTTPS 证书
 
  {$DOMAIN} {
  	reverse_proxy server:8000
 
- 	# 上传文件大小限制（默认 100MB）
+ 	# 上传文件大小限制（500MB）
  	request_body {
  		max_size 500MB
  	}

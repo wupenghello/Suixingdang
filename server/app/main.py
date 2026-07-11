@@ -42,7 +42,7 @@ app.include_router(auth.router)
 app.include_router(files.router)
 app.include_router(chat.router)
 app.include_router(sync.router)
-# admin 路由也挂载（API 层共用），但前端入口不在此端口提供
+# admin 路由与前端（/admin）也挂载于此实例，生产环境统一入口
 app.include_router(admin.router)
 app.include_router(transfer.router)
 

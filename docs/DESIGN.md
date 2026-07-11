@@ -85,16 +85,16 @@ agent 还能当"离职助手"，提醒你别漏该清理的东西。
 
 随行档支持多用户，每个用户有独立文件空间；管理员通过独立后台管理系统进行用户管理。普通用户与管理员是**完全独立的两套认证体系**。
 
-### 3.1 双入口
+### 3.1 入口
 
-服务器侧有两个 FastAPI 应用实例，分别服务两类入口：
+生产环境只运行一个 FastAPI 实例 `app.main:app`，同时服务两类入口：
 
-| 入口 | 应用 | 路由 | 说明 |
-|------|------|------|------|
-| 用户端 `https://域名/` | `app.main:app` | auth / files / chat / sync / admin / transfer | 文件管理、AI 对话、同步、传输助手 |
-| 管理后台 `https://域名/admin` | `app.admin_server:app`（独立实例） | auth / admin | 用户管理、系统统计、审计日志 |
+| 入口 | URL | 提供方 |
+|------|------|------|
+| 用户端 | `https://域名/` | main.py 的 SPA handler + auth/files/chat/sync/transfer 路由 |
+| 管理后台 | `https://域名/admin` | 同一 main.py：SPA handler 返回 admin 前端 + include 的 admin 路由 |
 
-生产部署时两者都经 Caddy 反代到同一个后端（本地开发用 `start.sh` 起 8899/8900 双端口）。
+管理员与普通用户仍是**独立的两套认证体系**（见 3.2），只是跑在同一个进程里。本地开发时 `start.sh` 另起一个 `app.admin_server:app` 进程在 8900 端口（仅 auth+admin）方便管理后台单独调试——这是开发期便利，生产并不部署它。
 
 ### 3.2 双 Token 体系
 
@@ -139,14 +139,25 @@ agent 还能当"离职助手"，提醒你别漏该清理的东西。
 
 ### 4.2 Agent 工具集
 
-| 工具名 | 功能 | 说明 |
-|--------|------|------|
-| `search_files` | 语义 + 关键字找文件 | "上个月那份报价"也能命中 |
-| `sync` | 发起同步/推送 | 按自然语言意图执行文件搬运 |
-| `summarize` | 文档摘要 | 不打开就能了解内容 |
-| `qa` | 内容问答 | RAG 检索，"这份合同的关键条款" |
-| `transfer` | 文件传输助手 | 文字便签 + 文件自动入库（类微信传输助手） |
-| `cleanup_hint` | 清理建议 | 识别长期不用、该归档、该删的文件 |
+Agent 通过 function-calling 调用以下工具（定义在 `server/app/agent/tools.py`）：
+
+| 工具 | 功能 |
+|--------|------|
+| `search_files` | 语义搜索文件和文字便签，返回匹配结果及内容片段 |
+| `list_files` | 列出目录文件 |
+| `get_file_info` | 获取文件详情 |
+| `delete_file` | 删除文件 |
+| `check_guard` | 检查文件敏感度（支持方向感知） |
+| `summarize_file` | 用 AI 生成文件内容摘要 |
+| `qa` | 基于文件内容的问答（RAG 检索相关文件后回答） |
+| `sync` | 管理同步：查看状态 / 列出服务器文件 / 创建推送请求 |
+| `list_sync_events` | 查看同步记录 |
+| `cleanup_suggestions` | 清理建议：找出长期未用的文件 |
+| `cleanup_assistant` | 离职清理助手：检查设备令牌、敏感文件 |
+| `smart_sync_suggestions` | 智能同步建议：基于修改时间和类型给出推送/归档建议 |
+| `get_storage_stats` | 存储统计 |
+
+> 文件传输助手（`/api/transfer`）是独立 API，不属于 Agent 工具。
 
 ### 4.3 Guard 敏感文件检测
 
@@ -207,8 +218,8 @@ suixingdang/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── app/
-│   │   ├── main.py             # 用户端 FastAPI 入口
-│   │   ├── admin_server.py     # 管理端 FastAPI 入口（独立实例）
+│   │   ├── main.py             # FastAPI 入口（生产唯一实例，/admin 管理后台也在此）
+│   │   ├── admin_server.py     # 管理后台入口（仅本地 start.sh 双端口开发用）
 │   │   ├── config.py           # 配置（pydantic Settings，读 env）
 │   │   ├── api/                # API 路由（6 组）
 │   │   │   ├── auth.py         #   /api/auth     认证 + TOTP + 注册
@@ -223,6 +234,9 @@ suixingdang/
 │   │   │   ├── llm_service.py  #   LLM 调用 + function-calling 编排
 │   │   │   ├── guard.py        #   Guard 敏感文件检测
 │   │   │   └── security.py     #   密码哈希 / JWT / TOTP / Fernet 加密
+│   │   ├── agent/              # Agent 智能层
+│   │   │   ├── tools.py        #   function-calling 工具定义（13 个）
+│   │   │   └── brain.py        #   LLM 调用 + 工具编排
 │   │   ├── db/
 │   │   │   └── models.py       #   数据模型（12 张表）+ 限流 + 迁移
 │   │   └── web/                # 前端静态资源（无构建）
@@ -233,6 +247,7 @@ suixingdang/
 │
 ├── daemon/                     # 家里守护进程
 │   ├── watcher.py              #   文件夹监听 + 定时全量同步
+│   ├── sync.py                 #   同步引擎：差异比对 / 上传 / 下载 / 删除
 │   └── config.py               #   守护进程配置
 │
 └── docs/                       # 文档
@@ -254,7 +269,7 @@ SQLite，共 12 张表（`db/models.py`）。按职责分组：
 | `users` | 普通用户 | `username` / `password_hash` / `totp_*` / `role` / `status` / `quota_mb` / `ai_enabled` / `llm_provider_id` / 密保问答 |
 | `admins` | 管理员（独立表，与用户彻底分离） | `username` / `password_hash` / `totp_*` |
 | `access_tokens` | 可吊销的设备令牌 | `user_id` / `label` / `token_hash` / `expires_at` / `revoked` / `last_used_at` |
-| `login_attempts` | 登录限流 + 聊天限流计数（DB 共享，多 worker 生效） | `key`（按 login/admin/reset 三套 scope 隔离）/ `fail_count` / `locked_until` |
+| `login_attempts` | 登录限流 + 聊天限流计数（DB 共享，多 worker 生效） | `key`（按 login/adminlogin/reset/chatrl 四套 scope 隔离）/ `fail_count` / `locked_until` |
 
 ### 7.2 文件
 
