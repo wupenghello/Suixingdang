@@ -111,3 +111,59 @@ def test_list_directory_normal(user):
     # 子目录列举
     sub_names = {it["name"] for it in storage.list_directory(user, "sub")}
     assert sub_names == {"b.txt"}
+
+
+# ==================== 根目录 / 符号链接 / 断链（回归） ====================
+
+def test_delete_file_dot_does_not_wipe(user):
+    """_safe_path 对 '.' 必须拒绝，delete_file('.') 不能 rmtree 整个用户目录。"""
+    storage.save_fileobj(user, "a.txt", io.BytesIO(b"A"))
+    storage.save_fileobj(user, "sub/b.txt", io.BytesIO(b"B"))
+    storage.delete_file(user, ".")
+    storage.delete_file(user, "")  # 空路径同理
+    assert len(storage.list_all_files(user)) == 2, "用户文件被误删"
+
+
+def test_read_file_rejects_root_path(user):
+    storage.save_fileobj(user, "a.txt", io.BytesIO(b"A"))
+    with pytest.raises(FileNotFoundError):
+        storage.read_file(user, ".")
+    with pytest.raises(FileNotFoundError):
+        storage.read_file(user, "")
+
+
+def test_delete_symlink_removes_link_not_target(user):
+    """删除用户目录内的符号链接，应只删链接本身，保留其目标。"""
+    storage.save_fileobj(user, "real.txt", io.BytesIO(b"REAL"))
+    base = storage._user_dir(user).resolve()
+    link = base / "link.txt"
+    link.symlink_to(base / "real.txt")
+    storage.delete_file(user, "link.txt")
+    assert not link.is_symlink(), "符号链接未被删除"
+    assert (base / "real.txt").exists(), "目标被误删"
+    assert (base / "real.txt").read_bytes() == b"REAL"
+
+
+def test_save_rejects_symlink_escape(user):
+    """写入穿过指向外部的符号链接目录时必须拒绝（写逃逸）。"""
+    base = storage._user_dir(user).resolve()
+    outside = base.parent / f"outside-{user}"
+    outside.mkdir(exist_ok=True)
+    try:
+        (base / "escape").symlink_to(outside)
+        with pytest.raises(FileNotFoundError):
+            storage.save_fileobj(user, "escape/x.txt", io.BytesIO(b"LEAK"))
+        assert not (outside / "x.txt").exists(), "文件被写到用户目录外"
+    finally:
+        import shutil as _sh
+        _sh.rmtree(outside, ignore_errors=True)
+
+
+def test_list_directory_skips_broken_symlink(user):
+    """断链符号链接不应让 list_directory 崩溃 500。"""
+    base = storage._user_dir(user).resolve()
+    storage.save_fileobj(user, "good.txt", io.BytesIO(b"ok"))
+    (base / "dangling.link").symlink_to(base / "nope.txt")  # target 不存在
+    items = storage.list_directory(user, "")  # 不应抛异常
+    names = {it["name"] for it in items}
+    assert "good.txt" in names

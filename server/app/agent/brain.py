@@ -1,12 +1,15 @@
 """Agent 大脑（多账户版）：编排 LLM 对话、function-calling。"""
 
 import json
+import logging
 from typing import Optional
 
 from openai import OpenAI
 
 from ..db.models import ChatMessage, SessionLocal
 from . import tools as T
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """你是"随行档"的 AI 文件助手。你管理着一个私人文件中枢，用户通过你查找、管理、同步文件。
 
@@ -84,8 +87,9 @@ def chat(user_id: str, user_message: str, history: Optional[list] = None) -> dic
             if fn:
                 try:
                     result = fn(**fn_args)
-                except Exception as e:
-                    result = json.dumps({"error": str(e)}, ensure_ascii=False)
+                except Exception:
+                    logger.exception("tool %s failed for user %s", fn_name, user_id)
+                    result = json.dumps({"error": "工具执行失败"}, ensure_ascii=False)
             else:
                 result = json.dumps({"error": f"未知工具: {fn_name}"}, ensure_ascii=False)
 
@@ -137,8 +141,9 @@ def chat_stream(user_id: str, user_message: str, history: Optional[list] = None)
                 if fn:
                     try:
                         result = fn(**fn_args)
-                    except Exception as e:
-                        result = _json.dumps({"error": str(e)}, ensure_ascii=False)
+                    except Exception:
+                        logger.exception("tool %s failed for user %s", fn_name, user_id)
+                        result = _json.dumps({"error": "工具执行失败"}, ensure_ascii=False)
                 else:
                     result = _json.dumps({"error": f"未知工具: {fn_name}"}, ensure_ascii=False)
 

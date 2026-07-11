@@ -2,8 +2,9 @@
 
 import uuid
 import sqlite3
+import threading
 from datetime import datetime, timedelta
-from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, ForeignKey, create_engine, or_
+from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, ForeignKey, create_engine, event, or_
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from pathlib import Path
 
@@ -181,6 +182,18 @@ engine = create_engine(
     f"sqlite:///{settings.DATABASE_PATH}",
     connect_args={"check_same_thread": False},
 )
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragmas(dbapi_conn, conn_record):
+    """WAL + synchronous=NORMAL：大幅降低每次 COMMIT 的 fsync 开销，且无损坏风险
+   （仅在断电时可能丢失最后一个未 checkpoint 的事务）。对聊天限流等高频写入路径尤其受益。"""
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA synchronous=NORMAL")
+    cur.close()
+
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -255,6 +268,65 @@ def login_limiter_reset(db, key: str):
         row.first_fail_at = None
         row.locked_until = None
         db.commit()
+
+
+# ---- 通用请求限流（复用 login_attempts 表，按 user_id 限流聊天等接口）----
+# 与登录限流共用 LoginAttempt 表的 key->计数->锁定 结构；用独立 key 前缀隔离。
+# 注意：对这些 key 而言，fail_count 语义为「请求计数」，仅在该命名空间内成立。
+
+CHAT_RATE_LIMIT_WINDOW = 60        # 计数窗口（秒）
+CHAT_RATE_LIMIT_MAX = 20           # 窗口内每用户最大请求数
+CHAT_RATE_LIMIT_LOCK_SECONDS = 60  # 超限后锁定时长（秒）
+
+# 进程内串行化限流的 read-modify-write，避免并发请求同时读到旧计数而漏计。
+# 多进程（多 worker）仍由 SQLite 写锁兜底，残余竞争只导致少量放行，非硬性绕过。
+_rate_limit_lock = threading.Lock()
+
+
+def rate_limit_acquire(db, key: str,
+                       max_requests: int = CHAT_RATE_LIMIT_MAX,
+                       window: int = CHAT_RATE_LIMIT_WINDOW,
+                       lock_seconds: int = CHAT_RATE_LIMIT_LOCK_SECONDS) -> int:
+    """尝试获取一次请求配额。返回 0 表示放行；>0 表示剩余锁定秒数（应回 429）。
+
+    固定窗口计数：窗口内累计 max_requests 次放行，第 max_requests+1 次起锁定 lock_seconds 秒。
+    """
+    now = datetime.utcnow()
+    with _rate_limit_lock:
+        row = db.query(LoginAttempt).filter_by(key=key).first()
+
+        # 仍在锁定期 -> 拒绝（只读，不写）
+        if row and row.locked_until and row.locked_until > now:
+            return int((row.locked_until - now).total_seconds()) + 1
+
+        # 锁已过期 -> 清零，开新窗口
+        if row and row.locked_until:
+            row.locked_until = None
+            row.fail_count = 0
+            row.first_fail_at = None
+
+        # 是否在计数窗口内（first_fail_at 缺失/过期都视为新窗口）
+        in_window = bool(row and row.first_fail_at
+                         and (now - row.first_fail_at).total_seconds() <= window)
+        if in_window:
+            count = (row.fail_count or 0) + 1
+            first_at = row.first_fail_at
+        else:
+            count = 1
+            first_at = now
+
+        if row:
+            row.fail_count = count
+            row.first_fail_at = first_at
+        else:
+            row = LoginAttempt(key=key, fail_count=count, first_fail_at=first_at)
+            db.add(row)
+
+        locked = count > max_requests
+        if locked:
+            row.locked_until = now + timedelta(seconds=lock_seconds)
+        db.commit()
+        return lock_seconds if locked else 0
 
 
 def init_db():

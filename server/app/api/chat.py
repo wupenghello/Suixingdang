@@ -1,15 +1,18 @@
 """对话 API（多账户版）。"""
 
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from ..db.models import ChatMessage, get_db
+from ..db.models import ChatMessage, get_db, rate_limit_acquire
 from ..agent import brain
 from ..core.llm_service import AiDisabled, NoLlmConfigured
 from .auth import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -26,9 +29,17 @@ def _check_ai_access(user_id: str):
         raise HTTPException(403, msg)
 
 
+def _rate_limit(db: Session, user_id: str):
+    """按用户限流聊天接口；超限返回 429。"""
+    wait = rate_limit_acquire(db, f"chatrl:{user_id}")
+    if wait:
+        raise HTTPException(429, f"请求过于频繁，请 {wait} 秒后再试")
+
+
 @router.post("")
 def chat(req: ChatRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     _check_ai_access(user.id)
+    _rate_limit(db, user.id)
     try:
         history = brain.chat_history_for_llm(user.id, limit=5)
         result = brain.chat(user.id, req.message, history=history)
@@ -38,12 +49,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db), user=Depends(get_curre
         raise HTTPException(403, str(e))
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(500, f"Agent 处理失败: {str(e)}")
+    except Exception:
+        logger.exception("agent chat failed for user %s", user.id)
+        raise HTTPException(500, "处理失败，请稍后重试")
 
 
 @router.post("/stream")
-def chat_stream(req: ChatRequest, user=Depends(get_current_user)):
+def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """SSE 流式对话端点。
 
     返回 text/event-stream，每行格式：
@@ -52,14 +64,16 @@ def chat_stream(req: ChatRequest, user=Depends(get_current_user)):
       data: {"type": "done", "data": {"reply": "...", "tool_calls": [...]}}
     """
     _check_ai_access(user.id)
+    _rate_limit(db, user.id)
     history = brain.chat_history_for_llm(user.id, limit=5)
 
     def event_generator():
         try:
             for item in brain.chat_stream(user.id, req.message, history=history):
                 yield {"event": "message", "data": json.dumps(item, ensure_ascii=False)}
-        except Exception as e:
-            yield {"event": "message", "data": json.dumps({"type": "error", "data": str(e)}, ensure_ascii=False)}
+        except Exception:
+            logger.exception("agent chat_stream failed for user %s", user.id)
+            yield {"event": "message", "data": json.dumps({"type": "error", "data": "处理失败，请稍后重试"}, ensure_ascii=False)}
 
     return EventSourceResponse(event_generator())
 

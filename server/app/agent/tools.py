@@ -1,10 +1,13 @@
 """Agent 工具集（多账户版）：所有工具接收 user_id 做隔离。"""
 
 import json
+import logging
 from datetime import datetime, timedelta
 
 from ..db.models import File, SyncEvent, AccessToken, SessionLocal
 from ..core import storage, indexer, guard
+
+logger = logging.getLogger(__name__)
 
 
 def _short(s: str, n: int = 4000) -> str:
@@ -71,8 +74,9 @@ def delete_file(user_id: str, file_path: str) -> str:
         db.add(SyncEvent(user_id=user_id, file_name=file_path, direction="delete", status="completed"))
         db.commit()
         return json.dumps({"success": True, "message": f"已删除 {file_path}"}, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False)
+    except Exception:
+        logger.exception("tool delete_file failed for user %s path %s", user_id, file_path)
+        return json.dumps({"error": "删除文件时出错"}, ensure_ascii=False)
     finally:
         db.close()
 
@@ -106,13 +110,14 @@ def summarize_file(user_id: str, file_path: str) -> str:
             "length": len(text),
             "summary": summary,
         }, ensure_ascii=False)
-    except Exception as e:
+    except Exception:
+        logger.exception("tool summarize_file failed for user %s path %s", user_id, file_path)
         # LLM 不可用时退回预览
         return json.dumps({
             "file": file_path,
             "length": len(text),
             "summary": f"（LLM 调用失败，返回内容预览）\n{_short(text, 1000)}",
-            "error": str(e),
+            "error": "摘要生成失败",
         }, ensure_ascii=False)
 
 
@@ -170,8 +175,9 @@ def qa(user_id: str, question: str, file_path: str = "") -> str:
             "answer": answer,
             "sources": sources,
         }, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"error": f"LLM 调用失败: {e}", "sources": sources}, ensure_ascii=False)
+    except Exception:
+        logger.exception("tool qa failed for user %s", user_id)
+        return json.dumps({"error": "问答服务暂时不可用，请稍后重试", "sources": sources}, ensure_ascii=False)
 
 
 # ============ sync：同步状态与推送意图 ============
