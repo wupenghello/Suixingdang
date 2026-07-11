@@ -1,0 +1,4 @@
+# 测试依赖。本地与 CI 跑测试时安装：
+#   pip install -r requirements.txt -r requirements-dev.txt
+# httpx 已在 requirements.txt 中（FastAPI TestClient 依赖），此处不重复。
+pytest==9.1.1
