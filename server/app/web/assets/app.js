@@ -229,8 +229,9 @@ function getPreviewType(name) {
 }
 function escapeHtml(text) {
   const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  div.textContent = text == null ? '' : String(text);
+  // innerHTML 只转义 & < >；补转义引号，使其在属性上下文（data-* 等）也安全
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ============ Context Menu ============
@@ -746,6 +747,7 @@ async function moveFileToGroup(path, groupId, groupName) {
   try {
     const res = await API.post(`/api/files/move-to-group?path=${encodeURIComponent(path)}&group_id=${encodeURIComponent(groupId)}`);
     if (!res.ok) { let detail = '移动失败'; try { detail = (await res.json()).detail || detail; } catch {} return { ok: false, detail }; }
+    // 必须先 loadGroups 再 loadFiles：根目录渲染依赖 userGroups（分组文件夹的文件数/大小），并行会导致旧计数
     await loadGroups();
     loadFiles();
     return { ok: true };
@@ -877,7 +879,7 @@ function renderFileList(items) {
          <span class="badge badge-group">${cnt}</span>
          <div class="file-meta"><span class="file-size">${formatSize(item.size)}</span></div>
          <div class="file-actions">
-           <button class="icon-btn" onclick="event.stopPropagation();showGroupFolderMenu(event,'${escapeHtml(item.group_id)}','${escapeHtml(item.name)}')" title="更多">${ICONS.more}</button>
+           <button class="icon-btn" data-action="group-menu" title="更多">${ICONS.more}</button>
          </div>
        </div>`;
     }
@@ -894,10 +896,10 @@ function renderFileList(items) {
          <span class="file-date">${formatDate(item.modified)}</span>
        </div>
        <div class="file-actions">
-         ${!item.is_dir ? `<button class="icon-btn" onclick="event.stopPropagation();previewFile('${escapeHtml(item.path)}','${escapeHtml(item.name)}')" title="预览">${ICONS.eye}</button>` : ''}
-         ${!item.is_dir ? `<button class="icon-btn" onclick="event.stopPropagation();downloadFile('${escapeHtml(item.path)}')" title="下载">${ICONS.download}</button>` : ''}
-         <button class="icon-btn danger" onclick="event.stopPropagation();deleteFile('${escapeHtml(item.path)}')" title="删除">${ICONS.trash}</button>
-         <button class="icon-btn" onclick="event.stopPropagation();showFileMenu(event, '${escapeHtml(item.path)}', '${escapeHtml(item.name)}', ${item.is_dir})" title="更多">${ICONS.more}</button>
+         ${!item.is_dir ? `<button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>` : ''}
+         ${!item.is_dir ? `<button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>` : ''}
+         <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
+         <button class="icon-btn" data-action="menu" title="更多">${ICONS.more}</button>
        </div>
      </div>`;
  }).join('')}</div>`;
@@ -929,6 +931,18 @@ function renderFileList(items) {
       } else {
         showFileMenu(e, row.dataset.path, row.dataset.name, row.dataset.isdir === 'true');
       }
+    });
+    row.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const a = btn.dataset.action;
+        const { path, name } = row.dataset;
+        if (a === 'preview') previewFile(path, name);
+        else if (a === 'download') downloadFile(path);
+        else if (a === 'delete') deleteFile(path);
+        else if (a === 'menu') showFileMenu(e, path, name, row.dataset.isdir === 'true');
+        else if (a === 'group-menu') showGroupFolderMenu(e, e.clientY, row.dataset.gid, name);
+      });
     });
   });
 }
@@ -971,14 +985,24 @@ function renderSearchResults(results) {
        <div class="file-name">${escapeHtml(r.name || r.path)}</div>
        <div class="file-meta">${score ? `<span>匹配 ${score}%</span>` : ''}</div>
        <div class="file-actions">
-         <button class="icon-btn" onclick="event.stopPropagation();previewFile('${escapeHtml(r.path)}','${escapeHtml(r.name || r.path)}')" title="预览">${ICONS.eye}</button>
-         <button class="icon-btn" onclick="event.stopPropagation();downloadFile('${escapeHtml(r.path)}')" title="下载">${ICONS.download}</button>
-         <button class="icon-btn danger" onclick="event.stopPropagation();deleteFile('${escapeHtml(r.path)}')" title="删除">${ICONS.trash}</button>
+         <button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>
+         <button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>
+         <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
        </div>
      </div>`;
  }).join('')}</div>`;
  content.querySelectorAll('.file-row').forEach(row => {
    row.addEventListener('click', () => previewFile(row.dataset.path, row.dataset.name));
+   row.querySelectorAll('[data-action]').forEach(btn => {
+     btn.addEventListener('click', (e) => {
+       e.stopPropagation();
+       const a = btn.dataset.action;
+       const { path, name } = row.dataset;
+       if (a === 'preview') previewFile(path, name);
+       else if (a === 'download') downloadFile(path);
+       else if (a === 'delete') deleteFile(path);
+     });
+   });
  });
 }
 
@@ -1319,7 +1343,7 @@ function renderTransferMessages() {
   }
   container.innerHTML = transferMessages.map(msg => {
     const time = formatDateTime(msg.created_at);
-    const delBtn = `<button class="transfer-del" title="删除" onclick="deleteTransferMessage('${msg.id}')">${ICONS.trash}</button>`;
+    const delBtn = `<button class="transfer-del" title="删除" data-action="delete-msg" data-id="${escapeHtml(msg.id)}">${ICONS.trash}</button>`;
     if (msg.type === 'text') {
       return `<div class="transfer-msg">
         <div class="transfer-msg-body">
@@ -1336,7 +1360,7 @@ function renderTransferMessages() {
       ? `<span class="transfer-file-guard warning">敏感提醒</span>` : '';
     return `<div class="transfer-msg">
       <div class="transfer-msg-body">
-        <div class="transfer-file-card" onclick="previewTransferFile('${escapeHtml(f.path)}','${escapeHtml(f.name)}')">
+        <div class="transfer-file-card" data-action="preview-transfer" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">
           <div class="transfer-file-icon ${fi.cls}">${fi.icon}</div>
           <div class="transfer-file-info">
             <div class="transfer-file-name">${escapeHtml(f.name)}</div>
@@ -1345,7 +1369,7 @@ function renderTransferMessages() {
               <span class="transfer-saved">✓ 已存入文件库</span>
             </div>
           </div>
-          <button class="transfer-file-dl" title="下载" onclick="event.stopPropagation();downloadFile('${escapeHtml(f.path)}')">${ICONS.download}</button>
+          <button class="transfer-file-dl" title="下载" data-action="download" data-path="${escapeHtml(f.path)}">${ICONS.download}</button>
         </div>
         <span class="transfer-time">${time}</span>
         ${guardBadge}
@@ -1353,6 +1377,14 @@ function renderTransferMessages() {
       ${delBtn}
     </div>`;
   }).join('');
+  container.querySelectorAll('[data-action]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      const a = el.dataset.action;
+      if (a === 'download') { e.stopPropagation(); downloadFile(el.dataset.path); }
+      else if (a === 'delete-msg') { e.stopPropagation(); deleteTransferMessage(el.dataset.id); }
+      else if (a === 'preview-transfer') previewTransferFile(el.dataset.path, el.dataset.name);
+    });
+  });
   container.scrollTop = container.scrollHeight;
 }
 
