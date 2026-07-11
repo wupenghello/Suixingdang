@@ -306,6 +306,9 @@ function closeContextMenu() {
 
 // ============ Drag-Drop Upload ============
 function setupDragDrop() {
+  // 幂等：App.init 每次登录都会再跑，避免重复挂 document 监听导致一次拖放触发 N 次上传
+  if (setupDragDrop._done) return;
+  setupDragDrop._done = true;
   let dragCounter = 0;
   let overlay = null;
 
@@ -338,6 +341,57 @@ function setupDragDrop() {
       if (App.currentView === 'transfer') handleTransferFiles(e.dataTransfer.files);
       else handleFilesUpload(e.dataTransfer.files);
     }
+  });
+}
+
+
+// ============ Paste Upload ============
+// 为粘贴进来的文件生成可读文件名：截图类泛名（image.png 等）按 MIME + 时间戳重命名，
+// 从文件管理器复制的真实文件保留原名，避免所有截图都叫 image.png。
+function makePasteFileName(file) {
+  const raw = (file.name || '').trim();
+  const GENERIC = new Set(['image.png', 'image.jpg', 'image.jpeg', 'image.gif', 'image.webp', 'image.bmp', 'unknown', 'untitled']);
+  // 保留真实原名（含无扩展名的 README/Makefile 等）；只有泛名（image.png 等）才走生成逻辑
+  if (raw && !GENERIC.has(raw.toLowerCase())) return raw;
+  const mime = file.type || '';
+  let ext = mime.split('/')[1] || 'bin';
+  ext = ext.split(/[+;]/)[0];            // svg+xml -> svg
+  if (ext === 'jpeg') ext = 'jpg';
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  const ts = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  // 随机后缀：同一秒粘贴多张图片时避免文件名碰撞（storage 同名会覆盖落盘文件）
+  const suffix = Math.random().toString(36).slice(2, 6);
+  let prefix = '粘贴文件';
+  if (mime.startsWith('image/')) prefix = '粘贴图片';
+  else if (mime.startsWith('video/')) prefix = '粘贴视频';
+  else if (mime.startsWith('audio/')) prefix = '粘贴音频';
+  return `${prefix}_${ts}_${suffix}.${ext}`;
+}
+
+function setupPaste() {
+  // 幂等：App.init 每次登录都会再跑，避免重复挂 document paste 监听导致一次粘贴触发 N 次上传
+  if (setupPaste._done) return;
+  setupPaste._done = true;
+  document.addEventListener('paste', (e) => {
+    // 仅传输助手视图拦截文件粘贴；其余视图保持浏览器默认行为
+    if (App.currentView !== 'transfer') return;
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items || !items.length) return;
+    // 索引遍历：DataTransferItemList 在部分旧/移动浏览器上不可迭代，for...of 会抛错
+    const fileItems = [];
+    let hasString = false;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'string') { hasString = true; continue; }
+      if (it.kind === 'file') { const f = it.getAsFile(); if (f) fileItems.push(f); }
+    }
+    if (!fileItems.length) return;        // 纯文本：放行，按默认插入到输入框
+    // 富文本混合粘贴（从 Office/网页复制「文字+内嵌图片」）：优先保留文字，不把内嵌图片当文件上传
+    if (hasString && fileItems.every(f => (f.type || '').startsWith('image/'))) return;
+    e.preventDefault();
+    const files = fileItems.map(f => new File([f], makePasteFileName(f), { type: f.type || '' }));
+    handleTransferFiles(files);
   });
 }
 
@@ -2293,6 +2347,7 @@ const App = {
     this.renderLayout();
     this.navigate('transfer');
     setupDragDrop();
+    setupPaste();
     document.addEventListener('click', closeContextMenu);
   },
   renderLayout() {
