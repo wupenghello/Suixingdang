@@ -183,7 +183,7 @@ const ICONS = {
 function formatSize(bytes) {
   if (!bytes) return '-';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
@@ -521,6 +521,69 @@ async function renderFiles() {
   loadFiles();
 }
 
+// ============ Input Dialog (prompt replacement) ============
+function showInputDialog({ title, value = '', placeholder = '', maxlength = 50, confirmText = '确定', validate }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" style="width:420px">
+        <h3></h3>
+        <input type="text" class="form-input">
+        <div class="input-error-msg"></div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary">取消</button>
+          <button class="btn btn-primary"></button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const modal = overlay.querySelector('.modal');
+    const input = modal.querySelector('input');
+    const errEl = modal.querySelector('.input-error-msg');
+    const confirmBtn = modal.querySelector('.btn-primary');
+    // 用户可控值用属性赋值，避免引号破坏 HTML
+    modal.querySelector('h3').textContent = title;
+    input.placeholder = placeholder;
+    input.maxLength = maxlength;
+    input.value = value;
+    confirmBtn.textContent = confirmText;
+
+    let done = false;
+    const close = (result) => { if (done) return; done = true; overlay.remove(); resolve(result); };
+    const check = () => syncInputValidation(input, errEl, confirmBtn, validate);
+    input.addEventListener('input', check);
+    input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter') { e.preventDefault(); if (!confirmBtn.disabled) close(input.value.trim()); }
+      if (e.key === 'Escape') { e.preventDefault(); close(null); }
+    });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+    modal.querySelector('.btn-secondary').addEventListener('click', () => close(null));
+    confirmBtn.addEventListener('click', () => { if (!confirmBtn.disabled) close(input.value.trim()); });
+
+    check();
+    input.focus();
+    input.select();
+  });
+}
+
+function validateGroupName(name, { excludeId } = {}) {
+  if (!name) return { ok: false, msg: '' };
+  if (name.length > 50) return { ok: false, msg: '名称不能超过 50 个字符' };
+  if (userGroups.some(g => g.name === name && g.id !== excludeId)) return { ok: false, msg: '已有同名分组' };
+  return { ok: true };
+}
+
+function syncInputValidation(input, errEl, btn, validate) {
+  const v = input.value.trim();
+  if (!v) { errEl.textContent = ''; input.classList.remove('error'); btn.disabled = true; return; }
+  if (validate) {
+    const r = validate(v);
+    if (!r.ok) { errEl.textContent = r.msg || ''; input.classList.add('error'); btn.disabled = true; return; }
+  }
+  errEl.textContent = ''; input.classList.remove('error'); btn.disabled = false;
+}
+
 // ============ Groups ============
 async function loadGroups() {
   try {
@@ -532,25 +595,45 @@ async function loadGroups() {
 }
 
 function showGroupManager() {
+  if (document.querySelector('[data-group-manager]')) return; // 避免重复打开导致重复 id
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
+  overlay.dataset.groupManager = '1';
   overlay.innerHTML = `
     <div class="modal" style="width:480px">
       <h3>分组管理</h3>
-      <div style="display:flex;gap:8px;margin-bottom:16px">
-        <input type="text" id="new-group-name" class="form-input" placeholder="新分组名称" style="flex:1">
-        <button class="btn btn-primary" id="btn-create-group">${ICONS.add} 创建</button>
+      <div style="margin-bottom:16px">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="new-group-name" class="form-input" placeholder="新分组名称" maxlength="50" style="flex:1">
+          <button class="btn btn-primary" id="btn-create-group" disabled>${ICONS.add} 创建</button>
+        </div>
+        <div class="input-error-msg" id="new-group-error"></div>
       </div>
       <div id="group-list" style="max-height:320px;overflow:auto">加载中...</div>
       <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">关闭</button>
+        <button class="btn btn-secondary" id="btn-close-groups">关闭</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  const input = document.getElementById('new-group-name');
+  const createBtn = document.getElementById('btn-create-group');
+  const errEl = document.getElementById('new-group-error');
+  const checkNewGroup = () => syncInputValidation(input, errEl, createBtn, validateGroupName);
+  input.addEventListener('input', checkNewGroup);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('btn-create-group').addEventListener('click', createGroup);
-  document.getElementById('new-group-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') createGroup(); });
+  createBtn.addEventListener('click', createGroup);
+  input.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter' && !createBtn.disabled) createGroup(); });
+  document.getElementById('btn-close-groups').addEventListener('click', () => overlay.remove());
+  document.getElementById('group-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const g = userGroups.find(x => x.id === btn.dataset.id);
+    if (!g) return;
+    if (btn.dataset.action === 'rename') renameGroup(g.id, g.name);
+    else if (btn.dataset.action === 'delete') deleteGroup(g.id, g.name);
+  });
   renderGroupManagerList();
+  input.focus();
 }
 
 function renderGroupManagerList() {
@@ -566,8 +649,8 @@ function renderGroupManagerList() {
       <td>${g.file_count}</td>
       <td>${formatSize(g.size)}</td>
       <td>
-        <button class="btn btn-secondary btn-sm" onclick="renameGroup('${escapeHtml(g.id)}','${escapeHtml(g.name)}')">重命名</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteGroup('${escapeHtml(g.id)}','${escapeHtml(g.name)}')">删除</button>
+        <button class="btn btn-secondary btn-sm" data-action="rename" data-id="${escapeHtml(g.id)}">重命名</button>
+        <button class="btn btn-danger btn-sm" data-action="delete" data-id="${escapeHtml(g.id)}">删除</button>
       </td>
     </tr>`).join('')}
   </tbody></table>`;
@@ -575,8 +658,11 @@ function renderGroupManagerList() {
 
 async function createGroup() {
   const input = document.getElementById('new-group-name');
+  const createBtn = document.getElementById('btn-create-group');
+  const errEl = document.getElementById('new-group-error');
   const name = input.value.trim();
-  if (!name) { Toast.show('请输入分组名称', 'error'); return; }
+  if (!name || createBtn.disabled) return;
+  createBtn.disabled = true;
   try {
     const res = await API.post('/api/files/groups', { name });
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '创建失败', 'error'); return; }
@@ -584,21 +670,26 @@ async function createGroup() {
     Toast.show('分组已创建', 'success');
     await loadGroups();
     renderGroupManagerList();
+    input.focus();
   } catch { Toast.show('创建失败', 'error'); }
+  finally { syncInputValidation(input, errEl, createBtn, validateGroupName); }
 }
 
 async function renameGroup(id, oldName) {
-  const name = prompt('重命名分组：', oldName);
-  if (name === null) return;
-  const trimmed = name.trim();
-  if (!trimmed || trimmed === oldName) return;
+  const name = await showInputDialog({
+    title: '重命名分组',
+    value: oldName,
+    confirmText: '保存',
+    validate: v => validateGroupName(v, { excludeId: id }),
+  });
+  if (name === null || name === oldName.trim()) return;
   try {
-    const res = await API.put(`/api/files/groups/${id}`, { name: trimmed });
+    const res = await API.put(`/api/files/groups/${id}`, { name });
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '重命名失败', 'error'); return; }
     Toast.show('已重命名', 'success');
     await loadGroups();
     renderGroupManagerList();
-    if (selectedGroup === id) loadFiles();
+    loadFiles();
   } catch { Toast.show('重命名失败', 'error'); }
 }
 
@@ -635,34 +726,47 @@ function showMoveToGroupMenu(x, y, path) {
   const items = [];
   if (userGroups.length) {
     userGroups.forEach(g => {
-      items.push({ action: 'g_' + g.id, label: g.name, icon: ICONS.folder, onClick: () => moveFileToGroup(path, g.id, g.name) });
+      items.push({ action: 'g_' + g.id, label: g.name, icon: ICONS.folder, onClick: async () => {
+        const r = await moveFileToGroup(path, g.id, g.name);
+        if (r.ok) Toast.show(`已移入「${g.name}」`, 'success'); else Toast.show(r.detail, 'error');
+      }});
     });
     items.push({ divider: true });
   }
   items.push({ action: 'new_group', label: '新建分组…', icon: ICONS.add, onClick: () => quickCreateGroupAndMove(path) });
-  items.push({ action: 'remove', label: '移出分组', icon: ICONS.close, onClick: () => moveFileToGroup(path, '', '') });
+  items.push({ action: 'remove', label: '移出分组', icon: ICONS.close, onClick: async () => {
+    const r = await moveFileToGroup(path, '', '');
+    if (r.ok) Toast.show('已移出分组', 'success'); else Toast.show(r.detail, 'error');
+  }});
   showContextMenu(x, y, items);
 }
 
+// 纯操作：执行移动并刷新列表，返回 { ok, detail }；由调用方决定如何提示
 async function moveFileToGroup(path, groupId, groupName) {
   try {
     const res = await API.post(`/api/files/move-to-group?path=${encodeURIComponent(path)}&group_id=${encodeURIComponent(groupId)}`);
-    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '移动失败', 'error'); return; }
-    Toast.show(groupId ? `已移入「${groupName}」` : '已移出分组', 'success');
+    if (!res.ok) { let detail = '移动失败'; try { detail = (await res.json()).detail || detail; } catch {} return { ok: false, detail }; }
     await loadGroups();
     loadFiles();
-  } catch { Toast.show('移动失败', 'error'); }
+    return { ok: true };
+  } catch { return { ok: false, detail: '移动失败' }; }
 }
 
 async function quickCreateGroupAndMove(path) {
-  const name = prompt('新分组名称：');
-  if (!name || !name.trim()) return;
+  const fileName = path.split('/').pop();
+  const name = await showInputDialog({
+    title: `新建分组并移入「${fileName}」`,
+    placeholder: '新分组名称',
+    confirmText: '创建并移入',
+    validate: v => validateGroupName(v),
+  });
+  if (name === null) return;
   try {
-    const res = await API.post('/api/files/groups', { name: name.trim() });
+    const res = await API.post('/api/files/groups', { name });
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '创建失败', 'error'); return; }
     const data = await res.json();
-    await loadGroups();
-    await moveFileToGroup(path, data.id, data.name);
+    const r = await moveFileToGroup(path, data.id, data.name);
+    Toast.show(r.ok ? `已创建「${data.name}」并移入文件` : `已创建「${data.name}」，移动失败（${r.detail}）`, r.ok ? 'success' : 'warning');
   } catch { Toast.show('创建失败', 'error'); }
 }
 
@@ -823,7 +927,7 @@ function renderFileList(items) {
       if (row.dataset.isgroup === 'true') {
         showGroupFolderMenu(e.clientX, e.clientY, row.dataset.gid, row.dataset.name);
       } else {
-        showFileMenu(e.clientX, e.clientY, row.dataset.path, row.dataset.name, row.dataset.isdir === 'true');
+        showFileMenu(e, row.dataset.path, row.dataset.name, row.dataset.isdir === 'true');
       }
     });
   });
