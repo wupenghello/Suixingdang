@@ -117,3 +117,22 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); c
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .page-ellipsis { color: var(--text-muted); padding: 0 4px; user-select: none; }
 .page-info { margin-left: auto; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+  .admin-main { padding: 16px; }
+  .admin-topbar { flex-wrap: wrap; }
+  .data-table { display: block; overflow-x: auto; white-space: nowrap; }
+  .stats-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+@media (max-width: 600px) {
+  .admin-sidebar { width: 56px; padding: 16px 0; }
+  .admin-logo { justify-content: center; padding: 0 0 16px; }
+  .admin-logo-text { display: none; }
+  .admin-nav { padding: 0 8px; }
+  /* font-size:0 隐藏导航文字，仅保留图标（svg 尺寸不受影响） */
+  .admin-nav-item { font-size: 0; justify-content: center; padding: 12px; }
+  .admin-nav-item svg { width: 20px; height: 20px; }
+  .admin-main { padding: 12px; }
+  .modal { max-width: 94vw; }
+}

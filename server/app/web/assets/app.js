@@ -179,6 +179,13 @@ const ICONS = {
   user: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
 };
 
+// 文件页控件图标
+const SORT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="13" y2="7"/><line x1="4" y1="12" x2="11" y2="12"/><line x1="4" y1="17" x2="9" y2="17"/><polyline points="15,14 18,17 21,14"/></svg>';
+const GRID_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg>';
+const LIST_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>';
+const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>';
+const SELECT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><polyline points="8.5,12 11,14.5 15.5,9.5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 // ============ Utils ============
 function formatSize(bytes) {
   if (!bytes) return '-';
@@ -193,14 +200,10 @@ function formatDate(ts) {
   return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 }
 function formatDateTime(ts) {
-  if (!ts) return '';
-  let s = String(ts);
-  // 服务器时间为 UTC（naive datetime），补齐为 ISO 并按 UTC 解析后转本地时区
-  if (s.indexOf('T') === -1) s = s.replace(' ', 'T');
-  if (!/[+-]\d{2}:?\d{2}$/.test(s) && !s.endsWith('Z')) s += 'Z';
-  const d = new Date(s);
-  if (isNaN(d)) return String(ts);
-  return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  // 复用 parseServerTs 统一服务器 naive-UTC 时间戳的解析逻辑
+  const ms = parseServerTs(ts);
+  if (!ms) return ts ? String(ts) : '';
+  return new Date(ms).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 function getFileIcon(name, isDir) {
   if (isDir) return { cls: 'folder', icon: ICONS.folder };
@@ -232,6 +235,44 @@ function escapeHtml(text) {
   div.textContent = text == null ? '' : String(text);
   // innerHTML 只转义 & < >；补转义引号，使其在属性上下文（data-* 等）也安全
   return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// 将 markdown 文本渲染为安全的 HTML（用于 AI 回复）
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html;
+  try {
+    html = window.marked.parse(text, { breaks: true, gfm: true });
+  } catch { return escapeHtml(text).replace(/\n/g, '<br>'); }
+  try { html = window.DOMPurify.sanitize(html); } catch {}
+  // 外部链接新窗口打开，避免覆盖当前会话
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  div.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
+  return div.innerHTML;
+}
+
+// 偏好持久化（视图、排序等）
+function loadPref(key, def) {
+  try { const v = JSON.parse(localStorage.getItem('sxd_' + key)); return v == null ? def : v; } catch { return def; }
+}
+function savePref(key, val) {
+  try { localStorage.setItem('sxd_' + key, JSON.stringify(val)); } catch {}
+}
+
+// 列表加载骨架屏（替代纯文字"加载中..."）
+function skeletonHTML(rows = 6) {
+  const row = `<div class="skeleton-row"><div class="sk-icon"></div><div class="sk-lines"><div class="sk-line w-50"></div><div class="sk-line w-25"></div></div></div>`;
+  return `<div class="file-list">${row.repeat(rows)}</div>`;
+}
+
+// 错误态 + 重试按钮（替代纯文字"加载失败"）
+function renderErrorState(container, message, onRetry) {
+  container.innerHTML = `<div class="empty-state error-state"><div>${escapeHtml(message || '加载失败')}</div>${onRetry ? '<button class="btn btn-secondary btn-sm" style="margin-top:12px">重试</button>' : ''}</div>`;
+  if (onRetry) {
+    const btn = container.querySelector('.error-state button');
+    if (btn) btn.addEventListener('click', onRetry);
+  }
 }
 
 // ============ Context Menu ============
@@ -488,6 +529,11 @@ let currentDir = '';
 let searchQuery = '';
 let selectedGroup = '';  // 当前选中的分组 id（'' = 全部）
 let userGroups = [];    // 缓存当前用户的分组列表
+let currentFileItems = [];               // 当前渲染的原始 items（供排序/选择重渲复用）
+let fileSort = loadPref('fileSort', { key: 'name', dir: 'asc' });   // 排序偏好
+let fileView = loadPref('fileView', 'list');                         // 视图：list | grid
+let fileSelectMode = false;              // 是否处于批量选择模式
+let fileSelection = new Set();           // 选中的 path 集合
 
 async function renderFiles() {
   document.getElementById('main-content').innerHTML = `
@@ -501,7 +547,13 @@ async function renderFiles() {
     <div class="file-browser">
       <div class="file-toolbar">
         <div class="search-box">${ICONS.search}<input type="text" id="search-input" placeholder="搜索文件..." value="${escapeHtml(searchQuery)}"></div>
+        <div class="file-controls">
+          <button class="btn btn-secondary btn-icon-only" id="btn-sort" title="排序">${SORT_ICON}</button>
+          <button class="btn btn-secondary btn-icon-only" id="btn-view" title="切换视图">${fileView === 'grid' ? LIST_ICON : GRID_ICON}</button>
+          <button class="btn btn-secondary btn-icon-only" id="btn-select" title="批量选择">${SELECT_ICON}</button>
+        </div>
       </div>
+      <div id="batch-bar" class="batch-bar" style="display:none"></div>
       <div class="breadcrumb" id="breadcrumb"></div>
       <div id="file-content"></div>
     </div>
@@ -511,6 +563,17 @@ async function renderFiles() {
   document.getElementById('btn-groups').addEventListener('click', showGroupManager);
   document.getElementById('btn-upload').addEventListener('click', () => document.getElementById('file-input').click());
   document.getElementById('file-input').addEventListener('change', (e) => { if (e.target.files.length) handleFilesUpload(e.target.files); e.target.value = ''; });
+  document.getElementById('btn-sort').addEventListener('click', (e) => showSortMenu(e));
+  document.getElementById('btn-view').addEventListener('click', () => {
+    fileView = fileView === 'grid' ? 'list' : 'grid';
+    savePref('fileView', fileView);
+    const vb = document.getElementById('btn-view');
+    if (vb) { vb.innerHTML = fileView === 'grid' ? LIST_ICON : GRID_ICON; vb.title = fileView === 'grid' ? '列表视图' : '网格视图'; }
+    renderFileList(currentFileItems);
+  });
+  document.getElementById('btn-select').addEventListener('click', () => {
+    if (fileSelectMode) exitSelectMode(); else enterSelectMode();
+  });
 
   const searchInput = document.getElementById('search-input');
   let debounceTimer;
@@ -566,6 +629,68 @@ function showInputDialog({ title, value = '', placeholder = '', maxlength = 50, 
     input.focus();
     input.select();
   });
+}
+
+// ============ Confirm Dialog (confirm replacement) ============
+// 用自定义 modal 替代原生 confirm()，与项目其他弹窗风格一致；返回 Promise<boolean>
+function confirmDialog({ title, message, confirmText = '确定', cancelText = '取消', danger = false }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" style="width:420px">
+        <h3></h3>
+        <p class="confirm-message"></p>
+        <div class="modal-actions">
+          <button class="btn btn-secondary"></button>
+          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}"></button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const modal = overlay.querySelector('.modal');
+    modal.querySelector('h3').textContent = title;
+    modal.querySelector('.confirm-message').textContent = message; // textContent 防 XSS
+    const cancelBtn = modal.querySelector('.btn-secondary');
+    const okBtn = modal.querySelector(danger ? '.btn-danger' : '.btn-primary');
+    cancelBtn.textContent = cancelText;
+    okBtn.textContent = confirmText;
+    let done = false;
+    const cleanup = (r) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', escHandler);
+      overlay.remove();
+      resolve(r);
+    };
+    const escHandler = (e) => { if (e.key === 'Escape') cleanup(false); if (e.key === 'Enter') cleanup(true); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+    cancelBtn.addEventListener('click', () => cleanup(false));
+    okBtn.addEventListener('click', () => cleanup(true));
+    document.addEventListener('keydown', escHandler);
+    setTimeout(() => okBtn.focus(), 0);
+  });
+}
+
+// ============ Clipboard ============
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {}
+  // 回退：临时 textarea + execCommand（非 HTTPS 或旧浏览器）
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch { return false; }
 }
 
 function validateGroupName(name, { excludeId } = {}) {
@@ -695,7 +820,7 @@ async function renameGroup(id, oldName) {
 }
 
 async function deleteGroup(id, name) {
-  if (!confirm(`确定删除分组「${name}」？\n分组内的文件不会被删除，仅移出分组。`)) return;
+  if (!await confirmDialog({ title: '删除分组', message: `确定删除分组「${name}」？分组内的文件不会被删除，仅移出分组。`, confirmText: '删除', danger: true })) return;
   try {
     const res = await API.del(`/api/files/groups/${id}`);
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '删除失败', 'error'); return; }
@@ -816,34 +941,48 @@ function renderBreadcrumb() {
 async function loadFiles() {
   const content = document.getElementById('file-content');
   if (!content) return;
+  const fail = (msg) => renderErrorState(content, msg, () => loadFiles());
+  // 搜索结果不走 renderFileList；若处于选择模式则先退出，避免选中态错乱
+  if (searchQuery && fileSelectMode) { fileSelectMode = false; fileSelection.clear(); updateBatchBar(); }
   if (searchQuery) {
     content.innerHTML = '<div class="empty-state">搜索中...</div>';
     try {
       const res = await API.get(`/api/files/search?q=${encodeURIComponent(searchQuery)}`);
       const data = await res.json();
       renderSearchResults(data.results || []);
-    } catch { content.innerHTML = '<div class="empty-state">搜索失败</div>'; }
+    } catch { fail('搜索失败'); }
   } else if (selectedGroup) {
     // 分组视图：展示该分组全部文件
     renderBreadcrumb();
-    content.innerHTML = '<div class="empty-state">加载中...</div>';
+    content.innerHTML = skeletonHTML(6);
     try {
       const res = await API.get(`/api/files/list?group_id=${encodeURIComponent(selectedGroup)}`);
       const data = await res.json();
       renderFileList(data.items || []);
-    } catch { content.innerHTML = '<div class="empty-state">加载失败</div>'; }
+    } catch { fail('加载失败'); }
   } else {
     renderBreadcrumb();
-    content.innerHTML = '<div class="empty-state">加载中...</div>';
+    content.innerHTML = skeletonHTML(6);
     try {
       const res = await API.get(`/api/files/list?directory=${encodeURIComponent(currentDir)}`);
       const data = await res.json();
       renderFileList(data.items || []);
-    } catch { content.innerHTML = '<div class="empty-state">加载失败</div>'; }
+    } catch { fail('加载失败'); }
   }
 }
 
+function sortItems(items) {
+  const { key, dir } = fileSort;
+  const mul = dir === 'desc' ? -1 : 1;
+  return [...items].sort((a, b) => {
+    if (key === 'size') return mul * ((a.size || 0) - (b.size || 0));
+    if (key === 'modified') return mul * ((a.modified || 0) - (b.modified || 0));
+    return mul * String(a.name || '').localeCompare(String(b.name || ''), 'zh');
+  });
+}
+
 function renderFileList(items) {
+  currentFileItems = items;
   const content = document.getElementById('file-content');
   if (!content) return;
   const isRoot = !currentDir && !selectedGroup && !searchQuery;
@@ -857,7 +996,9 @@ function renderFileList(items) {
     }));
     // 已分组的根级文件不重复显示（通过分组文件夹访问）
     const ungrouped = items.filter(i => i.is_dir || !i.group_id);
-    displayItems = groupFolders.concat(ungrouped);
+    displayItems = groupFolders.concat(sortItems(ungrouped));
+  } else {
+    displayItems = sortItems(items);
   }
 
   if (!displayItems.length) {
@@ -867,76 +1008,96 @@ function renderFileList(items) {
         ? `${ICONS.groups}<div>还没有分组或文件</div><div style="font-size:13px;margin-top:4px">点击"分组"创建分组，或直接"上传"文件</div>`
         : '<div>这个目录是空的</div><div style="font-size:13px;margin-top:4px">拖拽文件到此或点击"上传"</div>';
     content.innerHTML = `<div class="file-list"><div class="empty-state">${emptyMsg}</div></div>`;
+    updateBatchBar();
     return;
   }
-  content.innerHTML = `<div class="file-list">${displayItems.map(item => {
-    if (item.is_group) {
-      const cnt = item.file_count > 0 ? `${item.file_count} 个文件` : '空';
-      return `
-       <div class="file-row group-folder" data-gid="${escapeHtml(item.group_id)}" data-isgroup="true" data-name="${escapeHtml(item.name)}">
-         <div class="file-icon folder">${ICONS.groups}</div>
-         <div class="file-name">${escapeHtml(item.name)}</div>
-         <span class="badge badge-group">${cnt}</span>
-         <div class="file-meta"><span class="file-size">${formatSize(item.size)}</span></div>
-         <div class="file-actions">
-           <button class="icon-btn" data-action="group-menu" title="更多">${ICONS.more}</button>
-         </div>
-       </div>`;
-    }
-    const icon = getFileIcon(item.name, item.is_dir);
-    const groupHtml = (!selectedGroup && item.group_name) ? `<span class="badge badge-group">${escapeHtml(item.group_name)}</span>` : '';
-    const guardHtml = item.guard_status === 'warning' ? '<span class="badge badge-warning">注意</span>' : item.guard_status === 'blocked' ? '<span class="badge badge-danger">敏感</span>' : '';
-   return `
-     <div class="file-row" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}">
-       <div class="file-icon ${icon.cls}">${icon.icon}</div>
-       <div class="file-name">${escapeHtml(item.name)}</div>
-       ${groupHtml}${guardHtml}
-       <div class="file-meta">
-         <span class="file-size">${item.is_dir ? '-' : formatSize(item.size)}</span>
-         <span class="file-date">${formatDate(item.modified)}</span>
-       </div>
-       <div class="file-actions">
-         ${!item.is_dir ? `<button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>` : ''}
-         ${!item.is_dir ? `<button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>` : ''}
-         <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
-         <button class="icon-btn" data-action="menu" title="更多">${ICONS.more}</button>
-       </div>
-     </div>`;
- }).join('')}</div>`;
+  const wrapCls = fileView === 'grid' ? 'file-grid' : 'file-list';
+  content.innerHTML = `<div class="${wrapCls}">${displayItems.map(item => fileItemHTML(item)).join('')}</div>`;
+  bindFileItems(content);
+  updateBatchBar();
+}
 
- content.querySelectorAll('.file-row').forEach(row => {
-   row.addEventListener('click', () => {
-     if (row.dataset.isgroup === 'true') {
-       selectedGroup = row.dataset.gid;
-       currentDir = '';
-       searchQuery = '';
-       const si = document.getElementById('search-input');
-       if (si) si.value = '';
-       loadFiles();
-     } else if (row.dataset.isdir === 'true') {
-       currentDir = row.dataset.path;
-       selectedGroup = '';
-       searchQuery = '';
-       const si = document.getElementById('search-input');
-       if (si) si.value = '';
-       loadFiles();
-     } else {
-       previewFile(row.dataset.path, row.dataset.name);
-     }
-   });
+function fileItemHTML(item) {
+  const isSel = fileSelection.has(item.path);
+  if (item.is_group) {
+    const cnt = item.file_count > 0 ? `${item.file_count} 个文件` : '空';
+    if (fileView === 'grid') {
+      return `<div class="file-card group-folder" data-gid="${escapeHtml(item.group_id)}" data-isgroup="true" data-name="${escapeHtml(item.name)}">
+        <div class="file-icon folder">${ICONS.groups}</div>
+        <div class="file-name">${escapeHtml(item.name)}</div>
+        <div class="file-card-meta"><span class="badge badge-group">${cnt}</span></div>
+      </div>`;
+    }
+    return `<div class="file-row group-folder" data-gid="${escapeHtml(item.group_id)}" data-isgroup="true" data-name="${escapeHtml(item.name)}">
+      <div class="file-icon folder">${ICONS.groups}</div>
+      <div class="file-name">${escapeHtml(item.name)}</div>
+      <span class="badge badge-group">${cnt}</span>
+      <div class="file-meta"><span class="file-size">${formatSize(item.size)}</span></div>
+      <div class="file-actions"><button class="icon-btn" data-action="group-menu" title="更多">${ICONS.more}</button></div>
+    </div>`;
+  }
+  const icon = getFileIcon(item.name, item.is_dir);
+  const groupHtml = (!selectedGroup && item.group_name) ? `<span class="badge badge-group">${escapeHtml(item.group_name)}</span>` : '';
+  const guardHtml = item.guard_status === 'warning' ? '<span class="badge badge-warning">注意</span>' : item.guard_status === 'blocked' ? '<span class="badge badge-danger">敏感</span>' : '';
+  const checkHtml = (fileSelectMode && !item.is_dir) ? `<div class="file-check ${isSel ? 'is-checked' : ''}" data-action="toggle-select">${isSel ? CHECK_ICON : ''}</div>` : '';
+  const selCls = isSel ? ' is-selected' : '';
+  if (fileView === 'grid') {
+    return `<div class="file-card${selCls}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}">
+      ${checkHtml}
+      <div class="file-icon ${icon.cls}">${icon.icon}</div>
+      <div class="file-name">${escapeHtml(item.name)}</div>
+      <div class="file-card-meta"><span>${item.is_dir ? '文件夹' : formatSize(item.size)}</span></div>
+    </div>`;
+  }
+  return `<div class="file-row${selCls}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}">
+    ${checkHtml}
+    <div class="file-icon ${icon.cls}">${icon.icon}</div>
+    <div class="file-name">${escapeHtml(item.name)}</div>
+    ${groupHtml}${guardHtml}
+    <div class="file-meta">
+      <span class="file-size">${item.is_dir ? '-' : formatSize(item.size)}</span>
+      <span class="file-date">${formatDate(item.modified)}</span>
+    </div>
+    <div class="file-actions">
+      ${!item.is_dir ? `<button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>` : ''}
+      ${!item.is_dir ? `<button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>` : ''}
+      <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
+      <button class="icon-btn" data-action="menu" title="更多">${ICONS.more}</button>
+    </div>
+  </div>`;
+}
+
+function bindFileItems(content) {
+  content.querySelectorAll('.file-row, .file-card').forEach(row => {
+    row.addEventListener('click', () => {
+      // 选择模式：仅普通文件可点选切换；分组/目录不参与多选也不导航
+      if (fileSelectMode) {
+        if (row.dataset.isgroup !== 'true' && row.dataset.isdir !== 'true') toggleSelect(row.dataset.path);
+        return;
+      }
+      if (row.dataset.isgroup === 'true') {
+        selectedGroup = row.dataset.gid; currentDir = ''; searchQuery = '';
+        const si = document.getElementById('search-input'); if (si) si.value = '';
+        loadFiles();
+      } else if (row.dataset.isdir === 'true') {
+        currentDir = row.dataset.path; selectedGroup = ''; searchQuery = '';
+        const si = document.getElementById('search-input'); if (si) si.value = '';
+        loadFiles();
+      } else {
+        previewFile(row.dataset.path, row.dataset.name);
+      }
+    });
     row.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      if (row.dataset.isgroup === 'true') {
-        showGroupFolderMenu(e.clientX, e.clientY, row.dataset.gid, row.dataset.name);
-      } else {
-        showFileMenu(e, row.dataset.path, row.dataset.name, row.dataset.isdir === 'true');
-      }
+      if (row.dataset.isgroup === 'true') showGroupFolderMenu(e.clientX, e.clientY, row.dataset.gid, row.dataset.name);
+      else showFileMenu(e, row.dataset.path, row.dataset.name, row.dataset.isdir === 'true');
     });
     row.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const a = btn.dataset.action;
         const { path, name } = row.dataset;
+        if (a === 'toggle-select') { toggleSelect(path); return; }
         if (a === 'preview') previewFile(path, name);
         else if (a === 'download') downloadFile(path);
         else if (a === 'delete') deleteFile(path);
@@ -945,6 +1106,134 @@ function renderFileList(items) {
       });
     });
   });
+}
+
+function toggleSelect(path) {
+  // 增量更新单行选中态，避免整表重渲（大目录下每个勾选都 O(N)）
+  const had = fileSelection.has(path);
+  if (had) fileSelection.delete(path); else fileSelection.add(path);
+  const sel = `.file-row[data-path="${CSS.escape(path)}"], .file-card[data-path="${CSS.escape(path)}"]`;
+  document.querySelectorAll(sel).forEach(el => {
+    el.classList.toggle('is-selected', !had);
+    const chk = el.querySelector('.file-check');
+    if (chk) { chk.classList.toggle('is-checked', !had); chk.innerHTML = !had ? CHECK_ICON : ''; }
+  });
+  updateBatchBar();
+}
+
+function updateBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  if (!bar) return;
+  if (!fileSelectMode) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  const n = fileSelection.size;
+  bar.style.display = '';
+  // 首次进入选择模式时构建按钮并绑定一次；后续仅更新计数与禁用态，避免重复绑定监听
+  if (!bar.querySelector('#btn-batch-delete')) {
+    bar.innerHTML = `
+      <span class="batch-count"></span>
+      <div class="batch-spacer"></div>
+      <button class="btn btn-secondary btn-sm" id="btn-select-all">全选当前列表</button>
+      <button class="btn btn-secondary btn-sm" id="btn-batch-move">移动到分组</button>
+      <button class="btn btn-danger btn-sm" id="btn-batch-delete">删除</button>
+      <button class="btn btn-secondary btn-sm" id="btn-cancel-select">退出选择</button>`;
+    bar.querySelector('#btn-select-all').addEventListener('click', selectAllFiles);
+    bar.querySelector('#btn-batch-move').addEventListener('click', batchMoveSelected);
+    bar.querySelector('#btn-batch-delete').addEventListener('click', batchDeleteSelected);
+    bar.querySelector('#btn-cancel-select').addEventListener('click', exitSelectMode);
+  }
+  bar.querySelector('.batch-count').textContent = `已选 ${n} 项`;
+  bar.querySelector('#btn-batch-move').disabled = !n;
+  bar.querySelector('#btn-batch-delete').disabled = !n;
+}
+
+function enterSelectMode() {
+  // 搜索结果不走 renderFileList，选择模式下先回到目录视图
+  if (searchQuery) {
+    searchQuery = '';
+    const si = document.getElementById('search-input'); if (si) si.value = '';
+  }
+  fileSelectMode = true;
+  fileSelection.clear();
+  loadFiles();
+  updateBatchBar();
+}
+
+function exitSelectMode() {
+  fileSelectMode = false;
+  fileSelection.clear();
+  renderFileList(currentFileItems);
+  updateBatchBar();
+}
+
+function selectAllFiles() {
+  const isRoot = !currentDir && !selectedGroup && !searchQuery;
+  let pool = currentFileItems;
+  if (isRoot) pool = pool.filter(i => i.is_dir || !i.group_id);
+  pool.forEach(i => { if (!i.is_group && !i.is_dir) fileSelection.add(i.path); });
+  renderFileList(currentFileItems);
+  updateBatchBar();
+}
+
+async function batchDeleteSelected() {
+  const paths = [...fileSelection];
+  if (!paths.length) return;
+  if (!await confirmDialog({ title: '批量删除', message: `确定删除选中的 ${paths.length} 个文件？删除后无法恢复。`, confirmText: '删除', danger: true })) return;
+  // 各文件删除互相独立，并发执行以缩短总耗时
+  const results = await Promise.all(paths.map(p =>
+    API.del(`/api/files?path=${encodeURIComponent(p)}`).then(r => r.ok).catch(() => false)
+  ));
+  const ok = results.filter(Boolean).length;
+  const fail = results.length - ok;
+  Toast.show(`已删除 ${ok} 项${fail ? `，失败 ${fail} 项` : ''}`, fail ? 'warning' : 'success');
+  exitSelectMode();
+  await loadGroups();
+  loadFiles();
+}
+
+function batchMoveSelected() {
+  const paths = [...fileSelection];
+  if (!paths.length) return;
+  const items = [];
+  userGroups.forEach(g => items.push({ action: 'g_' + g.id, label: g.name, icon: ICONS.folder, onClick: async () => {
+    let ok = 0, fail = 0;
+    for (const p of paths) { const r = await moveFileToGroup(p, g.id, g.name); if (r.ok) ok++; else fail++; }
+    Toast.show(`已移动 ${ok} 项到「${g.name}」${fail ? `，失败 ${fail}` : ''}`, fail ? 'warning' : 'success');
+    exitSelectMode();
+  }}));
+  items.push({ divider: true });
+  items.push({ action: 'new_group', label: '新建分组…', icon: ICONS.add, onClick: async () => {
+    const name = await showInputDialog({ title: `新建分组并移入 ${paths.length} 项`, placeholder: '新分组名称', confirmText: '创建并移入', validate: v => validateGroupName(v) });
+    if (name === null) return;
+    try {
+      const res = await API.post('/api/files/groups', { name });
+      if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '创建失败', 'error'); return; }
+      const data = await res.json();
+      let ok = 0, fail = 0;
+      for (const p of paths) { const r = await moveFileToGroup(p, data.id, data.name); if (r.ok) ok++; else fail++; }
+      Toast.show(`已创建「${data.name}」并移入 ${ok} 项${fail ? `，失败 ${fail}` : ''}`, fail ? 'warning' : 'success');
+      exitSelectMode();
+    } catch { Toast.show('创建失败', 'error'); }
+  }});
+  showContextMenu(window.innerWidth - 240, 140, items);
+}
+
+function showSortMenu(e) {
+  const opts = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小' }, { key: 'modified', label: '修改时间' }];
+  const items = opts.map(o => {
+    const active = fileSort.key === o.key;
+    return {
+      action: 'sort_' + o.key,
+      label: o.label + (active ? (fileSort.dir === 'asc' ? ' ↑' : ' ↓') : ''),
+      icon: active ? CHECK_ICON : '',
+      onClick: () => {
+        if (fileSort.key === o.key) fileSort.dir = fileSort.dir === 'asc' ? 'desc' : 'asc';
+        else fileSort = { key: o.key, dir: 'asc' };
+        savePref('fileSort', fileSort);
+        renderFileList(currentFileItems);
+      },
+    };
+  });
+  showContextMenu(e.clientX, e.clientY, items);
 }
 
 function showFileMenu(eventOrX, path, name, isDir) {
@@ -1141,7 +1430,7 @@ async function downloadFile(path) {
 }
 
 async function deleteFile(path) {
-  if (!confirm(`确定删除 "${path.split('/').pop()}"？`)) return;
+  if (!await confirmDialog({ title: '删除文件', message: `确定删除 "${path.split('/').pop()}"？删除后无法恢复。`, confirmText: '删除', danger: true })) return;
   try {
     const res = await API.del(`/api/files?path=${encodeURIComponent(path)}`);
     if (res.ok) { Toast.show('已删除', 'success'); loadFiles(); }
@@ -1150,8 +1439,92 @@ async function deleteFile(path) {
 }
 
 // ============ Chat ============
+const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const STOP_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
+
 let chatMessages = [];
 let chatSending = false;
+let currentChatAbort = null;
+
+function scrollChat(container) {
+  if (container) container.scrollTop = container.scrollHeight;
+}
+
+// 工具调用参数脱敏（去掉 user_id 等内部字段）并格式化展示
+function safeToolArgs(args) {
+  try {
+    const obj = typeof args === 'string' ? JSON.parse(args) : { ...(args || {}) };
+    if (obj && typeof obj === 'object') delete obj.user_id;
+    return JSON.stringify(obj, null, 2);
+  } catch { return String(args == null ? '' : args); }
+}
+
+// 渲染工具调用区（可折叠卡片：工具名 + 参数 + 结果）
+function toolsElement(toolCalls) {
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-tools-detail';
+  const header = document.createElement('div');
+  header.className = 'chat-tools-header';
+  header.innerHTML = `${ICONS.database}<span>查阅了 ${toolCalls.length} 个工具调用</span><svg class="chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M9 6l6 6-6 6z"/></svg>`;
+  header.addEventListener('click', () => wrap.classList.toggle('expanded'));
+  wrap.appendChild(header);
+  const body = document.createElement('div');
+  body.className = 'chat-tools-body';
+  toolCalls.forEach(tc => {
+    const card = document.createElement('div');
+    card.className = 'tool-card';
+    const resultHtml = tc.result != null
+      ? `<div class="tool-result"><div class="tool-result-label">结果</div><pre>${escapeHtml(typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result))}</pre></div>`
+      : '';
+    card.innerHTML = `<div class="tool-card-head"><span class="tool-name">${escapeHtml(tc.tool)}</span></div><pre class="tool-args">${escapeHtml(safeToolArgs(tc.args))}</pre>${resultHtml}`;
+    body.appendChild(card);
+  });
+  wrap.appendChild(body);
+  return wrap;
+}
+
+// 在流式过程中把工具区更新到 assistant 节点（气泡后、复制按钮前）
+function updateToolsInMessage(msgEl, toolCalls) {
+  if (!toolCalls || !toolCalls.length) return;
+  const fresh = toolsElement(toolCalls);
+  const old = msgEl.querySelector('.chat-tools-detail');
+  const anchor = msgEl.querySelector('.chat-msg-actions');
+  if (old) old.replaceWith(fresh);
+  else if (anchor) msgEl.insertBefore(fresh, anchor);
+  else msgEl.appendChild(fresh);
+}
+
+// 构造单条消息 DOM 节点（assistant 用 markdown，含复制按钮与工具区）
+function messageElement(msg) {
+  const wrap = document.createElement('div');
+  wrap.className = `chat-message ${msg.role}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble';
+  if (msg.role === 'assistant') {
+    bubble.classList.add('markdown');
+    bubble.innerHTML = renderMarkdown(msg.content);
+  } else {
+    bubble.textContent = msg.content; // 用户消息纯文本，防 XSS
+  }
+  wrap.appendChild(bubble);
+  if (msg.role === 'assistant') {
+    if (msg.tool_calls && msg.tool_calls.length) updateToolsInMessage(wrap, msg.tool_calls);
+    const actions = document.createElement('div');
+    actions.className = 'chat-msg-actions';
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'chat-msg-copy';
+    copyBtn.title = '复制';
+    copyBtn.innerHTML = COPY_SVG;
+    copyBtn.addEventListener('click', async () => {
+      const ok = await copyToClipboard(msg.content || '');
+      Toast.show(ok ? '已复制' : '复制失败', ok ? 'success' : 'error', 1500);
+    });
+    actions.appendChild(copyBtn);
+    wrap.appendChild(actions);
+  }
+  return wrap;
+}
 
 async function renderChat() {
   document.getElementById('main-content').innerHTML = `
@@ -1179,15 +1552,18 @@ async function renderChat() {
     chatMessages.push({ role: 'assistant', content: '你好！我是你的文件助手。你可以问我：\n\n• "找一下上个月的报价"\n• "存了哪些学习资料"\n• "哪些文件很久没用了"\n• "存储用了多少空间"', tool_calls: [] });
   }
   renderChatMessages();
-  document.getElementById('btn-send').addEventListener('click', sendChatMessage);
+  document.getElementById('btn-send').addEventListener('click', () => {
+    if (chatSending) { if (currentChatAbort) currentChatAbort.abort(); }
+    else sendChatMessage();
+  });
   document.getElementById('btn-clear-chat').addEventListener('click', async () => {
-    if (!confirm('确定清空所有对话历史？')) return;
+    if (!await confirmDialog({ title: '清空对话', message: '确定清空所有对话历史？此操作无法撤销。', confirmText: '清空', danger: true })) return;
     await API.del('/api/chat/history');
     chatMessages = [];
     renderChat();
   });
   const input = document.getElementById('chat-input');
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!chatSending) sendChatMessage(); } });
   input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; });
   input.focus();
 }
@@ -1195,12 +1571,23 @@ async function renderChat() {
 function renderChatMessages() {
   const container = document.getElementById('chat-messages');
   if (!container) return;
-  container.innerHTML = chatMessages.map(msg => {
-    const toolsHtml = (msg.tool_calls && msg.tool_calls.length)
-      ? '<div class="chat-tools">' + msg.tool_calls.map(t => `<span class="chat-tool-badge">${t.tool}</span>`).join('') + '</div>' : '';
-    return `<div class="chat-message ${msg.role}"><div class="chat-bubble">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>${toolsHtml}</div>`;
-  }).join('');
-  container.scrollTop = container.scrollHeight;
+  container.innerHTML = '';
+  chatMessages.forEach(msg => container.appendChild(messageElement(msg)));
+  scrollChat(container);
+}
+
+function setSendButtonState(state) {
+  const btn = document.getElementById('btn-send');
+  if (!btn) return;
+  if (state === 'stop') {
+    btn.classList.add('is-stop');
+    btn.title = '停止生成';
+    btn.innerHTML = STOP_ICON;
+  } else {
+    btn.classList.remove('is-stop');
+    btn.title = '发送';
+    btn.innerHTML = ICONS.send;
+  }
 }
 
 async function sendChatMessage() {
@@ -1209,43 +1596,43 @@ async function sendChatMessage() {
   const text = input.value.trim();
   if (!text) return;
   chatSending = true;
-  chatMessages.push({ role: 'user', content: text, tool_calls: [] });
+  const userMsg = { role: 'user', content: text, tool_calls: [] };
+  chatMessages.push(userMsg);
   input.value = ''; input.style.height = 'auto';
-  renderChatMessages();
-  const container = document.getElementById('chat-messages');
-  const btn = document.getElementById('btn-send');
-  btn.disabled = true;
 
-  // 创建一条空的 assistant 消息，用于流式追加
+  const container = document.getElementById('chat-messages');
+  container.appendChild(messageElement(userMsg));
+
   const assistantMsg = { role: 'assistant', content: '', tool_calls: [] };
   chatMessages.push(assistantMsg);
+  const assistantEl = messageElement(assistantMsg);
+  container.appendChild(assistantEl);
   const typingEl = document.createElement('div');
   typingEl.className = 'typing-indicator';
-  typingEl.id = 'typing';
   typingEl.innerHTML = '正在思考<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
   container.appendChild(typingEl);
-  container.scrollTop = container.scrollHeight;
+  scrollChat(container);
+
+  setSendButtonState('stop');
+  const controller = new AbortController();
+  currentChatAbort = controller;
+  const bubble = assistantEl.querySelector('.chat-bubble');
 
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(API._token ? { 'Authorization': `Bearer ${API._token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json', ...(API._token ? { 'Authorization': `Bearer ${API._token}` } : {}) },
       body: JSON.stringify({ message: text }),
+      signal: controller.signal,
     });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       throw new Error(d.detail || `HTTP ${res.status}`);
     }
-
+    if (typingEl.isConnected) typingEl.remove();
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    const typing = document.getElementById('typing');
-    if (typing) typing.remove();
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -1254,34 +1641,46 @@ async function sendChatMessage() {
       buffer = lines.pop();
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
-        const payload = JSON.parse(line.slice(6));
+        let payload;
+        try { payload = JSON.parse(line.slice(6)); } catch { continue; }
         if (payload.type === 'tool') {
           assistantMsg.tool_calls = assistantMsg.tool_calls || [];
           assistantMsg.tool_calls.push(payload.data);
-          renderChatMessages();
+          updateToolsInMessage(assistantEl, assistantMsg.tool_calls);
+          scrollChat(container);
         } else if (payload.type === 'delta') {
           assistantMsg.content += payload.data;
-          renderChatMessages();
-          const c = document.getElementById('chat-messages');
-          if (c) c.scrollTop = c.scrollHeight;
+          bubble.innerHTML = renderMarkdown(assistantMsg.content);
+          scrollChat(container);
         } else if (payload.type === 'done') {
           assistantMsg.content = payload.data.reply || assistantMsg.content || '(无回复)';
           assistantMsg.tool_calls = payload.data.tool_calls || assistantMsg.tool_calls;
-          renderChatMessages();
+          bubble.innerHTML = renderMarkdown(assistantMsg.content);
+          updateToolsInMessage(assistantEl, assistantMsg.tool_calls);
+          scrollChat(container);
         } else if (payload.type === 'error') {
           assistantMsg.content = '出错了: ' + payload.data;
-          renderChatMessages();
+          bubble.innerHTML = renderMarkdown(assistantMsg.content);
         }
       }
     }
-    if (!assistantMsg.content) assistantMsg.content = '(无回复)';
-    renderChatMessages();
+    if (!assistantMsg.content) {
+      assistantMsg.content = controller.signal.aborted ? '（已停止）' : '(无回复)';
+      bubble.innerHTML = renderMarkdown(assistantMsg.content);
+    }
   } catch (err) {
-    const typing = document.getElementById('typing');
-    if (typing) typing.remove();
-    assistantMsg.content = '出错了: ' + err.message;
-    renderChatMessages();
-  } finally { chatSending = false; btn.disabled = false; }
+    if (typingEl.isConnected) typingEl.remove();
+    if (err && err.name === 'AbortError') {
+      assistantMsg.content += assistantMsg.content ? '\n\n_（已停止）_' : '（已停止）';
+    } else {
+      assistantMsg.content = '出错了: ' + (err && err.message || '未知错误');
+    }
+    bubble.innerHTML = renderMarkdown(assistantMsg.content);
+  } finally {
+    chatSending = false;
+    currentChatAbort = null;
+    setSendButtonState('send');
+  }
 }
 
 // ============ Transfer Assistant (文件传输助手) ============
@@ -1444,7 +1843,7 @@ async function handleTransferFiles(fileList) {
 }
 
 async function deleteTransferMessage(id) {
-  if (!confirm('确定删除这条记录？')) return;
+  if (!await confirmDialog({ title: '删除记录', message: '确定删除这条记录？', confirmText: '删除', danger: true })) return;
   try {
     const res = await API.del(`/api/transfer/${id}`);
     if (res.ok) {
@@ -1490,7 +1889,16 @@ async function renderSettings() {
             <div class="setting-head-text"><h3>设备访问令牌</h3><p class="section-desc">管理设备访问权限，离职时吊销令牌即可切断访问。</p></div>
             <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
           </div>
-          <div class="setting-body"><div class="token-list" id="tokens-content"></div></div>
+          <div class="setting-body">
+            <div class="token-list" id="tokens-content"></div>
+            <div class="token-danger-zone" id="revoke-all-zone" style="display:none">
+              <div class="token-danger-zone-text">
+                <strong>紧急下线所有设备</strong>
+                <span>吊销你的全部有效令牌，所有设备立即无法访问。</span>
+              </div>
+              <button class="btn btn-danger" id="btn-revoke-all-tokens">${ICONS.shield}<span>吊销全部</span></button>
+            </div>
+          </div>
         </div>
         <div class="settings-section">
           <div class="setting-head">
@@ -1545,6 +1953,7 @@ async function renderSettings() {
     } catch { Toast.show('网络错误', 'error'); }
   });
   document.getElementById('btn-create-token').addEventListener('click', createToken);
+  document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
   document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
   loadStats(); loadTokens(); loadTOTP(); loadAccountInfo();
 }
@@ -1556,7 +1965,7 @@ async function loadAccountInfo() {
     let me = App.currentUser;
     if (!me) {
       const res = await API.get('/api/auth/me');
-      if (!res || !res.ok) { el.innerHTML = '<p class="setting-empty">加载失败</p>'; return; }
+      if (!res || !res.ok) { renderErrorState(el, '账户信息加载失败', () => loadAccountInfo()); return; }
       me = await res.json();
       App.currentUser = me;
     }
@@ -1588,7 +1997,7 @@ async function loadAccountInfo() {
         </div>
       </div>`;
   } catch {
-    el.innerHTML = '<p class="setting-empty">加载失败</p>';
+    renderErrorState(el, '账户信息加载失败', () => loadAccountInfo());
   }
 }
 
@@ -1605,80 +2014,273 @@ async function loadStats() {
         <div class="stat-card" style="--stat-accent:var(--warning)"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
       </div>
     `;
-  } catch { el.innerHTML = '<p class="setting-empty">加载失败</p>'; }
+  } catch { renderErrorState(el, '统计加载失败', () => loadStats()); }
+}
+
+function parseServerTs(ts) {
+  if (!ts) return 0;
+  let s = String(ts);
+  if (s.indexOf('T') === -1) s = s.replace(' ', 'T');
+  if (!/[+-]\d{2}:?\d{2}$/.test(s) && !s.endsWith('Z')) s += 'Z';
+  const d = new Date(s);
+  return isNaN(d) ? 0 : d.getTime();
+}
+function isTokenActive(t) {
+  if (t.revoked) return false;
+  if (t.expires_at && parseServerTs(t.expires_at) < Date.now()) return false;
+  return true;
+}
+function tokenStatusBadge(t) {
+  if (t.revoked) return '<span class="badge badge-danger">已吊销</span>';
+  if (t.expires_at && parseServerTs(t.expires_at) < Date.now()) return '<span class="badge badge-danger">已过期</span>';
+  return '<span class="badge badge-success">有效</span>';
+}
+function tokenExpiryText(t) {
+  if (!t.expires_at) return '永久';
+  return formatDateTime(t.expires_at);
 }
 
 async function loadTokens() {
   const el = document.getElementById('tokens-content');
+  if (!el) return;
+  let tokens = [];
   try {
     const res = await API.get('/api/auth/tokens');
-    const tokens = await res.json();
-    if (!tokens.length) { el.innerHTML = '<p class="setting-empty">暂无设备令牌，点击右上角"创建令牌"添加。</p>'; return; }
-    el.innerHTML = tokens.map(t => `
-      <div class="token-row">
-        <div class="token-info">
-          <div class="token-label">${escapeHtml(t.label)} ${t.revoked ? '<span class="badge badge-danger">已吊销</span>' : '<span class="badge badge-success">有效</span>'}</div>
-          <div class="token-date">创建于 ${formatDate(t.created_at)}</div>
+    tokens = await res.json();
+  } catch { renderErrorState(el, '令牌加载失败', () => loadTokens()); return; }
+
+  const revokeAllZone = document.getElementById('revoke-all-zone');
+  const hasActive = tokens.some(t => isTokenActive(t));
+  if (revokeAllZone) revokeAllZone.style.display = hasActive ? '' : 'none';
+
+  if (!tokens.length) {
+    el.innerHTML = '<p class="setting-empty">暂无设备令牌，点击右上角“创建令牌”添加。</p>';
+    return;
+  }
+  el.innerHTML = tokens.map(t => `
+    <div class="token-row">
+      <div class="token-info">
+        <div class="token-label">${escapeHtml(t.label) || '未命名设备'} ${tokenStatusBadge(t)}</div>
+        <div class="token-meta-row">
+          <span>创建 ${formatDateTime(t.created_at)}</span>
+          <span class="dot-sep">·</span>
+          <span>最近活跃 <span class="${t.last_used_at ? '' : 'token-never'}">${t.last_used_at ? formatDateTime(t.last_used_at) : '从未'}</span></span>
+          <span class="dot-sep">·</span>
+          <span>过期 ${tokenExpiryText(t)}</span>
         </div>
-        ${!t.revoked ? `<button class="btn btn-danger" onclick="revokeToken('${t.id}')">吊销</button>` : ''}
-      </div>`).join('');
-  } catch { el.innerHTML = '<p class="setting-empty">加载失败</p>'; }
+      </div>
+      ${isTokenActive(t) ? `<button class="btn btn-danger btn-sm" onclick="revokeToken('${escapeHtml(t.id)}')">吊销</button>` : ''}
+    </div>`).join('');
 }
 
 async function createToken() {
-  const label = prompt('令牌标签（如"公司电脑"）：', '公司电脑');
-  if (!label) return;
-  const days = parseInt(prompt('有效期天数（0=永久）：', '0') || '0');
+  const form = await showCreateTokenDialog();
+  if (!form) return;
   try {
-    const res = await API.post(`/api/auth/tokens?label=${encodeURIComponent(label)}&expires_days=${days}`);
+    const res = await API.post(`/api/auth/tokens?label=${encodeURIComponent(form.label)}&expires_days=${form.expires_days}`);
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '创建失败', 'error'); return; }
     const data = await res.json();
-    prompt('设备令牌（请妥善保存，仅显示一次）：', data.token);
-    Toast.show('令牌已创建', 'success');
+    showTokenResult(data.token, form.label);
     loadTokens();
   } catch { Toast.show('创建失败', 'error'); }
 }
 
+function showCreateTokenDialog() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" style="width:440px">
+        <h3>创建设备令牌</h3>
+        <p class="confirm-message" style="margin-bottom:16px">为令牌起个名字，方便日后识别（如“公司电脑”“家里守护进程”）。</p>
+        <div class="form-group">
+          <label>令牌标签</label>
+          <input type="text" id="tk-label" class="form-input" placeholder="如：公司电脑" maxlength="50" autocomplete="off">
+          <div class="input-error-msg" id="tk-label-err"></div>
+        </div>
+        <div class="form-group">
+          <label>有效期</label>
+          <div class="expiry-options" id="tk-expiry">
+            <button type="button" class="expiry-option" data-days="7">7 天</button>
+            <button type="button" class="expiry-option" data-days="30">30 天</button>
+            <button type="button" class="expiry-option" data-days="90">90 天</button>
+            <button type="button" class="expiry-option active" data-days="0">永久</button>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="tk-cancel">取消</button>
+          <button class="btn btn-primary" id="tk-create" disabled>创建</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const labelInput = overlay.querySelector('#tk-label');
+    const errEl = overlay.querySelector('#tk-label-err');
+    const createBtn = overlay.querySelector('#tk-create');
+    let expiresDays = 0;
+    let done = false;
+    const cleanup = (r) => { if (done) return; done = true; overlay.remove(); resolve(r); };
+
+    overlay.querySelectorAll('.expiry-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        overlay.querySelectorAll('.expiry-option').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        expiresDays = parseInt(btn.dataset.days, 10) || 0;
+      });
+    });
+    const check = () => {
+      const v = labelInput.value.trim();
+      if (!v) { errEl.textContent = ''; labelInput.classList.remove('error'); createBtn.disabled = true; return; }
+      if (v.length > 50) { errEl.textContent = '名称不能超过 50 个字符'; labelInput.classList.add('error'); createBtn.disabled = true; return; }
+      errEl.textContent = ''; labelInput.classList.remove('error'); createBtn.disabled = false;
+    };
+    labelInput.addEventListener('input', check);
+    labelInput.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter' && !createBtn.disabled) cleanup({ label: labelInput.value.trim(), expires_days: expiresDays });
+    });
+    overlay.querySelector('#tk-cancel').addEventListener('click', () => cleanup(null));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); });
+    createBtn.addEventListener('click', () => cleanup({ label: labelInput.value.trim(), expires_days: expiresDays }));
+    setTimeout(() => labelInput.focus(), 0);
+  });
+}
+
+function showTokenResult(token, label) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="width:520px">
+      <h3>令牌已创建</h3>
+      <p class="confirm-message">令牌「${escapeHtml(label)}」已生成。<strong style="color:var(--warning)">仅显示这一次</strong>，关闭后无法再次查看，请立即复制并妥善保存。</p>
+      <div class="token-result">
+        <code class="token-result-value" id="tk-result-value"></code>
+        <button class="btn btn-secondary" id="tk-copy">复制</button>
+      </div>
+      <div class="input-error-msg" id="tk-copy-msg" style="min-height:0"></div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="tk-done">我已妥善保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#tk-result-value').textContent = token;
+  const copyMsg = overlay.querySelector('#tk-copy-msg');
+  overlay.querySelector('#tk-copy').addEventListener('click', async () => {
+    const ok = await copyToClipboard(token);
+    copyMsg.textContent = ok ? '✓ 已复制到剪贴板' : '复制失败，请手动选择上方文本复制';
+    copyMsg.style.color = ok ? 'var(--success)' : 'var(--danger)';
+  });
+  let done = false;
+  const escHandler = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => { if (done) return; done = true; document.removeEventListener('keydown', escHandler); overlay.remove(); };
+  overlay.querySelector('#tk-done').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', escHandler);
+}
+
+async function revokeAllTokens() {
+  if (!await confirmDialog({ title: '吊销全部令牌', message: '将吊销你的全部有效令牌，所有设备会立即下线。确定继续？', confirmText: '全部吊销', danger: true })) return;
+  try {
+    const res = await API.del('/api/auth/tokens');
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
+    const data = await res.json();
+    Toast.show(data.message || '已吊销全部令牌', 'success');
+    loadTokens();
+  } catch { Toast.show('操作失败', 'error'); }
+}
+
 async function revokeToken(id) {
-  if (!confirm('确定吊销此令牌？该设备将无法再访问。')) return;
+  if (!await confirmDialog({ title: '吊销令牌', message: '确定吊销此令牌？该设备将立即无法访问。', confirmText: '吊销', danger: true })) return;
   try { await API.del(`/api/auth/tokens/${id}`); Toast.show('令牌已吊销', 'success'); loadTokens(); }
   catch { Toast.show('操作失败', 'error'); }
 }
 
 async function loadTOTP() {
   const el = document.getElementById('totp-content');
-  el.innerHTML = `<p class="setting-empty" style="margin-top:0">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。</p><button class="btn btn-secondary" id="btn-setup-totp">设置双因子验证</button>`;
-  document.getElementById('btn-setup-totp').addEventListener('click', setupTOTP);
+  if (!el) return;
+  const enabled = App.currentUser && App.currentUser.totp_enabled;
+  if (enabled) {
+    el.innerHTML = `
+      <div class="totp-status">
+        <span class="badge badge-success">已开启</span>
+        <p class="setting-empty" style="margin:0">登录时需要额外的动态验证码。关闭后立即生效。</p>
+      </div>
+      <button class="btn btn-danger" id="btn-disable-totp">关闭双因子验证</button>`;
+    document.getElementById('btn-disable-totp').addEventListener('click', disableTOTP);
+  } else {
+    el.innerHTML = `
+      <p class="setting-empty" style="margin-top:0">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。公用设备强烈建议开启。</p>
+      <button class="btn btn-primary" id="btn-setup-totp">设置双因子验证</button>`;
+    document.getElementById('btn-setup-totp').addEventListener('click', setupTOTP);
+  }
+}
+
+async function disableTOTP() {
+  if (!await confirmDialog({ title: '关闭双因子验证', message: '关闭后，登录将不再需要动态验证码，账户安全性会降低。确定关闭？', confirmText: '关闭', danger: true })) return;
+  try {
+    const res = await API.post('/api/auth/totp/disable');
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '关闭失败', 'error'); return; }
+    if (App.currentUser) App.currentUser.totp_enabled = false;
+    Toast.show('双因子验证已关闭', 'success');
+    loadTOTP();
+    loadAccountInfo();
+  } catch { Toast.show('网络错误', 'error'); }
 }
 
 async function setupTOTP() {
+  let data;
   try {
     const res = await API.get('/api/auth/totp/setup');
-    const data = await res.json();
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-      <div class="modal">
-        <h3>设置双因子验证</h3>
-        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">用验证器 App 扫描以下二维码：</p>
-        <div style="text-align:center;margin:16px 0"><img src="${data.qr_code}" style="width:200px;height:200px" alt="QR"></div>
-        <p style="font-size:12px;color:var(--text-muted)">或手动输入: <code>${data.secret}</code></p>
-        <div class="form-group" style="margin-top:16px">
-          <label>输入验证器显示的 6 位代码</label>
-          <input type="text" class="form-input" id="totp-verify-code" placeholder="000000" maxlength="6">
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">取消</button>
-          <button class="btn btn-primary" id="btn-confirm-totp">确认绑定</button>
-        </div>
-      </div>`;
-    document.body.appendChild(modal);
-    document.getElementById('btn-confirm-totp').addEventListener('click', async () => {
-      const code = document.getElementById('totp-verify-code').value;
-      const res = await API.post(`/api/auth/totp/enable?secret=${data.secret}&code=${code}`);
-      if (res.ok) { Toast.show('双因子验证已开启', 'success'); modal.remove(); }
-      else { const d = await res.json(); Toast.show(d.detail || '验证码错误', 'error'); }
-    });
-  } catch { Toast.show('设置失败', 'error'); }
+    data = await res.json();
+  } catch { Toast.show('设置失败', 'error'); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="width:420px">
+      <h3>设置双因子验证</h3>
+      <p class="confirm-message">用验证器 App（如 Google Authenticator）扫描以下二维码：</p>
+      <div style="text-align:center;margin:16px 0"><img src="${data.qr_code}" style="width:200px;height:200px" alt="QR"></div>
+      <p style="font-size:12px;color:var(--text-muted)">或手动输入：<code id="totp-secret"></code></p>
+      <div class="form-group" style="margin-top:16px">
+        <label>输入验证器显示的 6 位代码</label>
+        <input type="text" class="form-input" id="totp-verify-code" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="totp-cancel">取消</button>
+        <button class="btn btn-primary" id="btn-confirm-totp">确认绑定</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#totp-secret').textContent = data.secret;
+  const codeInput = overlay.querySelector('#totp-verify-code');
+  const confirmBtn = overlay.querySelector('#btn-confirm-totp');
+  let done = false;
+  const close = () => { if (done) return; done = true; document.removeEventListener('keydown', escHandler); overlay.remove(); };
+  const submit = async () => {
+    const code = codeInput.value.trim();
+    if (!code) { Toast.show('请输入验证码', 'error'); return; }
+    confirmBtn.disabled = true;
+    try {
+      const res = await API.post(`/api/auth/totp/enable?secret=${encodeURIComponent(data.secret)}&code=${encodeURIComponent(code)}`);
+      if (res.ok) {
+        if (App.currentUser) App.currentUser.totp_enabled = true;
+        Toast.show('双因子验证已开启', 'success');
+        close();
+        loadTOTP();
+        loadAccountInfo();
+      } else {
+        const d = await res.json();
+        Toast.show(d.detail || '验证码错误', 'error');
+      }
+    } catch { Toast.show('网络错误', 'error'); }
+    finally { if (overlay.isConnected) confirmBtn.disabled = false; }
+  };
+  overlay.querySelector('#totp-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  confirmBtn.addEventListener('click', submit);
+  codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  const escHandler = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', escHandler);
+  setTimeout(() => codeInput.focus(), 0);
 }
 
 async function rebuildIndex() {
@@ -1733,6 +2335,8 @@ const App = {
     if (logoBtn) logoBtn.style.cursor = 'pointer', logoBtn.addEventListener('click', () => this.navigate('settings'));
   },
   navigate(view) {
+    // 离开聊天视图时中止进行中的流式回复，避免向已分离的 DOM 继续写入
+    if (this.currentView === 'chat' && view !== 'chat' && currentChatAbort) currentChatAbort.abort();
     this.currentView = view;
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
     if (view === 'chat' && !(this.currentUser && this.currentUser.ai_enabled)) {
@@ -1744,7 +2348,7 @@ const App = {
     else if (view === 'transfer') renderTransfer();
     else if (view === 'settings') renderSettings();
   },
-  logout() { API.clearTokens(); this.currentView = 'transfer'; renderLogin(); }
+  logout() { if (currentChatAbort) currentChatAbort.abort(); API.clearTokens(); this.currentView = 'transfer'; renderLogin(); }
 };
 
 // Expose for inline handlers
