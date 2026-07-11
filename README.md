@@ -23,11 +23,13 @@ DOMAIN=files.yourdomain.com        # 你的域名
 SECRET_KEY=用 openssl rand -hex 32 生成
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=你的强密码
-DEEPSEEK_API_KEY=你的DeepSeek密钥
 
 # 多账户配置
 ALLOW_REGISTER=true               # 是否开放用户自助注册（false=仅管理员创建用户）
 DEFAULT_QUOTA_MB=100              # 新用户默认存储配额（0=无限）
+
+# 大模型配置在管理后台「大模型配置」页面维护，无需写在 .env 中。
+# 首次启动后，登录管理后台添加 DeepSeek/OpenAI 等大模型并分配给用户。
 ```
 
 ### 3. 创建数据目录
@@ -120,11 +122,11 @@ docker run -d --name suixingdang-daemon \
 cd server
 pip install -r requirements.txt
 cp ../.env.test .env          # 复制为本地配置（该 .env 已被 gitignore，不会提交）
-# 把 .env 里的 DEEPSEEK_API_KEY 换成你自己的密钥后再启动
 uvicorn app.main:app --reload --port 8000
 ```
 
 默认数据写到 `/tmp/suixingdang-test/`（见 `.env.test`），不影响正式部署的数据目录。
+启动后登录管理后台（`/admin`），在「大模型配置」页面添加你的 DeepSeek/OpenAI API Key。
 
 ## 架构概览
 

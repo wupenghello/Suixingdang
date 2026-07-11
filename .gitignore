@@ -1,6 +1,7 @@
-# 环境变量 / 密钥（仅提交模板 .env.example）
-.env
-.env.local
+# 环境变量 / 密钥：忽略所有 .env*，但保留模板（.env.example / .env.test / 各目录下的 .env.example）
+.env*
+!.env.example
+!.env.test
 
 # 运行时数据（数据库、用户文件、缓存、日志）
 /data/

@@ -39,8 +39,16 @@ def _get_embedding_function():
     if provider == "openai":
         try:
             from chromadb.utils import embedding_functions
+            # 复用默认大模型的 API Key（不再从 env 读取）
+            from .llm_service import get_default_embedding_config
+            api_key, _base_url = get_default_embedding_config()
+            if not api_key:
+                # 尚未配置默认大模型：返回 None 回退到 ChromaDB 内置嵌入，
+                # 避免构造一个空 key 的 OpenAIEmbeddingFunction 被 collection 缓存，
+                # 导致后续上传/搜索持续 401 直到重启进程。
+                return None
             return embedding_functions.OpenAIEmbeddingFunction(
-                api_key=getattr(settings, "OPENAI_API_KEY", ""),
+                api_key=api_key,
                 model_name=getattr(settings, "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
             )
         except Exception:

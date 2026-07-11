@@ -1578,9 +1578,9 @@ const App = {
       <div class="app-layout">
         <div class="sidebar">
           <div class="sidebar-logo" id="sidebar-logo" title="${this.currentUser ? (this.currentUser.username + ' · 点击查看账户信息') : '随行档'}">${this.currentUser ? this.currentUser.username.charAt(0).toUpperCase() : '档'}</div>
-          <button class="nav-btn active" data-view="transfer" title="传输助手">${ICONS.transfer}</button>
-          <button class="nav-btn" data-view="chat" title="AI助手">${ICONS.chat}</button>
-          <button class="nav-btn" data-view="files" title="文件">${ICONS.files}</button>
+         <button class="nav-btn active" data-view="transfer" title="传输助手">${ICONS.transfer}</button>
+          ${this.currentUser && this.currentUser.ai_enabled ? `<button class="nav-btn" data-view="chat" title="AI助手">${ICONS.chat}</button>` : ''}
+         <button class="nav-btn" data-view="files" title="文件">${ICONS.files}</button>
           <button class="nav-btn" data-view="settings" title="设置">${ICONS.settings}</button>
           <div class="nav-spacer"></div>
           <button class="nav-btn nav-logout" title="退出登录">${ICONS.logout}</button>
@@ -1599,6 +1599,10 @@ const App = {
   navigate(view) {
     this.currentView = view;
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+    if (view === 'chat' && !(this.currentUser && this.currentUser.ai_enabled)) {
+      document.getElementById('main-content').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;color:var(--text-muted)">${ICONS.chat}<p>管理员未为您开通 AI 助手功能</p></div>`;
+      return;
+    }
     if (view === 'files') renderFiles();
     else if (view === 'chat') renderChat();
     else if (view === 'transfer') renderTransfer();

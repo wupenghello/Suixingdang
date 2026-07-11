@@ -23,6 +23,35 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
+def _fernet_key() -> bytes:
+    """从 SECRET_KEY 派生固定的 Fernet 密钥（URL-safe base64, 32 bytes）。"""
+    import base64
+    import hashlib
+    digest = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
+def encrypt_api_key(plaintext: str) -> str:
+    """加密 API Key，返回 base64 字符串。空值返回空字符串。"""
+    if not plaintext:
+        return ""
+    from cryptography.fernet import Fernet
+    f = Fernet(_fernet_key())
+    return f.encrypt(plaintext.encode()).decode()
+
+
+def decrypt_api_key(ciphertext: str) -> str:
+    """解密 API Key，返回明文。空值或解密失败返回空字符串。"""
+    if not ciphertext:
+        return ""
+    from cryptography.fernet import Fernet
+    f = Fernet(_fernet_key())
+    try:
+        return f.decrypt(ciphertext.encode()).decode()
+    except Exception:
+        return ""
+
+
 def create_access_token(data: dict, expires_minutes: Optional[int] = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(

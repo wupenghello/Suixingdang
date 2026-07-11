@@ -420,6 +420,7 @@ def get_me(user=Depends(get_current_user)):
         "status": user.status,
         "quota_mb": user.quota_mb,
         "totp_enabled": user.totp_enabled,
+        "ai_enabled": user.ai_enabled,
         "last_login_at": str(user.last_login_at) if user.last_login_at else "",
         "created_at": str(user.created_at) if user.created_at else "",
     }

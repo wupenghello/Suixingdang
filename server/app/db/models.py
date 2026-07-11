@@ -30,6 +30,8 @@ class User(Base):
     role = Column(String, default="user")
     status = Column(String, default="active")        # active / disabled
     quota_mb = Column(Integer, default=0)             # 存储配额 MB，0=无限
+    ai_enabled = Column(Boolean, default=True)         # 是否允许使用 AI 助手
+    llm_provider_id = Column(String, nullable=True)    # 分配的大模型，为空则用默认
     security_question = Column(Text, default="")      # 密保问题
     security_answer = Column(Text, default="")        # 密保答案（哈希存储）
     last_login_at = Column(DateTime, nullable=True)
@@ -54,6 +56,23 @@ class SystemSetting(Base):
 
     key = Column(String, primary_key=True)
     value = Column(Text, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LlmProvider(Base):
+    """大模型配置（管理员在后台维护，可分配给用户）。"""
+    __tablename__ = "llm_providers"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    name = Column(String, nullable=False)              # 显示名称，如"DeepSeek 生产"
+    provider = Column(String, default="openai")       # deepseek / openai / custom（均走 OpenAI 兼容协议）
+    api_key_enc = Column(Text, default="")             # Fernet 加密后的 API Key
+    base_url = Column(String, default="https://api.openai.com/v1")
+    model = Column(String, default="gpt-4o-mini")
+    enabled = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -176,6 +195,7 @@ def init_db():
     _migrate_columns()
     _seed_admin()
     _seed_initial_user()
+    _migrate_llm_from_env()
 
 
 def _migrate_columns():
@@ -191,6 +211,8 @@ def _migrate_columns():
         "security_question": 'TEXT DEFAULT ""',
         "security_answer": 'TEXT DEFAULT ""',
         "last_login_at": "DATETIME",
+        "ai_enabled": "BOOLEAN DEFAULT 1",
+        "llm_provider_id": "TEXT",
     }
     for col, coltype in additions.items():
         if col not in cols:
@@ -248,6 +270,65 @@ def _seed_initial_user():
             ))
             db.commit()
             print("[Suixingdang] 初始用户已创建: demo / demo")
+    finally:
+        db.close()
+
+
+def _migrate_llm_from_env():
+    """首次启动时将 env 中的 LLM 配置迁移到数据库（一次性，幂等）。"""
+    import os
+    from pathlib import Path as _Path
+    db = SessionLocal()
+    try:
+        # 已经有配置则跳过
+        if db.query(LlmProvider).count() > 0:
+            return
+        # 兼容 Docker env_file（os.environ）和本地 .env 文件
+        def _strip_quotes(v: str) -> str:
+            # .env 文件中值常被引号包裹（KEY="value"），需去掉首尾匹配的引号，
+            # 否则迁移后的 API Key 会带上字面引号导致调用失败。
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+                return v[1:-1]
+            return v
+
+        def _env(key, default=""):
+            val = os.environ.get(key, "")
+            if val:
+                return _strip_quotes(val)
+            # 尝试从 .env 文件读取
+            for env_path in [_Path(".env"), _Path("server/.env"), _Path(settings.STORAGE_DIR).parent / ".env"]:
+                if env_path.exists():
+                    for line in env_path.read_text().splitlines():
+                        line = line.strip()
+                        if line.startswith(f"{key}="):
+                            return _strip_quotes(line.split("=", 1)[1].strip())
+            return default
+
+        provider = os.environ.get("LLM_PROVIDER", "").lower()
+        if not provider:
+            provider = _env("LLM_PROVIDER", "").lower()
+        if provider == "deepseek":
+            api_key = _env("DEEPSEEK_API_KEY", "")
+            base_url = _env("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+            model = _env("DEEPSEEK_MODEL", "deepseek-chat")
+        else:
+            api_key = _env("OPENAI_API_KEY", "")
+            base_url = _env("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            model = _env("OPENAI_MODEL", "gpt-4o-mini")
+        if not api_key:
+            return  # env 中没有有效配置，留空由管理员在后台配置
+        from ..core.security import encrypt_api_key
+        db.add(LlmProvider(
+            name=f"{provider or 'openai'} (迁移)",
+            provider=provider or "openai",
+            api_key_enc=encrypt_api_key(api_key),
+            base_url=base_url,
+            model=model,
+            enabled=True,
+            is_default=True,
+        ))
+        db.commit()
+        print(f"[Suixingdang] LLM 配置已从环境变量迁移到数据库: {provider} / {model}")
     finally:
         db.close()
 

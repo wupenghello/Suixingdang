@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from ..db.models import ChatMessage, get_db
 from ..agent import brain
+from ..core.llm_service import AiDisabled, NoLlmConfigured
 from .auth import get_current_user
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -17,12 +18,26 @@ class ChatRequest(BaseModel):
     message: str
 
 
+def _check_ai_access(user_id: str):
+    """检查用户 AI 助手权限，无权限时抛出 HTTPException。"""
+    from ..core.llm_service import check_ai_access
+    ok, msg = check_ai_access(user_id)
+    if not ok:
+        raise HTTPException(403, msg)
+
+
 @router.post("")
 def chat(req: ChatRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    _check_ai_access(user.id)
     try:
         history = brain.chat_history_for_llm(user.id, limit=5)
         result = brain.chat(user.id, req.message, history=history)
         return result
+    except (AiDisabled, NoLlmConfigured) as e:
+        # 权限/配置问题（含 _check_ai_access 与 brain 调用之间的 TOCTOU）→ 403
+        raise HTTPException(403, str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"Agent 处理失败: {str(e)}")
 
@@ -36,6 +51,7 @@ def chat_stream(req: ChatRequest, user=Depends(get_current_user)):
       data: {"type": "delta", "data": "文本增量"}
       data: {"type": "done", "data": {"reply": "...", "tool_calls": [...]}}
     """
+    _check_ai_access(user.id)
     history = brain.chat_history_for_llm(user.id, limit=5)
 
     def event_generator():

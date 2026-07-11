@@ -22,16 +22,8 @@ class Settings(BaseSettings):
     STORAGE_DIR: str = "/data/files"
     DATABASE_PATH: str = "/data/suixingdang.db"
 
-    # LLM
-    LLM_PROVIDER: str = "deepseek"
-    DEEPSEEK_API_KEY: str = ""
-    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
-    DEEPSEEK_MODEL: str = "deepseek-chat"
-    OPENAI_API_KEY: str = ""
-    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
-    OPENAI_MODEL: str = "gpt-4o-mini"
-
     # 嵌入：default=ChromaDB 内置 all-MiniLM-L6-v2（零配置）/ openai=OpenAI Embedding API
+    # 注意：LLM 配置已迁移到数据库（管理后台「大模型配置」页面维护），不再从环境变量读取。
     EMBEDDING_PROVIDER: str = "default"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
@@ -43,24 +35,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
-
-    @property
-    def llm_api_key(self) -> str:
-        if self.LLM_PROVIDER == "deepseek":
-            return self.DEEPSEEK_API_KEY
-        return self.OPENAI_API_KEY
-
-    @property
-    def llm_base_url(self) -> str:
-        if self.LLM_PROVIDER == "deepseek":
-            return self.DEEPSEEK_BASE_URL
-        return self.OPENAI_BASE_URL
-
-    @property
-    def llm_model(self) -> str:
-        if self.LLM_PROVIDER == "deepseek":
-            return self.DEEPSEEK_MODEL
-        return self.OPENAI_MODEL
 
     @property
     def storage_path(self) -> Path:

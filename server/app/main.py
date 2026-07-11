@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     print(f"[Suixingdang] 用户端启动")
     print(f"[Suixingdang] 存储目录: {settings.storage_path}")
     print(f"[Suixingdang] 数据库: {settings.DATABASE_PATH}")
-    print(f"[Suixingdang] LLM: {settings.LLM_PROVIDER} / {settings.llm_model}")
+    print(f"[Suixingdang] LLM 配置已迁移到管理后台（数据库管理）")
     print(f"[Suixingdang] 注册开关: {'开放' if settings.ALLOW_REGISTER else '关闭'}")
     yield
 

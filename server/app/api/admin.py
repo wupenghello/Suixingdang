@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from pydantic import BaseModel
 
-from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, get_db, get_setting, set_setting
-from ..core.security import hash_password, generate_token_hash
+from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, LlmProvider, get_db, get_setting, set_setting
+from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key
 from ..core import storage
 from ..config import settings
 from .auth import get_current_admin, _log
@@ -25,6 +25,21 @@ class UpdateUserRequest(BaseModel):
     status: str = ""
     quota_mb: int = -1
     password: str = ""
+
+
+class SaveLlmProviderRequest(BaseModel):
+    name: str
+    provider: str = "openai"
+    api_key: str = ""
+    base_url: str = ""
+    model: str = ""
+    enabled: bool = True
+    is_default: bool = False
+
+
+class UpdateUserAiRequest(BaseModel):
+    ai_enabled: bool = True
+    llm_provider_id: str = ""
 
 
 class CreateTokenRequest(BaseModel):
@@ -63,6 +78,7 @@ def list_users(
             "quota_mb": u.quota_mb, "file_count": file_count,
             "used_mb": round(used_bytes / 1024 / 1024, 2),
             "totp_enabled": u.totp_enabled,
+            "ai_enabled": u.ai_enabled,
             "last_login": str(u.last_login_at).split(".")[0] if u.last_login_at else "",
             "created_at": str(u.created_at),
         })
@@ -150,6 +166,8 @@ def user_detail(user_id: str, db: Session = Depends(get_db), admin=Depends(get_c
             "used_mb": round(used / 1024 / 1024, 2),
             "file_count": db.query(File).filter_by(owner_id=user_id).count(),
             "totp_enabled": user.totp_enabled,
+            "ai_enabled": user.ai_enabled,
+            "llm_provider_id": user.llm_provider_id or "",
             "has_security_question": bool(user.security_question),
             "last_login": str(user.last_login_at) if user.last_login_at else "",
             "created_at": str(user.created_at),
@@ -432,12 +450,178 @@ def update_settings(req: dict, request: Request, db: Session = Depends(get_db), 
 def system_info(admin=Depends(get_current_admin)):
     import platform
     import sys
+    # LLM 信息从数据库读取（不再依赖 env）
+    from ..db.models import SessionLocal
+    _db = SessionLocal()
+    try:
+        providers = _db.query(LlmProvider).order_by(LlmProvider.sort_order).all()
+        active = [p for p in providers if p.enabled]
+        default = next((p for p in providers if p.is_default and p.enabled), None)
+    finally:
+        _db.close()
     return {
         "python_version": sys.version.split()[0],
         "platform": platform.platform(),
         "app_version": "2.0.0",
         "storage_dir": settings.STORAGE_DIR,
         "database_path": settings.DATABASE_PATH,
-        "llm_provider": settings.LLM_PROVIDER,
-        "llm_model": settings.llm_model,
+        "llm_provider": (default.name if default else "未配置"),
+        "llm_model": (default.model if default else "-"),
+        "llm_count": len(active),
     }
+
+
+# ---- 大模型配置管理 ----
+
+def _provider_to_dict(p, mask_key=True):
+    return {
+        "id": p.id,
+        "name": p.name,
+        "provider": p.provider,
+        "api_key": ("•" * 8 if mask_key and p.api_key_enc else ""),
+        "has_key": bool(p.api_key_enc),
+        "base_url": p.base_url,
+        "model": p.model,
+        "enabled": p.enabled,
+        "is_default": p.is_default,
+        "sort_order": p.sort_order,
+        "created_at": str(p.created_at),
+    }
+
+
+@router.get("/llm/providers")
+def list_llm_providers(db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    providers = db.query(LlmProvider).order_by(LlmProvider.sort_order, LlmProvider.created_at).all()
+    return {"providers": [_provider_to_dict(p) for p in providers]}
+
+
+@router.post("/llm/providers")
+def create_llm_provider(req: SaveLlmProviderRequest, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    if not req.name.strip():
+        raise HTTPException(400, "名称不能为空")
+    if not req.api_key.strip():
+        raise HTTPException(400, "API Key 不能为空")
+    if not req.base_url.strip():
+        req.base_url = "https://api.openai.com/v1"
+    if not req.model.strip():
+        raise HTTPException(400, "模型名称不能为空")
+    # 如果设为默认，取消其他默认
+    if req.is_default:
+        db.query(LlmProvider).filter(LlmProvider.is_default == True).update({LlmProvider.is_default: False})
+    provider = LlmProvider(
+        name=req.name.strip(),
+        provider=req.provider,
+        api_key_enc=encrypt_api_key(req.api_key.strip()),
+        base_url=req.base_url.strip(),
+        model=req.model.strip(),
+        enabled=req.enabled,
+        is_default=req.is_default,
+        sort_order=db.query(LlmProvider).count(),
+    )
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    _log(db, None, "admin_create_llm", f"新建大模型「{provider.name}」", request)
+    return _provider_to_dict(provider)
+
+
+@router.put("/llm/providers/{provider_id}")
+def update_llm_provider(provider_id: str, req: SaveLlmProviderRequest, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    p = db.query(LlmProvider).filter_by(id=provider_id).first()
+    if not p:
+        raise HTTPException(404, "大模型配置不存在")
+    if not req.name.strip():
+        raise HTTPException(400, "名称不能为空")
+    p.name = req.name.strip()
+    p.provider = req.provider
+    # api_key 为空表示不修改
+    if req.api_key.strip():
+        p.api_key_enc = encrypt_api_key(req.api_key.strip())
+    if req.base_url.strip():
+        p.base_url = req.base_url.strip()
+    if req.model.strip():
+        p.model = req.model.strip()
+    p.enabled = req.enabled
+    if req.is_default and not p.is_default:
+        db.query(LlmProvider).filter(LlmProvider.id != provider_id).update({LlmProvider.is_default: False})
+    p.is_default = req.is_default
+    p.updated_at = datetime.utcnow()
+    db.commit()
+    _log(db, None, "admin_update_llm", f"修改大模型「{p.name}」", request)
+    return _provider_to_dict(p)
+
+
+@router.delete("/llm/providers/{provider_id}")
+def delete_llm_provider(provider_id: str, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    p = db.query(LlmProvider).filter_by(id=provider_id).first()
+    if not p:
+        raise HTTPException(404, "大模型配置不存在")
+    name = p.name
+    was_default = p.is_default
+    # 解除引用此模型的用户分配
+    db.query(User).filter(User.llm_provider_id == provider_id).update({User.llm_provider_id: None})
+    db.delete(p)
+    db.commit()
+    # 如果删除的是默认模型，自动将第一个启用的模型设为默认
+    if was_default:
+        first = db.query(LlmProvider).filter_by(enabled=True).order_by(LlmProvider.sort_order).first()
+        if first:
+            first.is_default = True
+            db.commit()
+    _log(db, None, "admin_delete_llm", f"删除大模型「{name}」", request)
+    return {"message": f"大模型「{name}」已删除"}
+
+
+@router.post("/llm/providers/{provider_id}/test")
+def test_llm_provider(provider_id: str, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    p = db.query(LlmProvider).filter_by(id=provider_id).first()
+    if not p:
+        raise HTTPException(404, "大模型配置不存在")
+    api_key = decrypt_api_key(p.api_key_enc)
+    if not api_key:
+        raise HTTPException(400, "该模型未配置 API Key")
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=p.base_url)
+        resp = client.chat.completions.create(
+            model=p.model,
+            messages=[{"role": "user", "content": "请回复 ok"}],
+            max_tokens=10,
+        )
+        return {"ok": True, "reply": resp.choices[0].message.content}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ---- 用户 AI 权限管理 ----
+
+@router.get("/llm/assignable")
+def list_assignable_providers(db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """列出可分配给用户的大模型（用于用户详情页下拉选择）。"""
+    providers = db.query(LlmProvider).filter_by(enabled=True).order_by(LlmProvider.sort_order).all()
+    return {"providers": [{"id": p.id, "name": p.name, "model": p.model, "is_default": p.is_default} for p in providers]}
+
+
+@router.put("/users/{user_id}/ai")
+def update_user_ai(user_id: str, req: UpdateUserAiRequest, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise HTTPException(404, "用户不存在")
+    user.ai_enabled = req.ai_enabled
+    # 空字符串表示清除分配（回退到默认模型）
+    user.llm_provider_id = req.llm_provider_id.strip() or None
+    if user.llm_provider_id:
+        p = db.query(LlmProvider).filter_by(id=user.llm_provider_id).first()
+        if not p:
+            raise HTTPException(400, "指定的大模型不存在")
+        if not p.enabled:
+            # 禁用的模型不能分配：_resolve_provider 会因 enabled=True 过滤而跳过它，
+            # 导致用户实际回退到默认模型，与界面上看到的分配不一致。
+            raise HTTPException(400, "指定的大模型已禁用，请先启用或选择其他模型")
+    db.commit()
+    detail = f"用户「{user.username}」AI 权限={'开启' if req.ai_enabled else '关闭'}"
+    if req.llm_provider_id.strip():
+        pname = db.query(LlmProvider).filter_by(id=req.llm_provider_id.strip()).first()
+        detail += f"，分配模型「{pname.name if pname else '?'}」"
+    _log(db, user_id, "admin_update_ai", detail, request)
+    return {"message": "AI 设置已更新"}

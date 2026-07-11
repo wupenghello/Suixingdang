@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 
 from ..db.models import File, SyncEvent, AccessToken, SessionLocal
 from ..core import storage, indexer, guard
-from ..config import settings
 
 
 def _short(s: str, n: int = 4000) -> str:
@@ -14,12 +13,14 @@ def _short(s: str, n: int = 4000) -> str:
 
 # ---- LLM 调用辅助 ----
 
-def _call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1024) -> str:
+def _call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1024, user_id: str = "") -> str:
     """调用 LLM 生成文本（用于摘要 / QA）。"""
+    from ..core.llm_service import get_llm_config
+    cfg = get_llm_config(user_id)
     from openai import OpenAI
-    client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+    client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
     resp = client.chat.completions.create(
-        model=settings.llm_model,
+        model=cfg.model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -98,6 +99,7 @@ def summarize_file(user_id: str, file_path: str) -> str:
         summary = _call_llm(
             system_prompt="你是一个文档摘要助手。请用简洁的中文总结文档的核心内容，提炼关键信息，分条列出要点。",
             user_prompt=f"请为以下文件内容生成摘要：\n\n文件：{file_path}\n\n内容：\n{_short(text, 8000)}",
+            user_id=user_id,
         )
         return json.dumps({
             "file": file_path,
@@ -162,6 +164,7 @@ def qa(user_id: str, question: str, file_path: str = "") -> str:
                 f"用户问题：{question}"
             ),
             max_tokens=1500,
+            user_id=user_id,
         )
         return json.dumps({
             "answer": answer,

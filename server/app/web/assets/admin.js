@@ -72,7 +72,8 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
-  refresh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
+ refresh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
+ llm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4v1h1a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4h-1v1a4 4 0 0 1-4 4 4 4 0 0 1-4-4v-1H7a4 4 0 0 1-4-4v0a4 4 0 0 1 4-4h1V6a4 4 0 0 1 4-4z"/><circle cx="12" cy="11" r="2" fill="currentColor" stroke="none"/></svg>',
 };
 
 let currentView = 'dashboard';
@@ -158,8 +159,9 @@ function renderLayout() {
           <div class="admin-nav-item active" data-view="dashboard">${ICONS.dashboard} 系统概览</div>
           <div class="admin-nav-item" data-view="users">${ICONS.users} 用户管理</div>
           <div class="admin-nav-item" data-view="files">${ICONS.file} 全局文件</div>
-          <div class="admin-nav-item" data-view="groups">${ICONS.groups} 分组管理</div>
-          <div class="admin-nav-item" data-view="settings">${ICONS.settings} 系统设置</div>
+         <div class="admin-nav-item" data-view="groups">${ICONS.groups} 分组管理</div>
+          <div class="admin-nav-item" data-view="llm">${ICONS.llm} 大模型配置</div>
+         <div class="admin-nav-item" data-view="settings">${ICONS.settings} 系统设置</div>
           <div class="admin-nav-item" data-view="logs">${ICONS.log} 审计日志</div>
         </div>
         <div style="padding:12px">
@@ -183,6 +185,7 @@ function navigate(view) {
   else if (view === 'users') renderUsers();
   else if (view === 'files') renderFiles();
   else if (view === 'groups') renderGroups();
+  else if (view === 'llm') renderLlm();
   else if (view === 'settings') renderSettings();
   else if (view === 'logs') renderLogs();
 }
@@ -299,7 +302,21 @@ async function viewUserDetail(userId) {
         <div class="stat-card"><div class="stat-label">状态</div><div class="stat-value" style="font-size:16px">${u.status === 'active' ? '正常' : '已禁用'}</div></div>
       </div>
       <div style="margin-bottom:8px;font-size:13px;color:var(--text-muted)">
-        创建: ${u.created_at.split('.')[0]} | 最近登录: ${u.last_login ? u.last_login.split('.')[0] : '从未'} | 双因子: ${u.totp_enabled ? '已启用' : '未启用'} | 密保: ${u.has_security_question ? '已设置' : '未设置'}
+       创建: ${u.created_at.split('.')[0]} | 最近登录: ${u.last_login ? u.last_login.split('.')[0] : '从未'} | 双因子: ${u.totp_enabled ? '已启用' : '未启用'} | 密保: ${u.has_security_question ? '已设置' : '未设置'}
+     </div>
+      <div style="margin:16px 0;padding:16px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <h3 style="margin:0;font-size:14px">${ICONS.llm} AI 助手权限</h3>
+          <div class="admin-spacer" style="flex:1"></div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="user-ai-enabled" ${u.ai_enabled ? 'checked' : ''} style="width:16px;height:16px"> 允许使用 AI 助手
+          </label>
+        </div>
+        <div class="form-group" style="margin:0" id="user-llm-assign-area">
+          <label style="font-size:13px">分配大模型（不选则用默认）</label>
+          <select id="user-llm-provider" class="form-input" style="max-width:300px"></select>
+          <button class="btn btn-primary" style="margin-left:8px" id="btn-save-user-ai">保存</button>
+        </div>
       </div>
       <h3 style="margin:20px 0 8px;font-size:14px;display:flex;align-items:center;gap:8px">
         访问令牌 (<span id="user-tokens-count">0</span>)
@@ -332,11 +349,42 @@ async function viewUserDetail(userId) {
             <td style="font-size:12px;color:var(--text-muted)">${l.ip || '-'}</td>
           </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">暂无日志</td></tr>'}
         </tbody>
-      </table>`;
+    </table>`;
     loadUserTokens(u.id);
+    loadUserAiSettings(u);
   } catch { Toast.show('加载用户详情失败', 'error'); }
 }
 window.viewUserDetail = viewUserDetail;
+
+async function loadUserAiSettings(u) {
+  // 先同步拿到当前用户详情渲染出的按钮与下拉框，再异步加载可分配模型列表。
+  // 若放在 await 之后获取，快速切换用户时会把 A 用户的处理器绑到 B 用户的按钮上，
+  // 导致保存请求发到错误的用户端点。
+  const sel = document.getElementById('user-llm-provider');
+  const btn = document.getElementById('btn-save-user-ai');
+  if (btn) btn.addEventListener('click', async () => {
+    const body = {
+      ai_enabled: document.getElementById('user-ai-enabled').checked,
+      llm_provider_id: document.getElementById('user-llm-provider').value,
+    };
+    try {
+      const res = await API.put(`/api/admin/users/${u.id}/ai`, body);
+      if (res.ok) Toast.show('AI 设置已保存', 'success');
+      else { const d = await res.json().catch(() => ({})); Toast.show(d.detail || '保存失败', 'error'); }
+    } catch { Toast.show('保存失败，请检查网络', 'error'); }
+  });
+  if (!sel) return;
+  try {
+    const res = await API.get('/api/admin/llm/assignable');
+    const data = await res.json();
+    const providers = data.providers || [];
+    sel.innerHTML = '<option value="">使用默认模型</option>' +
+      providers.map(p => `<option value="${p.id}" ${p.id === u.llm_provider_id ? 'selected' : ''}>${esc(p.name)} (${esc(p.model)})${p.is_default ? ' [默认]' : ''}</option>`).join('');
+  } catch {
+    // 列表加载失败时给出提示，避免管理员在不知情的情况下保存并清空已有分配。
+    Toast.show('可分配模型列表加载失败，保存将清除当前分配', 'warning', 5000);
+  }
+}
 
 async function toggleUser(id, status) {
   try {
@@ -585,6 +633,189 @@ async function adminDeleteGroup(id, name) {
 }
 window.adminDeleteGroup = adminDeleteGroup;
 
+// ============ LLM 配置 ============
+async function renderLlm() {
+  document.getElementById('admin-main').innerHTML = `
+    <div class="admin-topbar">
+      <h2>大模型配置</h2>
+      <div class="admin-spacer"></div>
+      <button class="btn btn-primary" id="btn-add-llm">${ICONS.add} 添加大模型</button>
+    </div>
+    <div style="padding:0 24px 8px;font-size:13px;color:var(--text-muted)">
+      管理多个大模型，分配给不同用户使用。标记为「默认」的模型会自动分配给未指定模型的用户。
+    </div>
+    <div id="llm-content" style="padding:0 24px">加载中...</div>`;
+  document.getElementById('btn-add-llm').addEventListener('click', () => showLlmModal());
+  await loadLlmProviders();
+}
+
+async function loadLlmProviders() {
+  try {
+    const res = await API.get('/api/admin/llm/providers');
+    const data = await res.json();
+    const list = data.providers || [];
+    if (!list.length) {
+      document.getElementById('llm-content').innerHTML = `
+        <div style="text-align:center;padding:40px;color:var(--text-muted)">
+          <p>尚未配置任何大模型</p>
+          <p style="font-size:13px">点击右上角「添加大模型」开始配置</p>
+        </div>`;
+      return;
+    }
+    document.getElementById('llm-content').innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>名称</th><th>提供商</th><th>模型</th><th>Base URL</th><th>API Key</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+          ${list.map(p => `<tr>
+            <td><strong>${esc(p.name)}</strong>${p.is_default ? ' <span class="badge badge-info">默认</span>' : ''}</td>
+            <td>${esc(p.provider)}</td>
+            <td>${esc(p.model)}</td>
+            <td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(p.base_url)}</td>
+            <td>${p.has_key ? '<span class="badge badge-success">已设置</span>' : '<span class="badge badge-danger">未设置</span>'}</td>
+            <td>${p.enabled ? '<span class="badge badge-success">启用</span>' : '<span class="badge badge-danger">禁用</span>'}</td>
+            <td style="display:flex;gap:4px">
+              <button class="btn btn-secondary btn-icon" onclick="testLlmProvider('${p.id}')" title="测试连通">${ICONS.refresh}</button>
+              <button class="btn btn-secondary btn-icon" onclick="editLlmProvider('${p.id}')" title="编辑">${ICONS.edit}</button>
+              <button class="btn btn-danger btn-icon" onclick="deleteLlmProvider('${p.id}','${esc(p.name)}')" title="删除">${ICONS.trash}</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch {
+    const el = document.getElementById('llm-content');
+    if (el) el.innerHTML = '<p>加载失败</p>';
+  }
+}
+
+function showLlmModal(id) {
+  const isEdit = !!id;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:520px">
+      <h3>${isEdit ? '编辑大模型' : '添加大模型'}</h3>
+      <div class="form-group">
+        <label>名称</label>
+        <input type="text" id="llm-name" class="form-input" placeholder="如：DeepSeek 生产环境">
+      </div>
+      <div class="form-group">
+        <label>提供商类型</label>
+        <select id="llm-provider-type" class="form-input">
+          <option value="deepseek">DeepSeek</option>
+          <option value="openai">OpenAI</option>
+          <option value="custom">自定义（OpenAI 兼容）</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>API Key${isEdit ? '（留空则不修改）' : ''}</label>
+        <input type="password" id="llm-api-key" class="form-input" placeholder="sk-...">
+      </div>
+      <div class="form-group">
+        <label>Base URL</label>
+        <input type="text" id="llm-base-url" class="form-input" placeholder="https://api.deepseek.com">
+      </div>
+      <div class="form-group">
+        <label>模型名称</label>
+        <input type="text" id="llm-model" class="form-input" placeholder="deepseek-chat">
+      </div>
+      <div style="display:flex;gap:16px;margin-bottom:16px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="llm-enabled" checked> 启用
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="llm-default"> 设为默认
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" id="llm-cancel">取消</button>
+        <button class="btn btn-primary" id="llm-save">保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  // 如果是编辑，加载现有数据（加载完成前禁用保存，避免用表单默认值覆盖原配置）
+  if (isEdit) {
+    const saveBtn = document.getElementById('llm-save');
+    saveBtn.disabled = true;
+    API.get('/api/admin/llm/providers').then(async res => {
+      const data = await res.json();
+      if (!overlay.isConnected) return;  // 模态框已关闭，无需回填
+      const p = (data.providers || []).find(x => x.id === id);
+      if (p) {
+        document.getElementById('llm-name').value = p.name;
+        document.getElementById('llm-provider-type').value = p.provider;
+        document.getElementById('llm-base-url').value = p.base_url;
+        document.getElementById('llm-model').value = p.model;
+        document.getElementById('llm-enabled').checked = p.enabled;
+        document.getElementById('llm-default').checked = p.is_default;
+      }
+      saveBtn.disabled = false;
+    }).catch(() => {
+      if (overlay.isConnected) { overlay.remove(); Toast.show('加载配置失败，请重试', 'error'); }
+    });
+  }
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('llm-cancel').addEventListener('click', () => overlay.remove());
+  document.getElementById('llm-save').addEventListener('click', async () => {
+    const body = {
+      name: document.getElementById('llm-name').value.trim(),
+      provider: document.getElementById('llm-provider-type').value,
+      api_key: document.getElementById('llm-api-key').value.trim(),
+      base_url: document.getElementById('llm-base-url').value.trim(),
+      model: document.getElementById('llm-model').value.trim(),
+      enabled: document.getElementById('llm-enabled').checked,
+      is_default: document.getElementById('llm-default').checked,
+    };
+    if (!body.name) { Toast.show('名称不能为空', 'error'); return; }
+    if (!isEdit && !body.api_key) { Toast.show('API Key 不能为空', 'error'); return; }
+    if (!body.model) { Toast.show('模型名称不能为空', 'error'); return; }
+    const saveBtn = document.getElementById('llm-save');
+    saveBtn.disabled = true;  // 防止重复提交导致重复创建
+    try {
+      const res = isEdit
+        ? await API.put(`/api/admin/llm/providers/${id}`, body)
+        : await API.post('/api/admin/llm/providers', body);
+      if (res.ok) {
+        Toast.show(isEdit ? '大模型已更新' : '大模型已添加', 'success');
+        overlay.remove();
+        loadLlmProviders();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        Toast.show(d.detail || '保存失败', 'error');
+      }
+    } catch {
+      Toast.show('保存失败，请检查网络', 'error');
+    } finally {
+      if (overlay.isConnected) saveBtn.disabled = false;
+    }
+  });
+}
+
+async function editLlmProvider(id) { showLlmModal(id); }
+window.editLlmProvider = editLlmProvider;
+
+async function deleteLlmProvider(id, name) {
+  if (!confirm(`确定删除大模型「${name}」？\n已分配此模型的用户将回退到默认模型。`)) return;
+  const res = await API.del(`/api/admin/llm/providers/${id}`);
+  if (res.ok) { Toast.show('大模型已删除', 'success'); loadLlmProviders(); }
+  else { const d = await res.json(); Toast.show(d.detail || '删除失败', 'error'); }
+}
+window.deleteLlmProvider = deleteLlmProvider;
+
+async function testLlmProvider(id) {
+  Toast.show('正在测试连通性...', 'info', 5000);
+  try {
+    const res = await API.post(`/api/admin/llm/providers/${id}/test`);
+    const d = await res.json();
+    if (d.ok) Toast.show(`连通成功，模型回复：${d.reply || '(空)'}`, 'success', 5000);
+    else Toast.show(`连通失败：${d.error || '未知错误'}`, 'error', 5000);
+  } catch {
+    Toast.show('连通测试请求失败，请检查网络或后端服务', 'error', 5000);
+  }
+}
+window.testLlmProvider = testLlmProvider;
+
 // ============ Settings ============
 async function renderSettings() {
   document.getElementById('admin-main').innerHTML = `
@@ -620,6 +851,7 @@ async function renderSettings() {
           <tr><td>数据库路径</td><td>${si.database_path}</td></tr>
           <tr><td>LLM 提供商</td><td>${si.llm_provider}</td></tr>
           <tr><td>LLM 模型</td><td>${si.llm_model}</td></tr>
+          <tr><td>已启用模型数</td><td>${si.llm_count ?? '-'}</td></tr>
         </table>
       </div>`;
     document.getElementById('btn-save-settings').addEventListener('click', async () => {
