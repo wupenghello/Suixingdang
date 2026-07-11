@@ -81,9 +81,7 @@ Caddy 会自动签发 HTTPS 证书。
 
 ### 数据隔离
 
-- 存储隔离：文件按 `{STORAGE_DIR}/{user_id}/` 目录隔离
-- 数据库隔离：所有文件/聊天/令牌记录带 `owner_id` / `user_id` 过滤
-- 索引隔离：每个用户独立的 Chroma 向量集合（`files_{user_id}`）
+每个用户拥有独立空间，三重隔离：存储分目录（`{STORAGE_DIR}/{user_id}/`）、数据库按 `owner_id` 过滤、Chroma 独立向量集合（`files_{user_id}`）。详见 [DESIGN.md](docs/DESIGN.md)。
 
 ## 家里电脑：守护进程
 
@@ -124,17 +122,20 @@ docker run -d --name suixingdang-daemon \
 
 ## 本地开发（不用 Docker）
 
-仓库自带 `.env.test`（仅含本地测试用占位值，无真实密钥），可在不装 Docker 的情况下跑起服务端：
+仓库自带 `.env.test`（仅含本地测试用占位值，无真实密钥），可在不装 Docker 的情况下跑起服务端。服务有**双入口**，用项目根目录的 `start.sh` 一键起两个进程：
 
 ```bash
 cd server
 pip install -r requirements.txt
-cp ../.env.test .env          # 复制为本地配置（该 .env 已被 gitignore，不会提交）
-uvicorn app.main:app --reload --port 8000
+cd ..
+./start.sh
 ```
 
+- 用户端 → http://localhost:8899
+- 管理端 → http://localhost:8900
+
 默认数据写到 `/tmp/suixingdang-test/`（见 `.env.test`），不影响正式部署的数据目录。
-启动后登录管理后台（`/admin`），在「大模型配置」页面添加你的 DeepSeek/OpenAI API Key。
+启动后登录管理后台（`http://localhost:8900/admin`），在「大模型配置」页面添加你的 DeepSeek/OpenAI API Key。
 
 ## 架构概览
 

@@ -1,5 +1,7 @@
 # Promptfoo 完整使用手册
 
+> **与随行档的关系**：本手册用于评测随行档的 AI 对话 / RAG 质量（对同一批文件问答用例，对比不同 prompt / 模型的输出）。随行档运行时不依赖 promptfoo，若你不做这类评测可忽略本文档。
+
 > 版本基线：`promptfoo@0.121.x`｜官方文档：<https://www.promptfoo.dev/docs>｜GitHub：<https://github.com/promptfoo/promptfoo>
 >
 > 本手册整合了官方文档 + 实战踩坑经验，按"从入门到 CI/CD"的顺序组织，可当教程读，也可当速查表查。

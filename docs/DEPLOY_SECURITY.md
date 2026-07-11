@@ -35,6 +35,8 @@
 因此**加密主机上的 `/data` 卷一次即可覆盖全部三类存储**，无需改动应用代码、
 无运行时性能损耗、无历史数据迁移负担。
 
+> 例外：Caddy 的访问日志（`Caddyfile` 里 `output file /data/access.log`）写在 caddy 容器自己的 named volume，**不在上述业务数据卷内**，加密卷与迁移都不覆盖它。如需随业务数据一起持久化，请为 caddy 单独挂载一个共享日志目录。
+
 ### 方案 A：LUKS 加密一个独立分区/卷（Linux 服务器）
 
 ```bash
@@ -112,6 +114,8 @@ docker compose up -d --build
 ---
 
 ## 三、密钥管理（环境变量）
+
+> 本节是三把密钥的权威说明；[MIGRATION.md](MIGRATION.md) 等其他文档引用此处。
 
 `.env` 中的密钥分三类，建议各自独立、各自轮换：
 

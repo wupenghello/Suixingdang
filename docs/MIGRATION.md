@@ -21,13 +21,13 @@
 
 `DATA_DIR` 这棵树包含三类数据，迁移时**会一起跟着走**，无需单独处理：
 
-| 内容 | 容器内路径 | 主机路径（默认） | 作用 |
+| 内容 | 容器内路径 | 主机路径（`DATA_DIR=/data/suixingdang` 时） | 作用 |
 |------|------|------|------|
-| SQLite 数据库 | 由 `DATABASE_PATH` 指定 | `/data/suixingdang/.../db.sqlite` | **账户资料全在这**：用户名、bcrypt 密码哈希、TOTP 双因子密钥、设备令牌、文件元数据、聊天记录、审计日志、存储配额、加密后的 LLM API Key |
-| 用户文件本体 | 由 `STORAGE_DIR` 指定 | `/data/suixingdang/.../files/<user_id>/` | 上传的所有文件，按用户分目录隔离 |
-| Chroma 向量库 | `<STORAGE_DIR 的父目录>/chroma/` | `/data/suixingdang/.../chroma/` | 语义搜索的向量索引，按用户分集合 |
+| SQLite 数据库 | `/data/db.sqlite` | `/data/suixingdang/db.sqlite` | **账户资料全在这**：用户名、bcrypt 密码哈希、TOTP 双因子密钥、设备令牌、文件元数据、聊天记录、审计日志、存储配额、加密后的 LLM API Key |
+| 用户文件本体 | `/data/files/<user_id>/` | `/data/suixingdang/files/<user_id>/` | 上传的所有文件，按用户分目录隔离 |
+| Chroma 向量库 | `/data/chroma/` | `/data/suixingdang/chroma/` | 语义搜索的向量索引，按用户分集合 |
 
-> 具体子路径取决于你 `.env` 里的 `STORAGE_DIR` / `DATABASE_PATH`，不同部署可能略有嵌套差异。**只要整棵 `DATA_DIR` 一起搬，这三类数据自动全部覆盖**，无需关心内部路径。
+> 容器内 `/data` 即主机 `${DATA_DIR}` 的挂载点（见 `docker-compose.yml`）。**只要整棵 `DATA_DIR` 一起搬，这三类数据自动全部覆盖**，无需关心内部路径。
 
 ---
 
@@ -42,6 +42,8 @@
 | `SECRET_KEY` | 兼容回退用。代码对历史密文有多种兼容解密路径，**把整个 `.env` 原样搬过去能覆盖所有历史加密版本**，最保险。 |
 
 密码哈希、TOTP 密钥、设备令牌都是不可逆或独立存储的，**与上述密钥无关，账户资料本身不会因换机器而丢失**。
+
+> 三把密钥的完整说明（用途、生成方式、轮换影响）以 [DEPLOY_SECURITY.md](DEPLOY_SECURITY.md) 第三节为权威源。
 
 ---
 

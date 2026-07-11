@@ -22,6 +22,10 @@ services:
     image: caddy:2-alpine
     container_name: suixingdang-caddy
     restart: unless-stopped
+    environment:
+      # 把 .env 的 DOMAIN 注入 caddy 容器，供 Caddyfile 的 {$DOMAIN} 取用。
+      # 只传 DOMAIN 单个变量，不把含密钥的整个 .env 喂给 caddy。
+      - DOMAIN=${DOMAIN}
     ports:
       - "80:80"
       - "443:443"
