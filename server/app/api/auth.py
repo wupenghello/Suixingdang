@@ -391,6 +391,17 @@ def revoke_token(token_id: str, db: Session = Depends(get_db), user=Depends(get_
     return {"message": f"已吊销令牌: {t.label if t else token_id}"}
 
 
+@router.delete("/tokens")
+def revoke_all_tokens(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """吊销当前用户的全部有效令牌（紧急下线所有设备）。"""
+    tokens = db.query(AccessToken).filter_by(user_id=user.id, revoked=False).all()
+    for t in tokens:
+        t.revoked = True
+    db.commit()
+    _log(db, user.id, "revoke_all_tokens", f"用户主动吊销全部令牌（{len(tokens)} 个）", request)
+    return {"message": f"已吊销 {len(tokens)} 个令牌", "count": len(tokens)}
+
+
 # ---- 修改密码 ----
 
 class ChangePasswordRequest(BaseModel):
