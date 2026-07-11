@@ -585,23 +585,50 @@ async function renderFiles() {
   loadFiles();
 }
 
+// ============ Modal primitive ============
+// 统一弹窗生命周期：创建遮罩/弹窗、点击遮罩与 ESC 撤销、幂等 close、移除 keydown 监听。
+// opts.width 设置 .modal 宽度；opts.onDismiss 在用户以遮罩点击/ESC 撤销时触发一次（用于 resolve 取消值）。
+// 返回 { overlay, modal, close }；close 幂等，调用方填充 modal 内容并绑定按钮（按钮内自行 resolve 后调 close）。
+function openModal({ width, onDismiss } = {}) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  if (width) modal.style.width = typeof width === 'number' ? width + 'px' : width;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', escHandler);
+    overlay.remove();
+  }
+  // 撤销路径（遮罩点击 / ESC）：先通知调用方（如 resolve(null)），再拆除弹窗
+  function dismiss() {
+    if (closed) return;
+    if (onDismiss) onDismiss();
+    close();
+  }
+  const escHandler = (e) => { if (e.key === 'Escape') dismiss(); };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
+  document.addEventListener('keydown', escHandler);
+  return { overlay, modal, close };
+}
+
 // ============ Input Dialog (prompt replacement) ============
 function showInputDialog({ title, value = '', placeholder = '', maxlength = 50, confirmText = '确定', validate }) {
   return new Promise((resolve) => {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-      <div class="modal" style="width:420px">
-        <h3></h3>
-        <input type="text" class="form-input">
-        <div class="input-error-msg"></div>
-        <div class="modal-actions">
-          <button class="btn btn-secondary">取消</button>
-          <button class="btn btn-primary"></button>
-        </div>
+    const { modal, close } = openModal({ width: 420, onDismiss: () => resolve(null) });
+    modal.innerHTML = `
+      <h3></h3>
+      <input type="text" class="form-input">
+      <div class="input-error-msg"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary">取消</button>
+        <button class="btn btn-primary"></button>
       </div>`;
-    document.body.appendChild(overlay);
-    const modal = overlay.querySelector('.modal');
     const input = modal.querySelector('input');
     const errEl = modal.querySelector('.input-error-msg');
     const confirmBtn = modal.querySelector('.btn-primary');
@@ -612,18 +639,15 @@ function showInputDialog({ title, value = '', placeholder = '', maxlength = 50, 
     input.value = value;
     confirmBtn.textContent = confirmText;
 
-    let done = false;
-    const close = (result) => { if (done) return; done = true; overlay.remove(); resolve(result); };
+    const finish = (result) => { resolve(result); close(); };
     const check = () => syncInputValidation(input, errEl, confirmBtn, validate);
     input.addEventListener('input', check);
     input.addEventListener('keydown', (e) => {
       if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === 'Enter') { e.preventDefault(); if (!confirmBtn.disabled) close(input.value.trim()); }
-      if (e.key === 'Escape') { e.preventDefault(); close(null); }
+      if (e.key === 'Enter') { e.preventDefault(); if (!confirmBtn.disabled) finish(input.value.trim()); }
     });
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
-    modal.querySelector('.btn-secondary').addEventListener('click', () => close(null));
-    confirmBtn.addEventListener('click', () => { if (!confirmBtn.disabled) close(input.value.trim()); });
+    modal.querySelector('.btn-secondary').addEventListener('click', () => finish(null));
+    confirmBtn.addEventListener('click', () => { if (!confirmBtn.disabled) finish(input.value.trim()); });
 
     check();
     input.focus();
@@ -635,39 +659,23 @@ function showInputDialog({ title, value = '', placeholder = '', maxlength = 50, 
 // 用自定义 modal 替代原生 confirm()，与项目其他弹窗风格一致；返回 Promise<boolean>
 function confirmDialog({ title, message, confirmText = '确定', cancelText = '取消', danger = false }) {
   return new Promise((resolve) => {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-      <div class="modal" style="width:420px">
-        <h3></h3>
-        <p class="confirm-message"></p>
-        <div class="modal-actions">
-          <button class="btn btn-secondary"></button>
-          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}"></button>
-        </div>
+    const { modal, close } = openModal({ width: 420, onDismiss: () => resolve(false) });
+    modal.innerHTML = `
+      <h3></h3>
+      <p class="confirm-message"></p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary"></button>
+        <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}"></button>
       </div>`;
-    document.body.appendChild(overlay);
-    const modal = overlay.querySelector('.modal');
     modal.querySelector('h3').textContent = title;
     modal.querySelector('.confirm-message').textContent = message; // textContent 防 XSS
     const cancelBtn = modal.querySelector('.btn-secondary');
     const okBtn = modal.querySelector(danger ? '.btn-danger' : '.btn-primary');
     cancelBtn.textContent = cancelText;
     okBtn.textContent = confirmText;
-    let done = false;
-    const cleanup = (r) => {
-      if (done) return;
-      done = true;
-      document.removeEventListener('keydown', escHandler);
-      overlay.remove();
-      resolve(r);
-    };
-    const escHandler = (e) => { if (e.key === 'Escape') cleanup(false); if (e.key === 'Enter') cleanup(true); };
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
-    cancelBtn.addEventListener('click', () => cleanup(false));
-    okBtn.addEventListener('click', () => cleanup(true));
-    document.addEventListener('keydown', escHandler);
-    setTimeout(() => okBtn.focus(), 0);
+    cancelBtn.addEventListener('click', () => { resolve(false); close(); });
+    okBtn.addEventListener('click', () => { resolve(true); close(); });
+    setTimeout(() => okBtn.focus(), 0); // 聚焦确认键，Enter 原生激活即可，无需全局 keydown
   });
 }
 
@@ -2087,10 +2095,8 @@ async function createToken() {
 
 function showCreateTokenDialog() {
   return new Promise((resolve) => {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-      <div class="modal" style="width:440px">
+    const { modal, close } = openModal({ width: 440, onDismiss: () => resolve(null) });
+    modal.innerHTML = `
         <h3>创建设备令牌</h3>
         <p class="confirm-message" style="margin-bottom:16px">为令牌起个名字，方便日后识别（如“公司电脑”“家里守护进程”）。</p>
         <div class="form-group">
@@ -2110,19 +2116,16 @@ function showCreateTokenDialog() {
         <div class="modal-actions">
           <button class="btn btn-secondary" id="tk-cancel">取消</button>
           <button class="btn btn-primary" id="tk-create" disabled>创建</button>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
-    const labelInput = overlay.querySelector('#tk-label');
-    const errEl = overlay.querySelector('#tk-label-err');
-    const createBtn = overlay.querySelector('#tk-create');
+        </div>`;
+    const labelInput = modal.querySelector('#tk-label');
+    const errEl = modal.querySelector('#tk-label-err');
+    const createBtn = modal.querySelector('#tk-create');
     let expiresDays = 0;
-    let done = false;
-    const cleanup = (r) => { if (done) return; done = true; overlay.remove(); resolve(r); };
+    const finish = (r) => { resolve(r); close(); };
 
-    overlay.querySelectorAll('.expiry-option').forEach(btn => {
+    modal.querySelectorAll('.expiry-option').forEach(btn => {
       btn.addEventListener('click', () => {
-        overlay.querySelectorAll('.expiry-option').forEach(b => b.classList.remove('active'));
+        modal.querySelectorAll('.expiry-option').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         expiresDays = parseInt(btn.dataset.days, 10) || 0;
       });
@@ -2136,45 +2139,35 @@ function showCreateTokenDialog() {
     labelInput.addEventListener('input', check);
     labelInput.addEventListener('keydown', (e) => {
       if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === 'Enter' && !createBtn.disabled) cleanup({ label: labelInput.value.trim(), expires_days: expiresDays });
+      if (e.key === 'Enter' && !createBtn.disabled) finish({ label: labelInput.value.trim(), expires_days: expiresDays });
     });
-    overlay.querySelector('#tk-cancel').addEventListener('click', () => cleanup(null));
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); });
-    createBtn.addEventListener('click', () => cleanup({ label: labelInput.value.trim(), expires_days: expiresDays }));
+    modal.querySelector('#tk-cancel').addEventListener('click', () => finish(null));
+    createBtn.addEventListener('click', () => finish({ label: labelInput.value.trim(), expires_days: expiresDays }));
     setTimeout(() => labelInput.focus(), 0);
   });
 }
 
 function showTokenResult(token, label) {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-    <div class="modal" style="width:520px">
-      <h3>令牌已创建</h3>
-      <p class="confirm-message">令牌「${escapeHtml(label)}」已生成。<strong style="color:var(--warning)">仅显示这一次</strong>，关闭后无法再次查看，请立即复制并妥善保存。</p>
-      <div class="token-result">
-        <code class="token-result-value" id="tk-result-value"></code>
-        <button class="btn btn-secondary" id="tk-copy">复制</button>
-      </div>
-      <div class="input-error-msg" id="tk-copy-msg" style="min-height:0"></div>
-      <div class="modal-actions">
-        <button class="btn btn-primary" id="tk-done">我已妥善保存</button>
-      </div>
+  const { modal, close } = openModal({ width: 520 });
+  modal.innerHTML = `
+    <h3>令牌已创建</h3>
+    <p class="confirm-message">令牌「${escapeHtml(label)}」已生成。<strong style="color:var(--warning)">仅显示这一次</strong>，关闭后无法再次查看，请立即复制并妥善保存。</p>
+    <div class="token-result">
+      <code class="token-result-value" id="tk-result-value"></code>
+      <button class="btn btn-secondary" id="tk-copy">复制</button>
+    </div>
+    <div class="input-error-msg" id="tk-copy-msg" style="min-height:0"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="tk-done">我已妥善保存</button>
     </div>`;
-  document.body.appendChild(overlay);
-  overlay.querySelector('#tk-result-value').textContent = token;
-  const copyMsg = overlay.querySelector('#tk-copy-msg');
-  overlay.querySelector('#tk-copy').addEventListener('click', async () => {
+  modal.querySelector('#tk-result-value').textContent = token;
+  const copyMsg = modal.querySelector('#tk-copy-msg');
+  modal.querySelector('#tk-copy').addEventListener('click', async () => {
     const ok = await copyToClipboard(token);
     copyMsg.textContent = ok ? '✓ 已复制到剪贴板' : '复制失败，请手动选择上方文本复制';
     copyMsg.style.color = ok ? 'var(--success)' : 'var(--danger)';
   });
-  let done = false;
-  const escHandler = (e) => { if (e.key === 'Escape') close(); };
-  const close = () => { if (done) return; done = true; document.removeEventListener('keydown', escHandler); overlay.remove(); };
-  overlay.querySelector('#tk-done').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  document.addEventListener('keydown', escHandler);
+  modal.querySelector('#tk-done').addEventListener('click', close);
 }
 
 async function revokeAllTokens() {
@@ -2232,29 +2225,23 @@ async function setupTOTP() {
     const res = await API.get('/api/auth/totp/setup');
     data = await res.json();
   } catch { Toast.show('设置失败', 'error'); return; }
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-    <div class="modal" style="width:420px">
-      <h3>设置双因子验证</h3>
-      <p class="confirm-message">用验证器 App（如 Google Authenticator）扫描以下二维码：</p>
-      <div style="text-align:center;margin:16px 0"><img src="${data.qr_code}" style="width:200px;height:200px" alt="QR"></div>
-      <p style="font-size:12px;color:var(--text-muted)">或手动输入：<code id="totp-secret"></code></p>
-      <div class="form-group" style="margin-top:16px">
-        <label>输入验证器显示的 6 位代码</label>
-        <input type="text" class="form-input" id="totp-verify-code" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" id="totp-cancel">取消</button>
-        <button class="btn btn-primary" id="btn-confirm-totp">确认绑定</button>
-      </div>
+  const { modal, close } = openModal({ width: 420 });
+  modal.innerHTML = `
+    <h3>设置双因子验证</h3>
+    <p class="confirm-message">用验证器 App（如 Google Authenticator）扫描以下二维码：</p>
+    <div style="text-align:center;margin:16px 0"><img src="${data.qr_code}" style="width:200px;height:200px" alt="QR"></div>
+    <p style="font-size:12px;color:var(--text-muted)">或手动输入：<code id="totp-secret"></code></p>
+    <div class="form-group" style="margin-top:16px">
+      <label>输入验证器显示的 6 位代码</label>
+      <input type="text" class="form-input" id="totp-verify-code" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="totp-cancel">取消</button>
+      <button class="btn btn-primary" id="btn-confirm-totp">确认绑定</button>
     </div>`;
-  document.body.appendChild(overlay);
-  overlay.querySelector('#totp-secret').textContent = data.secret;
-  const codeInput = overlay.querySelector('#totp-verify-code');
-  const confirmBtn = overlay.querySelector('#btn-confirm-totp');
-  let done = false;
-  const close = () => { if (done) return; done = true; document.removeEventListener('keydown', escHandler); overlay.remove(); };
+  modal.querySelector('#totp-secret').textContent = data.secret;
+  const codeInput = modal.querySelector('#totp-verify-code');
+  const confirmBtn = modal.querySelector('#btn-confirm-totp');
   const submit = async () => {
     const code = codeInput.value.trim();
     if (!code) { Toast.show('请输入验证码', 'error'); return; }
@@ -2272,14 +2259,11 @@ async function setupTOTP() {
         Toast.show(d.detail || '验证码错误', 'error');
       }
     } catch { Toast.show('网络错误', 'error'); }
-    finally { if (overlay.isConnected) confirmBtn.disabled = false; }
+    finally { if (modal.isConnected) confirmBtn.disabled = false; }
   };
-  overlay.querySelector('#totp-cancel').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  modal.querySelector('#totp-cancel').addEventListener('click', close);
   confirmBtn.addEventListener('click', submit);
   codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-  const escHandler = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', escHandler);
   setTimeout(() => codeInput.focus(), 0);
 }
 
