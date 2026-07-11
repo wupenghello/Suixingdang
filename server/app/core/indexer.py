@@ -72,7 +72,10 @@ def _get_collection(user_id: str):
 
 def _extract_text(user_id: str, rel_path: str, max_chars: int = 50000) -> str:
     from . import storage
-    p = storage._user_dir(user_id) / rel_path
+    try:
+        p = storage._safe_path(user_id, rel_path)
+    except FileNotFoundError:
+        return ""  # 路径越界：视作无内容
     if not p.exists():
         return ""
     suffix = p.suffix.lower()

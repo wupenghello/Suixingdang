@@ -104,7 +104,10 @@ def check_content(user_id: str, rel_path: str, direction: str = "") -> tuple[Gua
     p = Path(rel_path)
     suffix = p.suffix.lower()
 
-    full_path = storage._user_dir(user_id) / rel_path
+    try:
+        full_path = storage._safe_path(user_id, rel_path)
+    except FileNotFoundError:
+        return "safe", ""  # 路径越界：视作安全放行（文件不会落到用户目录外）
     if not full_path.exists():
         return "safe", ""
 

@@ -19,6 +19,23 @@ def _user_dir(user_id: str) -> Path:
     return d
 
 
+def _safe_path(user_id: str, rel_path: str) -> Path:
+    """解析 rel_path 并确保解析结果落在用户目录内。
+
+    拒绝绝对路径、``..`` 穿越以及指向用户目录外的符号链接。任何越界输入都抛
+    FileNotFoundError，使调用方与「文件不存在」不可区分，避免泄露路径校验的存在与边界。
+    返回 resolve() 后的绝对路径（无论目标是否已存在）。
+    """
+    base = _user_dir(user_id).resolve()
+    if rel_path is None or Path(rel_path).is_absolute():
+        raise FileNotFoundError(rel_path or "")
+    # resolve() 词法规范化 ``..`` 并解析符号链接；对不存在的路径做尽力解析
+    target = (base / rel_path).resolve()
+    if target != base and base not in target.parents:
+        raise FileNotFoundError(rel_path)
+    return target
+
+
 def save_file(user_id: str, remote_path: str, data: bytes, source: str = "manual") -> dict:
     safe = Path(remote_path)
     parts = [p for p in safe.parts if p not in ("", "/", "..")]
@@ -63,14 +80,17 @@ def save_fileobj(user_id: str, remote_path: str, fileobj, source: str = "manual"
 
 
 def read_file(user_id: str, rel_path: str) -> Path:
-    p = _user_dir(user_id) / rel_path
+    p = _safe_path(user_id, rel_path)
     if not p.exists():
         raise FileNotFoundError(rel_path)
     return p
 
 
 def delete_file(user_id: str, rel_path: str):
-    p = _user_dir(user_id) / rel_path
+    try:
+        p = _safe_path(user_id, rel_path)
+    except FileNotFoundError:
+        return  # 路径越界：视作不存在，无操作
     if p.exists():
         if p.is_dir():
             shutil.rmtree(p)
@@ -79,8 +99,11 @@ def delete_file(user_id: str, rel_path: str):
 
 
 def list_directory(user_id: str, rel_dir: str = "") -> list:
-    base = _user_dir(user_id)
-    root = base / rel_dir if rel_dir else base
+    base = _user_dir(user_id).resolve()
+    try:
+        root = _safe_path(user_id, rel_dir) if rel_dir else base
+    except FileNotFoundError:
+        return []
     if not root.exists():
         return []
     result = []
@@ -102,8 +125,11 @@ def list_directory(user_id: str, rel_dir: str = "") -> list:
 
 
 def list_all_files(user_id: str, rel_dir: str = "") -> list:
-    base = _user_dir(user_id)
-    root = base / rel_dir if rel_dir else base
+    base = _user_dir(user_id).resolve()
+    try:
+        root = _safe_path(user_id, rel_dir) if rel_dir else base
+    except FileNotFoundError:
+        return []
     files = []
     for p in root.rglob("*"):
         if p.is_file() and not p.name.startswith("."):
@@ -112,7 +138,10 @@ def list_all_files(user_id: str, rel_dir: str = "") -> list:
 
 
 def get_file_size(user_id: str, rel_path: str) -> int:
-    p = _user_dir(user_id) / rel_path
+    try:
+        p = _safe_path(user_id, rel_path)
+    except FileNotFoundError:
+        return 0
     return p.stat().st_size if p.exists() else 0
 
 
