@@ -143,6 +143,7 @@ class AccessToken(Base):
     expires_at = Column(DateTime, nullable=True)
     revoked = Column(Boolean, default=False)
     last_used_at = Column(DateTime, nullable=True)
+    download_granted_until = Column(DateTime, nullable=True)  # 临时下载授权窗口（仅 session 用）
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -407,12 +408,17 @@ def _migrate_columns():
             except Exception:
                 pass
 
-    # access_tokens 表新增 kind 列（区分设备令牌 / 浏览器会话）
+    # access_tokens 表新增 kind / download_granted_until 列
     cursor.execute("PRAGMA table_info(access_tokens)")
     tcols = [r[1] for r in cursor.fetchall()]
     if "kind" not in tcols:
         try:
             cursor.execute('ALTER TABLE access_tokens ADD COLUMN kind TEXT DEFAULT "device"')
+        except Exception:
+            pass
+    if "download_granted_until" not in tcols:
+        try:
+            cursor.execute('ALTER TABLE access_tokens ADD COLUMN download_granted_until DATETIME')
         except Exception:
             pass
 

@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 1  # 浏览器会话刷新令牌有效期：1 天
+    DOWNLOAD_GRANT_MINUTES: int = 5     # 浏览器临时下载授权窗口（分钟），默认 5
 
     class Config:
         env_file = ".env"

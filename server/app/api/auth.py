@@ -150,27 +150,32 @@ def _issue_session_tokens(db: Session, user: User, request: Request):
     """签发浏览器会话令牌对，写入 kind=session 行（可吊销），返回 (access, refresh)。
 
     顺带清理该用户已过期或已吊销的旧会话行，避免 access_tokens 表无界增长；
-    保留其他设备的活跃会话。"""
-    token_data = {"sub": user.id, "username": user.username, "role": "user",
-                  "password_version": user.password_version}
-    access = create_access_token(token_data)
-    refresh = create_refresh_token(token_data)
+    保留其他设备的活跃会话。access JWT 带 sid（会话行 id），供临时下载等
+    session 级授权接口定位当前会话。"""
     now = datetime.utcnow()
     db.query(AccessToken).filter(
         AccessToken.user_id == user.id,
         AccessToken.kind == "session",
         or_(AccessToken.revoked.is_(True), AccessToken.expires_at < now),
     ).delete(synchronize_session=False)
-    db.add(AccessToken(
+    base_data = {"sub": user.id, "username": user.username, "role": "user",
+                 "password_version": user.password_version}
+    # 先签 refresh（不含 sid）建 session 行，flush 拿 id 后再签含 sid 的 access
+    refresh = create_refresh_token(base_data)
+    session = AccessToken(
         user_id=user.id, kind="session", label=_session_label(request),
         token_hash=hashlib.sha256(refresh.encode()).hexdigest(),
         expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         last_used_at=now,
-    ))
+    )
+    db.add(session)
+    db.flush()  # 拿 session.id
+    access = create_access_token({**base_data, "sid": session.id})
     return access, refresh
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Security(security_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -191,10 +196,45 @@ def get_current_user(
         # 密码版本校验：改/重置密码后旧 access 立即失效
         if payload.get("password_version") != user.password_version:
             raise HTTPException(401, "登录已失效，请重新登录")
+        # 当前会话标识存入 request.state，供临时下载等 session 级授权接口使用
+        request.state.access_sid = payload.get("sid")
     else:
         user = _resolve_device_token(raw, db)
         if not user:
             raise HTTPException(401, "无效或已吊销的令牌")
+    if user.status == "disabled":
+        raise HTTPException(403, "账户已被禁用")
+    return user
+
+
+def get_current_session(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Optional[AccessToken]:
+    """当前浏览器会话行（按 access JWT 的 sid）；device token / 旧 token / 已吊销会话返回 None。"""
+    sid = getattr(request.state, "access_sid", None)
+    if not sid:
+        return None
+    return db.query(AccessToken).filter_by(
+        id=sid, user_id=user.id, kind="session", revoked=False,
+    ).first()
+
+
+def get_current_device_user(
+    credentials: HTTPAuthorizationCredentials = Security(security_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    """仅接受 opaque 设备令牌（守护进程专用）；浏览器 session JWT 拒绝，
+    防止浏览器走同步通道绕过临时下载限制。"""
+    if not credentials:
+        raise HTTPException(401, "未提供认证信息")
+    raw = credentials.credentials
+    if raw.count(".") == 2:
+        raise HTTPException(403, "此接口需要设备令牌（守护进程专用）")
+    user = _resolve_device_token(raw, db)
+    if not user:
+        raise HTTPException(401, "无效或已吊销的令牌")
     if user.status == "disabled":
         raise HTTPException(403, "账户已被禁用")
     return user
@@ -462,6 +502,7 @@ def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
     }
     if role == "user":
         token_data["password_version"] = user.password_version
+        token_data["sid"] = session_token.id
     access = create_access_token(token_data)
     # 不轮转 refresh：复用原 refresh（仍绑定会话行，可吊销、随密码失效），
     # 避免「先改库再返回响应」带来的并发竞态与重试失败。

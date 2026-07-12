@@ -1587,8 +1587,7 @@ async function previewFile(path, name) {
   const fileName = name || path.split('/').pop();
   const previewType = getPreviewType(fileName);
   if (!previewType) {
-    Toast.show('此文件类型不支持预览，请下载查看', 'info');
-    downloadFile(path);
+    Toast.show('此类型不支持浏览器预览，请在守护进程设备查看，或到设置页开启临时下载', 'info');
     return;
   }
 
@@ -1664,6 +1663,7 @@ async function previewFile(path, name) {
 async function downloadFile(path) {
   try {
     const res = await API.get(`/api/files/download?path=${encodeURIComponent(path)}`);
+    if (res.status === 403) { Toast.show('未开启临时下载，请到设置页开启', 'info'); return; }
     if (!res.ok) { Toast.show('下载失败', 'error'); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -2146,6 +2146,13 @@ async function renderSettings() {
         </div>
         <div class="settings-section">
           <div class="setting-head">
+            <div class="setting-head-icon icon-warning">${ICONS.download}</div>
+            <div class="setting-head-text"><h3>临时下载</h3><p class="section-desc">浏览器端默认禁止下载（零痕迹）。需要时开启短期窗口，到期自动关闭。</p></div>
+          </div>
+          <div class="setting-body" id="download-grant-content">加载中...</div>
+        </div>
+        <div class="settings-section">
+          <div class="setting-head">
             <div class="setting-head-icon icon-warning">${ICONS.shield}</div>
             <div class="setting-head-text"><h3>双因子验证</h3><p class="section-desc">增强账户安全性，公用设备建议开启。</p></div>
           </div>
@@ -2205,7 +2212,7 @@ async function renderSettings() {
   document.getElementById('btn-create-token').addEventListener('click', createToken);
   document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
   document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
-  loadStats(); loadTokens(); loadTOTP(); loadAccountInfo();
+  loadStats(); loadTokens(); loadTOTP(); loadAccountInfo(); loadDownloadGrant();
 }
 
 async function loadAccountInfo() {
@@ -2426,6 +2433,68 @@ async function revokeAllTokens() {
     Toast.show(data.message || '已吊销全部令牌', 'success');
     API.clearTokens();
     App.logout();  // 紧急下线：自己的 access 也已失效
+  } catch { Toast.show('操作失败', 'error'); }
+}
+
+// ---- 临时下载授权（浏览器端默认禁下载，设置页开启短期窗口）----
+let _downloadGrantTimer = null;
+
+async function loadDownloadGrant() {
+  const el = document.getElementById('download-grant-content');
+  if (!el) return;
+  let granted = false, until = '';
+  try {
+    const res = await API.get('/api/files/download-status');
+    const d = await res.json(); granted = d.granted; until = d.until;
+  } catch { el.innerHTML = '<p class="setting-empty">加载失败</p>'; return; }
+  renderDownloadGrant(el, granted, until);
+}
+
+function renderDownloadGrant(el, granted, until) {
+  if (_downloadGrantTimer) { clearInterval(_downloadGrantTimer); _downloadGrantTimer = null; }
+  if (!granted) {
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <p class="section-desc" style="margin:0;flex:1;min-width:200px">未开启。下载的文件会保留在本机，请及时清理。</p>
+        <button class="btn btn-primary" id="btn-download-grant">${ICONS.download}<span>开启临时下载</span></button>
+      </div>`;
+    document.getElementById('btn-download-grant')?.addEventListener('click', grantDownload);
+    return;
+  }
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <p style="margin:0;flex:1;min-width:200px">下载已开启，剩余 <strong id="download-grant-countdown">--:--</strong></p>
+      <button class="btn btn-secondary" id="btn-download-revoke"><span>立即关闭</span></button>
+    </div>`;
+  document.getElementById('btn-download-revoke')?.addEventListener('click', revokeDownload);
+  const tick = () => {
+    if (!document.getElementById('download-grant-countdown')) { clearInterval(_downloadGrantTimer); _downloadGrantTimer = null; return; }
+    const remain = Math.max(0, Math.floor((parseServerTs(until) - Date.now()) / 1000));
+    const cd = document.getElementById('download-grant-countdown');
+    if (cd) cd.textContent = `${String(Math.floor(remain/60)).padStart(2,'0')}:${String(remain%60).padStart(2,'0')}`;
+    if (remain <= 0) { clearInterval(_downloadGrantTimer); _downloadGrantTimer = null; loadDownloadGrant(); }
+  };
+  tick();
+  _downloadGrantTimer = setInterval(tick, 1000);
+}
+
+async function grantDownload() {
+  if (!await confirmDialog({ title: '开启临时下载', message: '开启后可下载文件，到期自动关闭。下载的文件会保留在本机，请及时清理。确定继续？', confirmText: '开启' })) return;
+  try {
+    const res = await API.post('/api/files/download-grant');
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '开启失败', 'error'); return; }
+    const d = await res.json();
+    Toast.show(`已开启临时下载（${d.minutes} 分钟）`, 'success');
+    renderDownloadGrant(document.getElementById('download-grant-content'), true, d.until);
+  } catch { Toast.show('开启失败', 'error'); }
+}
+
+async function revokeDownload() {
+  try {
+    const res = await API.post('/api/files/download-revoke');
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
+    Toast.show('已关闭临时下载', 'success');
+    renderDownloadGrant(document.getElementById('download-grant-content'), false, '');
   } catch { Toast.show('操作失败', 'error'); }
 }
 

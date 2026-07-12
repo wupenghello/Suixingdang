@@ -7,6 +7,7 @@
 - refresh 不轮转：复用原 refresh，避免并发竞态与重试失败；
 - 会话行有过期时间，再次登录时清理已死会话行。
 """
+import io
 import uuid
 
 
@@ -169,3 +170,92 @@ def test_admin_list_user_tokens_has_kind(client):
     tokens = r2.json()
     assert tokens  # 用户有 session 令牌
     assert "kind" in tokens[0]
+
+
+def _upload(client, access, name="a.txt", content=b"abc"):
+    h = {"Authorization": f"Bearer {access}"}
+    r = client.post("/api/files/upload", headers=h,
+                    files={"file": (name, io.BytesIO(content), "text/plain")})
+    assert r.status_code == 200, r.text
+    return h
+
+
+def test_download_blocked_by_default(client):
+    """浏览器端默认禁下载：未开启临时下载窗口时 download 返回 403。"""
+    access, _refresh, _ = _reg(client)
+    h = _upload(client, access)
+    assert client.get("/api/files/download", headers=h, params={"path": "a.txt"}).status_code == 403
+
+
+def test_download_grant_then_revoke(client):
+    """开启临时下载后可下载；手动关闭后 403。"""
+    access, _refresh, _ = _reg(client)
+    h = _upload(client, access)
+    g = client.post("/api/files/download-grant", headers=h)
+    assert g.status_code == 200 and g.json()["granted"] is True
+    assert client.get("/api/files/download-status", headers=h).json()["granted"] is True
+    d = client.get("/api/files/download", headers=h, params={"path": "a.txt"})
+    assert d.status_code == 200 and d.content == b"abc"
+    client.post("/api/files/download-revoke", headers=h)
+    assert client.get("/api/files/download-status", headers=h).json()["granted"] is False
+    assert client.get("/api/files/download", headers=h, params={"path": "a.txt"}).status_code == 403
+
+
+def test_download_grant_isolated_per_session(client):
+    """临时下载授权精确到会话：A 开启不影响 B（多设备场景）。"""
+    access_a, _ra, username = _reg(client, password="Old1234pass")
+    access_b, _rb = _login(client, username, "Old1234pass")
+    ha = {"Authorization": f"Bearer {access_a}"}
+    hb = {"Authorization": f"Bearer {access_b}"}
+    assert client.post("/api/files/download-grant", headers=ha).status_code == 200
+    assert client.get("/api/files/download-status", headers=ha).json()["granted"] is True
+    # B 的会话未受影响
+    assert client.get("/api/files/download-status", headers=hb).json()["granted"] is False
+
+
+def test_preview_responses_have_no_store(client):
+    """预览/预览文本响应带 Cache-Control: no-store，不进浏览器磁盘缓存。"""
+    access, _refresh, _ = _reg(client)
+    h = _upload(client, access)
+    r = client.get("/api/files/preview", headers=h, params={"path": "a.txt"})
+    assert r.status_code == 200
+    assert r.headers.get("cache-control") == "no-store"
+    t = client.get("/api/files/preview-text", headers=h, params={"path": "a.txt"})
+    assert t.headers.get("cache-control") == "no-store"
+
+
+def test_sync_download_rejects_browser_jwt(client):
+    """sync 通道仅接受设备令牌；浏览器 session JWT 调 /api/sync/download 返回 403，设备令牌可下载。"""
+    access, _refresh, _ = _reg(client)
+    h = _upload(client, access)
+    # 浏览器 JWT 被拒
+    assert client.get("/api/sync/download", headers=h, params={"path": "a.txt"}).status_code == 403
+    # 设备令牌可走 sync 下载
+    dev = client.post("/api/auth/tokens?label=t&expires_days=0", headers=h)
+    assert dev.status_code == 200
+    dr = client.get("/api/sync/download", headers={"Authorization": f"Bearer {dev.json()['token']}"},
+                    params={"path": "a.txt"})
+    assert dr.status_code == 200 and dr.content == b"abc"
+
+
+def test_revoked_session_cannot_grant_or_download(client):
+    """单令牌吊销后，该会话不能开启临时下载也不能下载（get_current_session 过滤 revoked）。"""
+    access, _refresh, _ = _reg(client)
+    h = _upload(client, access)
+    sid = [t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"][0]["id"]
+    client.delete(f"/api/auth/tokens/{sid}", headers=h)
+    # access JWT 仍有效（单吊销不 bump password_version）
+    assert _me(client, access).status_code == 200
+    # 但会话已吊销：grant 401、download 403
+    assert client.post("/api/files/download-grant", headers=h).status_code == 401
+    assert client.get("/api/files/download", headers=h, params={"path": "a.txt"}).status_code == 403
+
+
+def test_preview_unsafe_type_rejected(client):
+    """HTML 等不安全类型不支持浏览器预览（415），不再以 attachment 形式触发下载绕过限制。"""
+    access, _refresh, _ = _reg(client)
+    h = {"Authorization": f"Bearer {access}"}
+    up = client.post("/api/files/upload", headers=h,
+                     files={"file": ("page.html", io.BytesIO(b"<script>x</script>"), "text/html")})
+    assert up.status_code == 200, up.text
+    assert client.get("/api/files/preview", headers=h, params={"path": "page.html"}).status_code == 415
