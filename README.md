@@ -6,6 +6,17 @@
 
 > 前置条件：服务器已安装 Docker 与 Docker Compose；域名已解析到服务器 IP（Caddy 会自动签发 HTTPS 证书）。
 
+### 方式一：一键脚本（推荐）
+
+```bash
+git clone https://github.com/wupenghello/Suixingdang.git suixingdang && cd suixingdang
+./install.sh
+```
+
+脚本交互式询问域名与管理员密码，自动生成三项密钥并启动容器。已有 `.env` 时复用配置直接启动；后续改配置直接编辑 `.env` 后重跑 `./install.sh` 即可。
+
+### 方式二：手动逐步
+
 ### 1. 准备环境
 
 ```bash
