@@ -81,6 +81,9 @@ const UploadManager = {
     if (this.container) return;
     this.container = document.createElement('div');
     this.container.className = 'upload-list';
+    this.container.addEventListener('click', (e) => {
+      if (e.target.closest('[data-action="upload-close"]')) this.close();
+    });
     this.render();
     document.body.appendChild(this.container);
     this.visible = true;
@@ -122,7 +125,7 @@ const UploadManager = {
     this.container.innerHTML = `
       <div class="upload-list-header">
         <span>${headerText}</span>
-        ${active === 0 ? `<button class="icon-btn" onclick="UploadManager.close()" style="width:20px;height:20px">✕</button>` : ''}
+        ${active === 0 ? `<button class="icon-btn" data-action="upload-close" style="width:20px;height:20px">✕</button>` : ''}
       </div>
       ${this.items.map(item => {
         const pct = item.status === 'done' ? 100 : item.status === 'error' ? 100 : item.progress;
@@ -411,7 +414,7 @@ async function renderRegister() {
           <div class="form-group"><label>密保答案</label><input type="text" id="reg-answer" class="form-input" placeholder="用于找回密码"></div>
           <button type="submit" class="btn btn-primary btn-block" id="reg-btn" style="padding:10px 16px">注册</button>
         </form>
-        <p style="text-align:center;margin-top:16px"><a href="javascript:renderLogin()" style="color:var(--text-muted);font-size:13px;text-decoration:none">已有账号？登录</a></p>
+        <p style="text-align:center;margin-top:16px"><a href="#" data-action="renderLogin" style="color:var(--text-muted);font-size:13px;text-decoration:none">已有账号？登录</a></p>
       </div>
     </div>`;
   document.getElementById('register-form').addEventListener('submit', async (e) => {
@@ -458,7 +461,7 @@ function renderForgotPassword() {
           </div>
           <button type="submit" class="btn btn-primary btn-block" id="fp-btn" style="padding:10px 16px">下一步</button>
         </form>
-        <p style="text-align:center;margin-top:16px"><a href="javascript:renderLogin()" style="color:var(--text-muted);font-size:13px;text-decoration:none">返回登录</a></p>
+        <p style="text-align:center;margin-top:16px"><a href="#" data-action="renderLogin" style="color:var(--text-muted);font-size:13px;text-decoration:none">返回登录</a></p>
       </div>
     </div>`;
   let step = 1;
@@ -515,7 +518,7 @@ function renderLanding() {
   document.getElementById('app').innerHTML = `
     <div class="sx-page">
       <header class="sx-bar">
-        <a class="sx-brand" href="javascript:void(0)" title="随行档">
+        <a class="sx-brand" href="#" data-action="renderLanding" title="随行档">
           <span class="sx-mark">档</span>
           <span class="sx-brand-meta">
             <span class="sx-brand-name">随行档</span>
@@ -528,8 +531,8 @@ function renderLanding() {
           <a href="#access">接入</a>
         </nav>
         <div class="sx-bar-cta">
-          <button class="sx-link" type="button" onclick="renderLogin()">登录</button>
-          <button class="sx-link sx-link--solid" type="button" id="landing-cta-nav" onclick="renderLogin()">建立卷宗</button>
+          <button class="sx-link" type="button" data-action="renderLogin">登录</button>
+          <button class="sx-link sx-link--solid" type="button" id="landing-cta-nav" data-action="renderLogin">建立卷宗</button>
         </div>
       </header>
 
@@ -543,7 +546,7 @@ function renderLanding() {
             <h1 class="sx-hero-title">只对你一人<br><span class="sx-fade">显影</span>的档案。</h1>
             <p class="sx-hero-lead">随行档是一处自托管的私人档案室。文件在此加密归档、由 AI 检索应答,只对你显影——离开时一键清空,如同从未存在。</p>
             <div class="sx-hero-cta">
-              <button class="sx-btn" type="button" id="landing-cta-hero" onclick="renderLogin()">开启卷宗 →</button>
+              <button class="sx-btn" type="button" id="landing-cta-hero" data-action="renderLogin">开启卷宗 →</button>
               <a class="sx-quiet" href="#spec">查阅规格</a>
             </div>
             <dl class="sx-hero-meta">
@@ -624,7 +627,7 @@ function renderLanding() {
       <section class="sx-cta">
         <span class="sx-stamp">归档 · 开始</span>
         <h2>建立你的私人卷宗。</h2>
-        <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" onclick="renderLogin()">开启随行档 →</button>
+        <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" data-action="renderLogin">开启随行档 →</button>
         <p class="sx-cta-note">自托管。数据在你手里,只对你显影。</p>
       </section>
 
@@ -635,7 +638,7 @@ function renderLanding() {
         </div>
         <div class="sx-foot-links">
           <a href="/admin">管理后台</a>
-          <a href="javascript:void(0)" onclick="renderLogin()">登录</a>
+          <a href="#" data-action="renderLogin">登录</a>
         </div>
         <span class="sx-foot-copy">© 2026 SXD</span>
       </footer>
@@ -644,7 +647,7 @@ function renderLanding() {
   // 主 CTA:开放注册时改为「免费注册」→ renderRegister;查询失败则保持「立即使用/登录」
   fetch('/api/auth/register-status').then(r => r.json()).then(d => {
     if (!d.allow_register) return;
-    const setText = (id, text) => { const el = document.getElementById(id); if (el) { el.textContent = text; el.onclick = renderRegister; } };
+    const setText = (id, text) => { const el = document.getElementById(id); if (el) { el.textContent = text; el.dataset.action = 'renderRegister'; } };
     setText('landing-cta-nav', '免费注册');
     setText('landing-cta-hero', '免费注册');
     setText('landing-cta-band', '免费注册');
@@ -680,10 +683,10 @@ function renderLogin() {
           <button type="submit" class="btn btn-primary btn-block" id="login-btn">登录</button>
         </form>
         <div id="auth-links" class="login-links">
-          <a href="javascript:renderForgotPassword()">忘记密码？</a>
-          <a href="javascript:renderRegister()" id="register-link">注册新账号</a>
+          <a href="#" data-action="renderForgotPassword">忘记密码？</a>
+          <a href="#" data-action="renderRegister" id="register-link">注册新账号</a>
         </div>
-        <a class="login-back" href="javascript:renderLanding()">← 返回官网</a>
+        <a class="login-back" href="#" data-action="renderLanding">← 返回官网</a>
       </div>
     </div>
   `;
@@ -2310,7 +2313,7 @@ async function loadTokens() {
           <span>过期 ${tokenExpiryText(t)}</span>
         </div>
       </div>
-      ${isTokenActive(t) ? `<button class="btn btn-danger btn-sm" onclick="revokeToken('${escapeHtml(t.id)}')">吊销</button>` : ''}
+      ${isTokenActive(t) ? `<button class="btn btn-danger btn-sm" data-action="revokeToken" data-token-id="${escapeHtml(t.id)}">吊销</button>` : ''}
     </div>`).join('');
 }
 
@@ -2584,5 +2587,19 @@ window.UploadManager = UploadManager;
 window.deleteTransferMessage = deleteTransferMessage;
 window.previewTransferFile = previewTransferFile;
 window.renderLogin = renderLogin;
+
+// ============ 全局事件委托（CSP 禁用内联事件处理器与 javascript: URL） ============
+// 动态渲染的导航/操作按钮统一用 data-action，由 #app 单一委托分发，避免内联 onclick。
+document.getElementById('app').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  e.preventDefault();
+  const action = el.dataset.action;
+  if (action === 'renderLogin') return renderLogin();
+  if (action === 'renderRegister') return renderRegister();
+  if (action === 'renderForgotPassword') return renderForgotPassword();
+  if (action === 'renderLanding') return renderLanding();
+  if (action === 'revokeToken') return revokeToken(el.dataset.tokenId);
+});
 
 App.init();

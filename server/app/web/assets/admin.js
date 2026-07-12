@@ -105,12 +105,12 @@ function paginationHTML(view, fnName) {
   }
   const btns = pages.map(pg => pg === '...'
     ? '<span class="page-ellipsis">...</span>'
-    : `<button class="page-btn ${pg === cur ? 'active' : ''}" onclick="${fnName}(${pg})">${pg}</button>`
+    : `<button class="page-btn ${pg === cur ? 'active' : ''}" data-action="${fnName}" data-page="${pg}">${pg}</button>`
   ).join('');
   return `<div class="pagination">
-    <button class="page-btn" ${cur === 1 ? 'disabled' : ''} onclick="${fnName}(${cur - 1})">上一页</button>
+    <button class="page-btn" ${cur === 1 ? 'disabled' : ''} data-action="${fnName}" data-page="${cur - 1}">上一页</button>
     ${btns}
-    <button class="page-btn" ${cur === totalPages ? 'disabled' : ''} onclick="${fnName}(${cur + 1})">下一页</button>
+    <button class="page-btn" ${cur === totalPages ? 'disabled' : ''} data-action="${fnName}" data-page="${cur + 1}">下一页</button>
     <span class="page-info">共 ${p.total} 条 / ${totalPages} 页</span>
   </div>`;
 }
@@ -146,8 +146,42 @@ function renderLogin() {
   });
 }
 
+// ============ 全局事件委托（CSP 禁用内联事件处理器与 javascript: URL） ============
+// 管理后台动态渲染的按钮统一用 data-action + data-* 参数，由 #admin-app 单一委托分发。
+let _adminDelegated = false;
+function bindAdminDelegation() {
+  if (_adminDelegated) return;
+  const root = document.getElementById('admin-app');
+  if (!root) return;
+  _adminDelegated = true;
+  root.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    e.preventDefault();
+    const a = el.dataset.action;
+    if (a === 'navigate') return navigate(el.dataset.view);
+    if (a === 'viewUserDetail') return viewUserDetail(el.dataset.userId);
+    if (a === 'editUser') return showUserModal(el.dataset.userId, el.dataset.username, Number(el.dataset.quota), el.dataset.status);
+    if (a === 'deleteUser') return deleteUser(el.dataset.userId, el.dataset.username);
+    if (a === 'toggleUser') return toggleUser(el.dataset.userId, el.dataset.status);
+    if (a === 'createUserToken') return createUserToken(el.dataset.userId);
+    if (a === 'revokeAllUserTokens') return revokeAllUserTokens(el.dataset.userId);
+    if (a === 'revokeUserToken') return revokeUserToken(el.dataset.userId, el.dataset.tokenId);
+    if (a === 'adminDeleteGroup') return adminDeleteGroup(el.dataset.groupId, el.dataset.name);
+    if (a === 'testLlmProvider') return testLlmProvider(el.dataset.providerId);
+    if (a === 'editLlmProvider') return editLlmProvider(el.dataset.providerId);
+    if (a === 'deleteLlmProvider') return deleteLlmProvider(el.dataset.providerId, el.dataset.name);
+    // 分页：data-action 为 goXxxPage 函数名，data-page 为页码
+    if (el.dataset.page !== undefined) {
+      const fn = window[a];
+      if (typeof fn === 'function') return fn(Number(el.dataset.page));
+    }
+  });
+}
+
 // ============ Layout ============
 function renderLayout() {
+  bindAdminDelegation();
   document.getElementById('admin-app').innerHTML = `
     <div class="admin-layout">
       <div class="admin-sidebar">
@@ -269,9 +303,9 @@ async function loadUsers(search, page) {
             <td>${u.totp_enabled ? '已启用' : '-'}</td>
             <td style="font-size:12px;color:var(--text-muted)">${u.last_login || '-'}</td>
             <td style="display:flex;gap:4px">
-              <button class="btn btn-secondary btn-icon" onclick="viewUserDetail('${u.id}')" title="详情">${ICONS.file}</button>
-              <button class="btn btn-secondary btn-icon" onclick="editUser('${u.id}','${esc(u.username)}',${u.quota_mb},'${u.status}')" title="编辑">${ICONS.edit}</button>
-              <button class="btn btn-danger btn-icon" onclick="deleteUser('${u.id}','${esc(u.username)}')" title="删除">${ICONS.trash}</button>
+              <button class="btn btn-secondary btn-icon" data-action="viewUserDetail" data-user-id="${u.id}" title="详情">${ICONS.file}</button>
+              <button class="btn btn-secondary btn-icon" data-action="editUser" data-user-id="${u.id}" data-username="${esc(u.username)}" data-quota="${u.quota_mb}" data-status="${u.status}" title="编辑">${ICONS.edit}</button>
+              <button class="btn btn-danger btn-icon" data-action="deleteUser" data-user-id="${u.id}" data-username="${esc(u.username)}" title="删除">${ICONS.trash}</button>
             </td>
           </tr>`).join('')}
         </tbody>
@@ -288,12 +322,12 @@ async function viewUserDetail(userId) {
     const u = d.user;
     document.getElementById('admin-main').innerHTML = `
       <div class="admin-topbar">
-        <button class="btn btn-secondary btn-icon" onclick="navigate('users')" title="返回">${ICONS.back}</button>
+        <button class="btn btn-secondary btn-icon" data-action="navigate" data-view="users" title="返回">${ICONS.back}</button>
         <h2>${esc(u.username)}</h2>
         <div class="admin-spacer"></div>
         ${u.status === 'active'
-          ? `<button class="btn btn-danger" onclick="toggleUser('${u.id}','disabled')">禁用用户</button>`
-          : `<button class="btn btn-primary" onclick="toggleUser('${u.id}','active')">启用用户</button>`}
+          ? `<button class="btn btn-danger" data-action="toggleUser" data-user-id="${u.id}" data-status="disabled">禁用用户</button>`
+          : `<button class="btn btn-primary" data-action="toggleUser" data-user-id="${u.id}" data-status="active">启用用户</button>`}
       </div>
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-label">文件数</div><div class="stat-value">${u.file_count}</div></div>
@@ -321,8 +355,8 @@ async function viewUserDetail(userId) {
       <h3 style="margin:20px 0 8px;font-size:14px;display:flex;align-items:center;gap:8px">
         访问令牌 (<span id="user-tokens-count">0</span>)
         <div class="admin-spacer" style="flex:1"></div>
-        <button class="btn btn-primary" onclick="createUserToken('${u.id}')">${ICONS.add} 创建令牌</button>
-        <button class="btn btn-danger" onclick="revokeAllUserTokens('${u.id}')">全部吊销</button>
+        <button class="btn btn-primary" data-action="createUserToken" data-user-id="${u.id}">${ICONS.add} 创建令牌</button>
+        <button class="btn btn-danger" data-action="revokeAllUserTokens" data-user-id="${u.id}">全部吊销</button>
       </h3>
       <div id="user-tokens-content">加载中...</div>
       <h3 style="margin:20px 0 8px;font-size:14px">最近文件 (${d.files.length})</h3>
@@ -418,7 +452,7 @@ async function loadUserTokens(userId) {
             if (t.revoked) badge = '<span class="badge badge-danger">已吊销</span>';
             else if (expired) badge = '<span class="badge badge-danger">已过期</span>';
             else badge = '<span class="badge badge-success">有效</span>';
-            const action = (t.revoked || expired) ? '-' : `<button class="btn btn-danger btn-icon" onclick="revokeUserToken('${userId}','${t.id}')" title="吊销">${ICONS.trash}</button>`;
+            const action = (t.revoked || expired) ? '-' : `<button class="btn btn-danger btn-icon" data-action="revokeUserToken" data-user-id="${userId}" data-token-id="${t.id}" title="吊销">${ICONS.trash}</button>`;
             return `<tr>
               <td>${esc(t.label) || '-'}</td>
               <td>${badge}</td>
@@ -485,11 +519,12 @@ function showUserModal(id, username, quota, status) {
       <div class="form-group"><label>存储配额 (MB，0=无限)</label><input type="number" id="m-quota" class="form-input" value="${quota || 0}"></div>
       ${isEdit ? `<div class="form-group"><label>状态</label><select id="m-status" class="form-input"><option value="active" ${status === 'active' ? 'selected' : ''}>正常</option><option value="disabled" ${status === 'disabled' ? 'selected' : ''}>禁用</option></select></div>` : ''}
       <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">取消</button>
+        <button class="btn btn-secondary" id="m-cancel">取消</button>
         <button class="btn btn-primary" id="m-save">${isEdit ? '保存' : '创建'}</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
+  document.getElementById('m-cancel').addEventListener('click', () => modal.remove());
   document.getElementById('m-save').addEventListener('click', async () => {
     const mU = document.getElementById('m-username');
     const mP = document.getElementById('m-password');
@@ -613,11 +648,11 @@ async function loadGroups(search, page) {
         <tbody>
           ${data.groups.map(g => `<tr>
             <td><strong>${esc(g.name)}</strong></td>
-            <td><a href="javascript:viewUserDetail('${g.owner_id}')" style="color:var(--primary);text-decoration:none">${esc(g.owner)}</a></td>
+            <td><a href="#" data-action="viewUserDetail" data-user-id="${g.owner_id}" style="color:var(--primary);text-decoration:none">${esc(g.owner)}</a></td>
             <td>${g.file_count}</td>
             <td>${fmtBytes(g.size)}</td>
             <td style="font-size:12px;color:var(--text-muted)">${g.created_at.split('.')[0]}</td>
-            <td><button class="btn btn-danger btn-sm" onclick="adminDeleteGroup('${g.id}','${esc(g.name)}')">删除</button></td>
+            <td><button class="btn btn-danger btn-sm" data-action="adminDeleteGroup" data-group-id="${g.id}" data-name="${esc(g.name)}">删除</button></td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -674,9 +709,9 @@ async function loadLlmProviders() {
             <td>${p.has_key ? '<span class="badge badge-success">已设置</span>' : '<span class="badge badge-danger">未设置</span>'}</td>
             <td>${p.enabled ? '<span class="badge badge-success">启用</span>' : '<span class="badge badge-danger">禁用</span>'}</td>
             <td style="display:flex;gap:4px">
-              <button class="btn btn-secondary btn-icon" onclick="testLlmProvider('${p.id}')" title="测试连通">${ICONS.refresh}</button>
-              <button class="btn btn-secondary btn-icon" onclick="editLlmProvider('${p.id}')" title="编辑">${ICONS.edit}</button>
-              <button class="btn btn-danger btn-icon" onclick="deleteLlmProvider('${p.id}','${esc(p.name)}')" title="删除">${ICONS.trash}</button>
+              <button class="btn btn-secondary btn-icon" data-action="testLlmProvider" data-provider-id="${p.id}" title="测试连通">${ICONS.refresh}</button>
+              <button class="btn btn-secondary btn-icon" data-action="editLlmProvider" data-provider-id="${p.id}" title="编辑">${ICONS.edit}</button>
+              <button class="btn btn-danger btn-icon" data-action="deleteLlmProvider" data-provider-id="${p.id}" data-name="${esc(p.name)}" title="删除">${ICONS.trash}</button>
             </td>
           </tr>`).join('')}
         </tbody>
