@@ -166,16 +166,15 @@ def _limiter_key(scope: str, username: str, ip: str) -> str:
 def _client_ip(request: Request) -> str:
     """返回真实客户端 IP。
 
-    仅当 TCP 直连对端是受信任代理（TRUSTED_PROXIES）时才采用 X-Forwarded-For /
+    仅当 TCP 直连对端是受信任代理（TRUSTED_PROXIES，支持 CIDR）时才采用 X-Forwarded-For /
     X-Real-IP；否则用 TCP 对端 IP。这样直连 :8000 时无法靠伪造 XFF 绕过限流。
     """
     peer = request.client.host if request.client else ""
-    trusted = settings.trusted_proxies_set
-    if peer and peer in trusted:
+    if peer and settings.is_trusted_proxy(peer):
         xff = request.headers.get("x-forwarded-for")
         if xff:
             for hop in (h.strip() for h in xff.split(",")):
-                if hop and hop not in trusted:
+                if hop and not settings.is_trusted_proxy(hop):
                     return hop
             return xff.split(",")[0].strip()
         if request.headers.get("x-real-ip"):

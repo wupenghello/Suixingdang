@@ -19,6 +19,7 @@ cp .env.example .env
 ### 2. 编辑 .env
 
 ```ini
+ENV=production                     # 生产环境（启动时强制强密钥校验、禁用 API 文档）
 DOMAIN=files.yourdomain.com        # 你的域名
 SECRET_KEY=用 openssl rand -hex 32 生成
 # 建议设置两个独立密钥（轮换互不影响，详见 docs/DEPLOY_SECURITY.md）

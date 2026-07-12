@@ -330,6 +330,8 @@ def rate_limit_acquire(db, key: str,
 
 
 def init_db():
+    from ..config import validate_runtime_secrets
+    validate_runtime_secrets()
     Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     _migrate_columns()

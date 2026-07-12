@@ -17,3 +17,6 @@ jobs:
       - name: 跑测试
         run: pytest -v
         working-directory: server
+      - name: 依赖漏洞扫描（顾问，不阻塞构建）
+        run: pip-audit -r server/requirements.txt
+        continue-on-error: true

@@ -6,6 +6,8 @@ from pathlib import Path
 
 
 class Settings(BaseSettings):
+    # 运行环境：dev（默认，放行弱密钥校验）/ production（强制强密钥，禁用文档）
+    ENV: str = "dev"
     # 服务器
     DOMAIN: str = "localhost"
     # 兼容字段：未单独配置 JWT_SECRET / DATA_ENCRYPTION_KEY 时回退到此值。
@@ -16,6 +18,12 @@ class Settings(BaseSettings):
     # 独立密钥：JWT 签名 / 静态数据加密（Fernet 派生）。为空则回退 SECRET_KEY。
     JWT_SECRET: str = ""
     DATA_ENCRYPTION_KEY: str = ""
+
+    # 是否暴露 /docs /redoc /openapi.json（默认关闭，调试/本地开发置 true）
+    ENABLE_API_DOCS: bool = False
+
+    # 调试逃生开关：production 环境下强制放行弱密钥校验。切勿在生产长期开启。
+    ALLOW_INSECURE_SECRETS: bool = False
 
     # CORS 白名单（逗号分隔）。为空时按 DOMAIN 派生 https://<DOMAIN>。
     CORS_ORIGINS: str = ""
@@ -82,12 +90,59 @@ class Settings(BaseSettings):
         return [f"{scheme}://{self.DOMAIN}"]
 
     @property
-    def trusted_proxies_set(self) -> set:
-        """受信任代理 IP 集合（仅按精确 IP 匹配；CIDR 解析留待后续）。"""
+    def trusted_proxies_networks(self) -> list:
+        """受信任代理网络列表（支持精确 IP 与 CIDR，如 172.18.0.0/16）。"""
+        import ipaddress
         raw = (self.TRUSTED_PROXIES or "").strip()
         if not raw:
-            return set()
-        return {p.strip() for p in raw.split(",") if p.strip()}
+            return []
+        nets = []
+        for p in raw.split(","):
+            p = p.strip()
+            if not p:
+                continue
+            try:
+                nets.append(ipaddress.ip_network(p, strict=False))
+            except ValueError:
+                continue
+        return nets
+
+    def is_trusted_proxy(self, ip: str) -> bool:
+        """判断 IP 是否落在受信任代理网络内（支持 CIDR）。"""
+        if not ip:
+            return False
+        import ipaddress
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        return any(
+            addr.version == n.version and addr in n
+            for n in self.trusted_proxies_networks
+        )
 
 
 settings = Settings()
+
+
+def validate_runtime_secrets():
+    """启动时校验密钥：production 环境拒绝默认/空密钥，避免 JWT 可伪造。
+
+    dev 环境（默认）直接放行，不影响本地开发与测试。
+    """
+    if settings.ENV != "production":
+        return
+    problems = []
+    if settings.SECRET_KEY in ("", "dev-secret-change-me"):
+        problems.append("SECRET_KEY 仍为默认值或为空")
+    if settings.ADMIN_PASSWORD in ("", "admin"):
+        problems.append("ADMIN_PASSWORD 为默认值")
+    if problems and not settings.ALLOW_INSECURE_SECRETS:
+        raise RuntimeError(
+            "[Suixingdang] 生产环境密钥校验失败：\n  - "
+            + "\n  - ".join(problems)
+            + "\n请在 .env 中用 openssl rand -hex 32 设置强随机值；"
+            "调试时可显式置 ALLOW_INSECURE_SECRETS=true 临时放行。"
+        )
+    if problems:
+        print(f"[Suixingdang] ⚠️ 跳过密钥校验（ALLOW_INSECURE_SECRETS=true）：{problems}")

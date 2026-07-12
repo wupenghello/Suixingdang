@@ -53,8 +53,6 @@ COMPANY_CONFIDENTIAL_KEYWORDS = [
 
 # 中国身份证号
 ID_CARD_RE = re.compile(r"\b\d{17}[\dXx]\b")
-# 银行卡号（16-19位连续数字）
-BANK_CARD_RE = re.compile(r"\b\d{16,19}\b")
 # 手机号
 PHONE_RE = re.compile(r"\b1[3-9]\d{9}\b")
 

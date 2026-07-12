@@ -26,7 +26,13 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="随行档 Suixingdang", version="2.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="随行档 Suixingdang", version="2.0.0", lifespan=lifespan,
+    # 默认关闭自动文档：生产环境不暴露 API 结构。本地开发置 ENABLE_API_DOCS=true 开启。
+    docs_url="/docs" if settings.ENABLE_API_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,
+    openapi_url="/openapi.json" if settings.ENABLE_API_DOCS else None,
+)
 
 # 认证全程使用 Bearer token（非 Cookie），无需 allow_credentials；
 # 来源白名单从 CORS_ORIGINS 派生，缺省按 DOMAIN 推导，避免通配源 + credentials 的非法组合。

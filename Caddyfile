@@ -1,26 +1,29 @@
- # {$DOMAIN} 由 Caddy 从环境变量自动读取（在 .env 中设置 DOMAIN，docker-compose 已注入）
- # Caddy 会自动申请并续期 Let's Encrypt HTTPS 证书
+# {$DOMAIN} 由 Caddy 从环境变量自动读取（在 .env 中设置 DOMAIN，docker-compose 已注入）
+# Caddy 会自动申请并续期 Let's Encrypt HTTPS 证书
 
- {$DOMAIN} {
- 	reverse_proxy server:8000
+{$DOMAIN} {
+	reverse_proxy server:8000
 
- 	# 上传文件大小限制（500MB）
- 	request_body {
- 		max_size 500MB
- 	}
+	# 上传文件大小限制（500MB）
+	request_body {
+		max_size 500MB
+	}
 
- 	# 压缩
- 	encode gzip zstd
+	# 压缩
+	encode gzip zstd
 
- 	# 安全头
- 	header {
- 		Strict-Transport-Security "max-age=31536000"
- 		X-Content-Type-Options "nosniff"
- 		X-Frame-Options "DENY"
- 		Referrer-Policy "strict-origin-when-cross-origin"
- 	}
+	# 安全头
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# 前端为原生 ES Module SPA：脚本/样式/字体均来自 self 与 Google Fonts，
+		# 其余外部源一律拒绝；object-src none 禁用插件，frame-ancestors none 防点击劫持。
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+	}
 
- 	log {
- 		output file /data/access.log
- 	}
- }
+	log {
+		output file /data/access.log
+	}
+}

@@ -17,6 +17,13 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 
+# 可在浏览器内联渲染并执行脚本的类型：预览时强制下载，避免上传恶意 HTML/SVG 后预览触发存储型 XSS。
+_UNSAFE_PREVIEW_TYPES = {
+    "text/html", "application/xhtml+xml", "image/svg+xml",
+    "application/xml", "text/xml",
+}
+
+
 class GroupRequest(BaseModel):
     name: str
 
@@ -180,7 +187,10 @@ def download_file(path: str = Query(...), db: Session = Depends(get_db), user=De
 
 @router.get("/preview")
 def preview_file(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """以 inline 方式返回文件，供前端预览（图片/视频/音频/PDF 等）。"""
+    """以 inline 方式返回文件，供前端预览（图片/视频/音频/PDF 等）。
+
+    HTML/SVG/XML 等可执行类型强制 attachment 下载，防止上传恶意文件后预览触发存储型 XSS。
+    """
     f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
     try:
         p = storage.read_file(user.id, path)
@@ -189,6 +199,8 @@ def preview_file(path: str = Query(...), db: Session = Depends(get_db), user=Dep
     db.add(AccessLog(user_id=user.id, action="file_preview", detail=path))
     db.commit()
     media_type = f.mime_type if f else (mimetypes.guess_type(str(p))[0] or "application/octet-stream")
+    if media_type in _UNSAFE_PREVIEW_TYPES:
+        return FileResponse(path=str(p), media_type=media_type, filename=p.name)
     return FileResponse(path=str(p), media_type=media_type)
 
 

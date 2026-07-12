@@ -157,10 +157,10 @@ openssl rand -hex 32
 
 登录限流按 `(用户名, 客户端 IP)` 计数。为防攻击者伪造 `X-Forwarded-For` 绕过限流，
 服务端**仅当 TCP 直连对端在 `TRUSTED_PROXIES` 集合内时**才采用 `X-Forwarded-For` /
-`X-Real-IP`，否则用 TCP 对端 IP。
+`X-Real-IP`，否则用 TCP 对端 IP。集合支持精确 IP 与 CIDR 网段。
 
-- Caddy 反向代理部署：把 Caddy 容器 IP 填入 `TRUSTED_PROXIES`（如 `172.18.0.3`），
-  这样服务端能拿到真实客户端 IP。
+- Caddy 反向代理部署：把 Caddy 容器 IP 或其所在网段填入 `TRUSTED_PROXIES`
+  （如 `172.18.0.0/16`），这样服务端能拿到真实客户端 IP；用网段可避免容器 IP 重建后变化导致失效。
 - **切勿把 `8000` 端口直接暴露到公网**（`docker-compose.yml` 已默认 `127.0.0.1:8000:8000`，仅本机可访问，公网无法直连）；
   公网入口只走 Caddy 的 80/443。否则攻击者直连 `:8000` 时，`X-Forwarded-For` 不被信任、
   限流按真实 TCP 对端 IP 计数（仍有效），但加密/安全头等由 Caddy 提供的防护将缺失。
@@ -169,11 +169,26 @@ openssl rand -hex 32
 
 ## 五、运维检查清单
 
+- [ ] `ENV=production`（启动时强制强密钥校验）
 - [ ] `/data` 挂载点为 LUKS/dm-crypt 加密卷
 - [ ] `luks-*.key` 密钥文件权限 600，且不与备份同存储
 - [ ] `.env` 中 `JWT_SECRET` / `DATA_ENCRYPTION_KEY` 为独立随机串
-- [ ] `TRUSTED_PROXIES` 填入 Caddy 容器 IP；公网仅走 80/443，不直连 8000
+- [ ] `TRUSTED_PROXIES` 填入 Caddy 容器 IP/CIDR；公网仅走 80/443，不直连 8000
 - [ ] `ADMIN_PASSWORD` 为强密码（≥8 位，非默认值，非弱口令）
 - [ ] `ALLOW_REGISTER` 按需关闭
-- [ ] 备份产物已加密
+- [ ] `ENABLE_API_DOCS=false`（不暴露 /docs /openapi.json）
+- [ ] 已配置 SQLite 定时备份（见下），且备份产物已加密
 - [ ] 服务器防火墙仅放行 80/443，容器间通信走内部网络
+
+### SQLite 定时备份
+
+仓库自带 `scripts/backup.sh`，用 `sqlite3 .backup` 在 WAL 模式下生成一致性快照（不阻塞读写），
+默认保留最近 30 份。在服务器主机上加 crontab：
+
+```bash
+# 每天 03:17 备份
+17 3 * * *  DATA_DIR=/data/suixingdang /path/to/suixingdang/scripts/backup.sh >> /var/log/sxd-backup.log 2>&1
+```
+
+> 备份产物是明文数据库副本（API Key 为密文、密码为哈希，但仍属敏感），务必落到加密卷
+> 或用 `gpg -c` / `restic` 二次加密，切勿明文上传到对象存储。

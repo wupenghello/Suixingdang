@@ -2,3 +2,5 @@
 #   pip install -r requirements.txt -r requirements-dev.txt
 # httpx 已在 requirements.txt 中（FastAPI TestClient 依赖），此处不重复。
 pytest==9.1.1
+# 依赖漏洞扫描（CI 顾问步骤，不阻塞构建）
+pip-audit

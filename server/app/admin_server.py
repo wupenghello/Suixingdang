@@ -23,7 +23,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="随行档 Admin", version="2.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="随行档 Admin", version="2.0.0", lifespan=lifespan,
+    docs_url="/docs" if settings.ENABLE_API_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,
+    openapi_url="/openapi.json" if settings.ENABLE_API_DOCS else None,
+)
 
 # 认证用 Bearer token（非 Cookie），无需 allow_credentials；
 # 来源白名单从 CORS_ORIGINS 派生，避免通配源 + credentials 的非法组合。
