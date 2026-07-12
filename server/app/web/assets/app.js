@@ -508,14 +508,162 @@ function renderForgotPassword() {
 }
 window.renderForgotPassword = renderForgotPassword;
 
+// ============ Landing (官网落地页) ============
+// 未登录访问根路径时展示的产品官网:顶栏 + Hero + 特性 + 安全/多端 + CTA + Footer。
+// 纯静态渲染,右上角"登录"跳 renderLogin;注册 CTA 随 register-status 开关,失败降级为仅"登录"。
+function renderLanding() {
+  document.getElementById('app').innerHTML = `
+    <div class="sx-page">
+      <header class="sx-bar">
+        <a class="sx-brand" href="javascript:void(0)" title="随行档">
+          <span class="sx-mark">档</span>
+          <span class="sx-brand-meta">
+            <span class="sx-brand-name">随行档</span>
+            <span class="sx-brand-sub">SXD · 私人文件中枢</span>
+          </span>
+        </a>
+        <nav class="sx-bar-nav">
+          <a href="#dossier">卷宗</a>
+          <a href="#spec">规格</a>
+          <a href="#access">接入</a>
+        </nav>
+        <div class="sx-bar-cta">
+          <button class="sx-link" type="button" onclick="renderLogin()">登录</button>
+          <button class="sx-link sx-link--solid" type="button" id="landing-cta-nav" onclick="renderLogin()">建立卷宗</button>
+        </div>
+      </header>
+
+      <section class="sx-hero" id="dossier">
+        <div class="sx-hero-grid">
+          <div class="sx-hero-left">
+            <div class="sx-dossier-head">
+              <span class="sx-stamp">私密 · Personal</span>
+              <span class="sx-ref">SXD-0001 · 归档于你名下</span>
+            </div>
+            <h1 class="sx-hero-title">只对你一人<br><span class="sx-fade">显影</span>的档案。</h1>
+            <p class="sx-hero-lead">随行档是一处自托管的私人档案室。文件在此加密归档、由 AI 检索应答,只对你显影——离开时一键清空,如同从未存在。</p>
+            <div class="sx-hero-cta">
+              <button class="sx-btn" type="button" id="landing-cta-hero" onclick="renderLogin()">开启卷宗 →</button>
+              <a class="sx-quiet" href="#spec">查阅规格</a>
+            </div>
+            <dl class="sx-hero-meta">
+              <div><dt>加密</dt><dd>落盘 AES</dd></div>
+              <div><dt>检索</dt><dd>语义向量</dd></div>
+              <div><dt>托管</dt><dd>你自己</dd></div>
+            </dl>
+          </div>
+          <aside class="sx-hero-right">
+            <div class="sx-archive" aria-hidden="true">
+              <div class="sx-archive-head">
+                <span>已归档</span>
+                <span class="sx-archive-lock">ENCRYPTED ●</span>
+              </div>
+              <ul class="sx-archive-list">
+                <li><span class="sx-idx">001</span><span class="sx-row-name">报价单_2026Q2.xlsx</span><span class="sx-row-tag">已封存</span></li>
+                <li><span class="sx-idx">002</span><span class="sx-row-name">身份证_扫描件.jpg</span><span class="sx-row-tag sx-warn">敏感</span></li>
+                <li><span class="sx-idx">003</span><span class="sx-row-name">学习笔记 / 算法</span><span class="sx-row-tag">索引中</span></li>
+                <li><span class="sx-idx">004</span><span class="sx-row-name">合同_甲方.pdf</span><span class="sx-row-tag">已封存</span></li>
+                <li><span class="sx-idx">005</span><span class="sx-row-name">2024-年度总结.md</span><span class="sx-row-tag">已封存</span></li>
+              </ul>
+              <div class="sx-archive-foot">
+                <span class="sx-prompt">▸ 上个月哪份报价最高?</span>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="sx-spec" id="spec">
+        <header class="sx-sec-head">
+          <span class="sx-sec-num">§ 规格</span>
+          <h2>它替你做什么</h2>
+          <p>八条,不喧哗。</p>
+        </header>
+        <dl class="sx-spec-table">
+          <div class="sx-spec-row"><dt>语义检索</dt><dd class="sx-spec-desc">一句话找到文件,内容级匹配,Word / Excel / PDF 皆可。</dd><dd class="sx-spec-val">向量 · 中文</dd></div>
+          <div class="sx-spec-row"><dt>AI 应答</dt><dd class="sx-spec-desc">检索相关文件后作答,流式输出,DeepSeek / OpenAI 可选。</dd><dd class="sx-spec-val">RAG · 流式</dd></div>
+          <div class="sx-spec-row"><dt>Guard 检测</dt><dd class="sx-spec-desc">识别凭据、隐私、机密文件,方向感知,上传即提醒。</dd><dd class="sx-spec-val">敏感预警</dd></div>
+          <div class="sx-spec-row"><dt>多端同步</dt><dd class="sx-spec-desc">家里守护进程实时监听,公司浏览器即开即用。</dd><dd class="sx-spec-val">双向 · 实时</dd></div>
+          <div class="sx-spec-row"><dt>多账户隔离</dt><dd class="sx-spec-desc">每人独立空间、配额与向量库,互不可见。</dd><dd class="sx-spec-val">三重隔离</dd></div>
+          <div class="sx-spec-row"><dt>设备令牌</dt><dd class="sx-spec-desc">每台设备一枚独立令牌,可单独吊销或一键全吊销。</dd><dd class="sx-spec-val">可吊销</dd></div>
+          <div class="sx-spec-row"><dt>落盘加密</dt><dd class="sx-spec-desc">文件、数据库、向量库一体化加密保护。</dd><dd class="sx-spec-val">AES</dd></div>
+          <div class="sx-spec-row"><dt>双因子</dt><dd class="sx-spec-desc">JWT + TOTP,自托管,数据在你手里。</dd><dd class="sx-spec-val">TOTP</dd></div>
+        </dl>
+      </section>
+
+      <section class="sx-seal">
+        <div class="sx-seal-mark"><span>档</span></div>
+        <div class="sx-seal-body">
+          <span class="sx-stamp">零痕迹 · Ephemeral</span>
+          <h2>带走文件,不留痕迹。</h2>
+          <p>每台设备一枚独立令牌,可单独吊销;离开时,封存、清痕、走人——如同这处档案室从未被翻开。</p>
+          <ul class="sx-seal-points">
+            <li><span class="sx-bullet">◆</span>设备令牌 · 可吊销</li>
+            <li><span class="sx-bullet">◆</span>Guard · 敏感预警</li>
+            <li><span class="sx-bullet">◆</span>落盘加密 · 三重隔离</li>
+            <li><span class="sx-bullet">◆</span>审计日志 · 操作可追溯</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="sx-topo" id="access">
+        <header class="sx-sec-head">
+          <span class="sx-sec-num">§ 接入</span>
+          <h2>三处出入</h2>
+          <p>家里、公司、还有你自己的服务器。</p>
+        </header>
+        <div class="sx-topo-graph" aria-hidden="true">
+          <div class="sx-node sx-node--home"><span class="sx-node-glyph">⌂</span><span class="sx-node-name">家里</span><span class="sx-node-note">守护进程 · 自动同步</span></div>
+          <div class="sx-edge"><span class="sx-edge-label">加密通道</span></div>
+          <div class="sx-node sx-node--hub"><span class="sx-node-glyph">档</span><span class="sx-node-name">服务器</span><span class="sx-node-note">你的 · 档案室</span></div>
+          <div class="sx-edge"><span class="sx-edge-label">零安装</span></div>
+          <div class="sx-node sx-node--work"><span class="sx-node-glyph">▣</span><span class="sx-node-name">公司</span><span class="sx-node-note">浏览器 · 即开即用</span></div>
+        </div>
+      </section>
+
+      <section class="sx-cta">
+        <span class="sx-stamp">归档 · 开始</span>
+        <h2>建立你的私人卷宗。</h2>
+        <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" onclick="renderLogin()">开启随行档 →</button>
+        <p class="sx-cta-note">自托管。数据在你手里,只对你显影。</p>
+      </section>
+
+      <footer class="sx-foot">
+        <div class="sx-foot-brand">
+          <span class="sx-mark sx-mark--sm">档</span>
+          <span>随行档 · 私人文件中枢</span>
+        </div>
+        <div class="sx-foot-links">
+          <a href="/admin">管理后台</a>
+          <a href="javascript:void(0)" onclick="renderLogin()">登录</a>
+        </div>
+        <span class="sx-foot-copy">© 2026 SXD</span>
+      </footer>
+    </div>`;
+
+  // 主 CTA:开放注册时改为「免费注册」→ renderRegister;查询失败则保持「立即使用/登录」
+  fetch('/api/auth/register-status').then(r => r.json()).then(d => {
+    if (!d.allow_register) return;
+    const setText = (id, text) => { const el = document.getElementById(id); if (el) { el.textContent = text; el.onclick = renderRegister; } };
+    setText('landing-cta-nav', '免费注册');
+    setText('landing-cta-hero', '免费注册');
+    setText('landing-cta-band', '免费注册');
+  }).catch(() => {});
+}
+window.renderLanding = renderLanding;
+
 // ============ Login ============
 function renderLogin() {
   document.getElementById('app').innerHTML = `
     <div class="login-container">
       <div class="login-card">
-        <div class="login-logo">档</div>
+        <div class="login-card-banner">
+          <span>SXD · 私人文件中枢</span>
+          <span class="sx-stamp">凭证核验</span>
+        </div>
+        <div class="login-logo" id="login-logo" title="返回官网">档</div>
         <h1>随行档</h1>
-        <p class="subtitle">私人文件中枢 · 零痕迹 · AI 驱动</p>
+        <p class="subtitle">核验凭证,档案室再次显影。</p>
         <form id="login-form">
           <div class="form-group">
             <label>用户名</label>
@@ -529,12 +677,13 @@ function renderLogin() {
             <label>双因子验证码</label>
             <input type="text" id="login-totp" class="form-input" placeholder="6位数字">
           </div>
-          <button type="submit" class="btn btn-primary btn-block" id="login-btn" style="padding:10px 16px">登录</button>
+          <button type="submit" class="btn btn-primary btn-block" id="login-btn">登录</button>
         </form>
-        <div id="auth-links" style="display:flex;justify-content:space-between;margin-top:16px">
-          <a href="javascript:renderForgotPassword()" style="color:var(--text-muted);font-size:13px;text-decoration:none">忘记密码？</a>
-          <a href="javascript:renderRegister()" id="register-link" style="color:var(--text-muted);font-size:13px;text-decoration:none">注册新账号</a>
+        <div id="auth-links" class="login-links">
+          <a href="javascript:renderForgotPassword()">忘记密码？</a>
+          <a href="javascript:renderRegister()" id="register-link">注册新账号</a>
         </div>
+        <a class="login-back" href="javascript:renderLanding()">← 返回官网</a>
       </div>
     </div>
   `;
@@ -543,6 +692,9 @@ function renderLogin() {
     const link = document.getElementById('register-link');
     if (link) link.style.display = d.allow_register ? '' : 'none';
   }).catch(() => {});
+
+  const loginLogo = document.getElementById('login-logo');
+  if (loginLogo) loginLogo.addEventListener('click', renderLanding);
 
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -591,22 +743,23 @@ let fileSelection = new Set();           // 选中的 path 集合
 
 async function renderFiles() {
   document.getElementById('main-content').innerHTML = `
-    <div class="topbar">
-      <div class="topbar-title">文件</div>
-      <div class="topbar-spacer"></div>
-      <button class="btn btn-secondary btn-icon-only" id="btn-refresh" title="刷新">${ICONS.refresh}</button>
-      <button class="btn btn-secondary" id="btn-groups" title="分组管理">${ICONS.groups}<span>分组</span></button>
-      <button class="btn btn-primary" id="btn-upload">${ICONS.upload}<span>上传</span></button>
-    </div>
-    <div class="file-browser">
-      <div class="file-toolbar">
-        <div class="search-box">${ICONS.search}<input type="text" id="search-input" placeholder="搜索文件..." value="${escapeHtml(searchQuery)}"></div>
-        <div class="file-controls">
-          <button class="btn btn-secondary btn-icon-only" id="btn-sort" title="排序">${SORT_ICON}</button>
-          <button class="btn btn-secondary btn-icon-only" id="btn-view" title="切换视图">${fileView === 'grid' ? LIST_ICON : GRID_ICON}</button>
-          <button class="btn btn-secondary btn-icon-only" id="btn-select" title="批量选择">${SELECT_ICON}</button>
-        </div>
+    <div class="files-header">
+      <div class="files-title">
+        <h1>文件</h1>
+        <span class="files-count" id="files-count"></span>
       </div>
+      <div class="files-search search-box">${ICONS.search}<input type="text" id="search-input" placeholder="搜索文件名、类型…" value="${escapeHtml(searchQuery)}"></div>
+      <div class="files-controls">
+        <button class="btn btn-secondary btn-icon-only" id="btn-view" title="切换视图">${fileView === 'grid' ? LIST_ICON : GRID_ICON}</button>
+        <button class="btn btn-secondary btn-icon-only" id="btn-sort" title="排序">${SORT_ICON}</button>
+        <button class="btn btn-secondary btn-icon-only" id="btn-select" title="批量选择">${SELECT_ICON}</button>
+        <span class="files-divider"></span>
+        <button class="btn btn-secondary btn-icon-only" id="btn-refresh" title="刷新">${ICONS.refresh}</button>
+        <button class="btn btn-secondary" id="btn-groups" title="分组管理">${ICONS.groups}<span>分组</span></button>
+        <button class="btn btn-primary" id="btn-upload">${ICONS.upload}<span>上传</span></button>
+      </div>
+    </div>
+    <div class="files-body">
       <div id="batch-bar" class="batch-bar" style="display:none"></div>
       <div class="breadcrumb" id="breadcrumb"></div>
       <div id="file-content"></div>
@@ -1063,18 +1216,33 @@ function renderFileList(items) {
     displayItems = sortItems(items);
   }
 
+  const realItems = displayItems.filter(i => !i.is_group);
+  const bytes = displayItems.filter(i => !i.is_dir && !i.is_group).reduce((s, i) => s + (i.size || 0), 0);
+  const cntEl = document.getElementById('files-count');
+  if (cntEl) cntEl.textContent = realItems.length ? `${realItems.length} 项${bytes ? ' · ' + formatSize(bytes) : ''}` : '';
+
   if (!displayItems.length) {
     const emptyMsg = selectedGroup
       ? '<div>该分组暂无文件</div><div style="font-size:13px;margin-top:4px">点击"上传"将文件加入此分组</div>'
       : isRoot
         ? `${ICONS.groups}<div>还没有分组或文件</div><div style="font-size:13px;margin-top:4px">点击"分组"创建分组，或直接"上传"文件</div>`
         : '<div>这个目录是空的</div><div style="font-size:13px;margin-top:4px">拖拽文件到此或点击"上传"</div>';
-    content.innerHTML = `<div class="file-list"><div class="empty-state">${emptyMsg}</div></div>`;
+    content.innerHTML = `<div class="file-table"><div class="empty-state">${emptyMsg}</div></div>`;
     updateBatchBar();
     return;
   }
-  const wrapCls = fileView === 'grid' ? 'file-grid' : 'file-list';
-  content.innerHTML = `<div class="${wrapCls}">${displayItems.map(item => fileItemHTML(item)).join('')}</div>`;
+  if (fileView === 'grid') {
+    content.innerHTML = `<div class="file-grid">${displayItems.map(item => fileItemHTML(item)).join('')}</div>`;
+  } else {
+    content.innerHTML = `<div class="file-table">
+      <div class="file-table-head">
+        <span class="file-cell file-cell--name">名称</span>
+        <span class="file-cell file-cell--size">大小</span>
+        <span class="file-cell file-cell--date">修改</span>
+        <span class="file-cell file-cell--actions"></span>
+      </div>${displayItems.map(item => fileItemHTML(item)).join('')}
+    </div>`;
+  }
   bindFileItems(content);
   updateBatchBar();
 }
@@ -1082,7 +1250,7 @@ function renderFileList(items) {
 function fileItemHTML(item) {
   const isSel = fileSelection.has(item.path);
   if (item.is_group) {
-    const cnt = item.file_count > 0 ? `${item.file_count} 个文件` : '空';
+    const cnt = item.file_count > 0 ? `${item.file_count} 项` : '空';
     if (fileView === 'grid') {
       return `<div class="file-card group-folder" data-gid="${escapeHtml(item.group_id)}" data-isgroup="true" data-name="${escapeHtml(item.name)}">
         <div class="file-icon folder">${ICONS.groups}</div>
@@ -1091,11 +1259,13 @@ function fileItemHTML(item) {
       </div>`;
     }
     return `<div class="file-row group-folder" data-gid="${escapeHtml(item.group_id)}" data-isgroup="true" data-name="${escapeHtml(item.name)}">
-      <div class="file-icon folder">${ICONS.groups}</div>
-      <div class="file-name">${escapeHtml(item.name)}</div>
-      <span class="badge badge-group">${cnt}</span>
-      <div class="file-meta"><span class="file-size">${formatSize(item.size)}</span></div>
-      <div class="file-actions"><button class="icon-btn" data-action="group-menu" title="更多">${ICONS.more}</button></div>
+      <div class="file-cell file-cell--name">
+        <span class="file-icon folder">${ICONS.groups}</span>
+        <span class="file-name">${escapeHtml(item.name)}</span>
+      </div>
+      <div class="file-cell file-cell--size">${cnt}</div>
+      <div class="file-cell file-cell--date">—</div>
+      <div class="file-cell file-cell--actions file-actions"><button class="icon-btn" data-action="group-menu" title="更多">${ICONS.more}</button></div>
     </div>`;
   }
   const icon = getFileIcon(item.name, item.is_dir);
@@ -1112,15 +1282,15 @@ function fileItemHTML(item) {
     </div>`;
   }
   return `<div class="file-row${selCls}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}">
-    ${checkHtml}
-    <div class="file-icon ${icon.cls}">${icon.icon}</div>
-    <div class="file-name">${escapeHtml(item.name)}</div>
-    ${groupHtml}${guardHtml}
-    <div class="file-meta">
-      <span class="file-size">${item.is_dir ? '-' : formatSize(item.size)}</span>
-      <span class="file-date">${formatDate(item.modified)}</span>
+    <div class="file-cell file-cell--name">
+      ${checkHtml}
+      <span class="file-icon ${icon.cls}">${icon.icon}</span>
+      <span class="file-name">${escapeHtml(item.name)}</span>
+      ${groupHtml}${guardHtml}
     </div>
-    <div class="file-actions">
+    <div class="file-cell file-cell--size">${item.is_dir ? '—' : formatSize(item.size)}</div>
+    <div class="file-cell file-cell--date">${item.modified ? formatDate(item.modified) : '—'}</div>
+    <div class="file-cell file-cell--actions file-actions">
       ${!item.is_dir ? `<button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>` : ''}
       ${!item.is_dir ? `<button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>` : ''}
       <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
@@ -1324,24 +1494,33 @@ function showFileMenu(eventOrX, path, name, isDir) {
 function renderSearchResults(results) {
   const content = document.getElementById('file-content');
   if (!results.length) {
-    content.innerHTML = `<div class="file-list"><div class="empty-state">${ICONS.search}<div>没有找到匹配的文件</div></div></div>`;
+    content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.search}<div>没有找到匹配的文件</div></div></div>`;
     return;
   }
-  content.innerHTML = `<div class="file-list">${results.map(r => {
-    const icon = getFileIcon(r.name || r.path, false);
-    const score = r.score ? Math.round(r.score * 100) : '';
-   return `
-     <div class="file-row" data-path="${escapeHtml(r.path)}" data-name="${escapeHtml(r.name || r.path)}">
-       <div class="file-icon ${icon.cls}">${icon.icon}</div>
-       <div class="file-name">${escapeHtml(r.name || r.path)}</div>
-       <div class="file-meta">${score ? `<span>匹配 ${score}%</span>` : ''}</div>
-       <div class="file-actions">
-         <button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>
-         <button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>
-         <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
-       </div>
-     </div>`;
- }).join('')}</div>`;
+  content.innerHTML = `<div class="file-table">
+    <div class="file-table-head">
+      <span class="file-cell file-cell--name">搜索结果 · ${results.length} 项</span>
+      <span class="file-cell file-cell--size">大小</span>
+      <span class="file-cell file-cell--date">匹配</span>
+      <span class="file-cell file-cell--actions"></span>
+    </div>${results.map(r => {
+      const icon = getFileIcon(r.name || r.path, false);
+      const score = r.score ? Math.round(r.score * 100) + '%' : '—';
+      return `<div class="file-row" data-path="${escapeHtml(r.path)}" data-name="${escapeHtml(r.name || r.path)}">
+        <div class="file-cell file-cell--name">
+          <span class="file-icon ${icon.cls}">${icon.icon}</span>
+          <span class="file-name">${escapeHtml(r.name || r.path)}</span>
+        </div>
+        <div class="file-cell file-cell--size">${formatSize(r.size)}</div>
+        <div class="file-cell file-cell--date">${score}</div>
+        <div class="file-cell file-cell--actions file-actions">
+          <button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>
+          <button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>
+          <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
  content.querySelectorAll('.file-row').forEach(row => {
    row.addEventListener('click', () => previewFile(row.dataset.path, row.dataset.name));
    row.querySelectorAll('[data-action]').forEach(btn => {
@@ -2335,7 +2514,7 @@ const App = {
   currentView: 'transfer',
   currentUser: null,
   async init() {
-    if (!API._token) { renderLogin(); return; }
+    if (!API._token) { renderLanding(); return; }
     // 拉取当前账号信息，解决“不知是哪个账号”的痛点；失败则回到登录页
     try {
       const res = await API.get('/api/auth/me');
@@ -2387,7 +2566,7 @@ const App = {
     else if (view === 'transfer') renderTransfer();
     else if (view === 'settings') renderSettings();
   },
-  logout() { if (currentChatAbort) currentChatAbort.abort(); API.clearTokens(); this.currentView = 'transfer'; renderLogin(); }
+  logout() { if (currentChatAbort) currentChatAbort.abort(); API.clearTokens(); this.currentView = 'transfer'; renderLanding(); }
 };
 
 // Expose for inline handlers
@@ -2404,5 +2583,6 @@ window.deleteGroup = deleteGroup;
 window.UploadManager = UploadManager;
 window.deleteTransferMessage = deleteTransferMessage;
 window.previewTransferFile = previewTransferFile;
+window.renderLogin = renderLogin;
 
 App.init();
