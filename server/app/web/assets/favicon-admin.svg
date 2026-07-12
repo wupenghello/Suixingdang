@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="13" fill="#0C0E12"/>
+  <rect x="7" y="7" width="50" height="50" rx="8" fill="#B85C3E"/>
+  <text x="32" y="45" font-family="Noto Serif SC, Songti SC, STSong, serif" font-size="34" font-weight="700" fill="#1a0e08" text-anchor="middle">管</text>
+</svg>
