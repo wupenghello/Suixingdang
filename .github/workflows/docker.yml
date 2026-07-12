@@ -61,8 +61,8 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          script_stop: true
           script: |
+            set -e
             cd ${{ secrets.DEPLOY_DIR || '~' }}
             docker compose pull
             docker compose up -d
