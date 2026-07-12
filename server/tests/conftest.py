@@ -28,8 +28,8 @@ for _mod in ("chromadb", "chromadb.utils", "chromadb.utils.embedding_functions")
 _TMP = Path(tempfile.mkdtemp(prefix="sxd-test-"))
 os.environ["STORAGE_DIR"] = str(_TMP / "files")
 os.environ["DATABASE_PATH"] = str(_TMP / "db.sqlite")
-os.environ["SECRET_KEY"] = "test-secret-key-for-tests-only"
-os.environ["JWT_SECRET"] = "test-jwt-secret-for-tests-only"
+os.environ["SECRET_KEY"] = "test-secret-key-for-tests-only-padding-to-32b"
+os.environ["JWT_SECRET"] = "test-jwt-secret-for-tests-only-padding-to-32b"
 os.environ["DATA_ENCRYPTION_KEY"] = "test-data-encryption-key-for-tests"
 os.environ["ADMIN_USERNAME"] = "admin"
 os.environ["ADMIN_PASSWORD"] = "test-admin-pw-12345"
