@@ -2130,15 +2130,15 @@ async function renderSettings() {
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-success">${ICONS.key}</div>
-            <div class="setting-head-text"><h3>设备访问令牌</h3><p class="section-desc">管理设备访问权限，离职时吊销令牌即可切断访问。</p></div>
+            <div class="setting-head-text"><h3>访问令牌与会话</h3><p class="section-desc">管理设备令牌与浏览器登录会话，离职或换机时吊销即可切断访问。</p></div>
             <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
           </div>
           <div class="setting-body">
             <div class="token-list" id="tokens-content"></div>
             <div class="token-danger-zone" id="revoke-all-zone" style="display:none">
               <div class="token-danger-zone-text">
-                <strong>紧急下线所有设备</strong>
-                <span>吊销你的全部有效令牌，所有设备立即无法访问。</span>
+                <strong>紧急下线所有设备与会话</strong>
+                <span>吊销你的全部令牌（含当前浏览器会话），你也会立即登出。</span>
               </div>
               <button class="btn btn-danger" id="btn-revoke-all-tokens">${ICONS.shield}<span>吊销全部</span></button>
             </div>
@@ -2192,7 +2192,13 @@ async function renderSettings() {
     if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
     try {
       const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
-      if (res.ok) { Toast.show('密码已修改', 'success'); document.getElementById('old-pass').value = ''; document.getElementById('new-pass').value = ''; }
+      if (res.ok) {
+        const d = await res.json();
+        if (d.access_token) API.setTokens(d.access_token, d.refresh_token);  // 续登：用新令牌继续会话
+        Toast.show('密码已修改', 'success');
+        document.getElementById('old-pass').value = '';
+        document.getElementById('new-pass').value = '';
+      }
       else { const d = await res.json(); Toast.show(d.detail || '修改失败', 'error'); }
     } catch { Toast.show('网络错误', 'error'); }
   });
@@ -2279,6 +2285,11 @@ function tokenStatusBadge(t) {
   if (t.expires_at && parseServerTs(t.expires_at) < Date.now()) return '<span class="badge badge-danger">已过期</span>';
   return '<span class="badge badge-success">有效</span>';
 }
+function tokenKindBadge(t) {
+  return t.kind === 'session'
+    ? '<span class="badge badge-info">浏览器会话</span>'
+    : '<span class="badge badge-info">设备令牌</span>';
+}
 function tokenExpiryText(t) {
   if (!t.expires_at) return '永久';
   return formatDateTime(t.expires_at);
@@ -2304,7 +2315,7 @@ async function loadTokens() {
   el.innerHTML = tokens.map(t => `
     <div class="token-row">
       <div class="token-info">
-        <div class="token-label">${escapeHtml(t.label) || '未命名设备'} ${tokenStatusBadge(t)}</div>
+        <div class="token-label">${escapeHtml(t.label) || '未命名设备'} ${tokenKindBadge(t)} ${tokenStatusBadge(t)}</div>
         <div class="token-meta-row">
           <span>创建 ${formatDateTime(t.created_at)}</span>
           <span class="dot-sep">·</span>
@@ -2407,13 +2418,14 @@ function showTokenResult(token, label) {
 }
 
 async function revokeAllTokens() {
-  if (!await confirmDialog({ title: '吊销全部令牌', message: '将吊销你的全部有效令牌，所有设备会立即下线。确定继续？', confirmText: '全部吊销', danger: true })) return;
+  if (!await confirmDialog({ title: '吊销全部令牌', message: '将吊销你的全部令牌（含当前浏览器会话），你也会立即登出。确定继续？', confirmText: '全部吊销', danger: true })) return;
   try {
     const res = await API.del('/api/auth/tokens');
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
     const data = await res.json();
     Toast.show(data.message || '已吊销全部令牌', 'success');
-    loadTokens();
+    API.clearTokens();
+    App.logout();  // 紧急下线：自己的 access 也已失效
   } catch { Toast.show('操作失败', 'error'); }
 }
 

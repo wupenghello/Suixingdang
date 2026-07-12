@@ -10,7 +10,7 @@ from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSet
 from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password
 from ..core import storage
 from ..config import settings
-from .auth import get_current_admin, _log
+from .auth import get_current_admin, _log, _bump_password_version
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -121,6 +121,7 @@ def update_user(user_id: str, req: UpdateUserRequest, request: Request, db: Sess
         if pwd_err:
             raise HTTPException(400, pwd_err)
         user.password_hash = hash_password(req.password)
+        _bump_password_version(db, user)
     db.commit()
     changes = []
     if req.status in ("active", "disabled"):
@@ -200,7 +201,7 @@ def list_user_tokens(user_id: str, db: Session = Depends(get_db), admin=Depends(
         raise HTTPException(404, "用户不存在")
     tokens = db.query(AccessToken).filter_by(user_id=user_id).order_by(AccessToken.created_at.desc()).all()
     return [{
-        "id": t.id, "label": t.label, "revoked": t.revoked,
+        "id": t.id, "kind": t.kind or "device", "label": t.label, "revoked": t.revoked,
         "expires_at": str(t.expires_at) if t.expires_at else "",
         "last_used_at": str(t.last_used_at) if t.last_used_at else "",
         "created_at": str(t.created_at),

@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import hashlib
@@ -108,6 +109,67 @@ def _resolve_device_token(raw: str, db: Session) -> Optional[User]:
     return user
 
 
+def _session_label(request: Request) -> str:
+    """从 User-Agent 生成浏览器会话标签，便于在令牌列表区分来源设备。"""
+    ua = request.headers.get("user-agent", "") if request else ""
+    browser = "浏览器"
+    if "Edg/" in ua:
+        browser = "Edge"
+    elif "Chrome/" in ua:
+        browser = "Chrome"
+    elif "Firefox/" in ua:
+        browser = "Firefox"
+    elif "Safari/" in ua:
+        browser = "Safari"
+    os_name = ""
+    if "Windows" in ua:
+        os_name = "Windows"
+    elif "Android" in ua:
+        os_name = "Android"
+    elif "iPhone" in ua or "iPad" in ua:
+        os_name = "iOS"
+    elif "Mac OS" in ua:
+        os_name = "macOS"
+    elif "Linux" in ua:
+        os_name = "Linux"
+    return f"{browser}·{os_name}" if os_name else browser
+
+
+def _bump_password_version(db: Session, user: User):
+    """密码版本号 +1（使所有旧 access/refresh JWT 立即失效），并吊销已存在的浏览器
+    会话行，避免它们在令牌列表里继续显示为「有效」。用于改/重置密码场景。"""
+    user.password_version = (user.password_version or 0) + 1
+    db.query(AccessToken).filter(
+        AccessToken.user_id == user.id,
+        AccessToken.kind == "session",
+        AccessToken.revoked.is_(False),
+    ).update({"revoked": True}, synchronize_session=False)
+
+
+def _issue_session_tokens(db: Session, user: User, request: Request):
+    """签发浏览器会话令牌对，写入 kind=session 行（可吊销），返回 (access, refresh)。
+
+    顺带清理该用户已过期或已吊销的旧会话行，避免 access_tokens 表无界增长；
+    保留其他设备的活跃会话。"""
+    token_data = {"sub": user.id, "username": user.username, "role": "user",
+                  "password_version": user.password_version}
+    access = create_access_token(token_data)
+    refresh = create_refresh_token(token_data)
+    now = datetime.utcnow()
+    db.query(AccessToken).filter(
+        AccessToken.user_id == user.id,
+        AccessToken.kind == "session",
+        or_(AccessToken.revoked.is_(True), AccessToken.expires_at < now),
+    ).delete(synchronize_session=False)
+    db.add(AccessToken(
+        user_id=user.id, kind="session", label=_session_label(request),
+        token_hash=hashlib.sha256(refresh.encode()).hexdigest(),
+        expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        last_used_at=now,
+    ))
+    return access, refresh
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Security(security_scheme),
     db: Session = Depends(get_db),
@@ -126,6 +188,9 @@ def get_current_user(
         user = db.query(User).filter_by(id=payload.get("sub")).first()
         if not user:
             raise HTTPException(401, "用户不存在")
+        # 密码版本校验：改/重置密码后旧 access 立即失效
+        if payload.get("password_version") != user.password_version:
+            raise HTTPException(401, "登录已失效，请重新登录")
     else:
         user = _resolve_device_token(raw, db)
         if not user:
@@ -248,13 +313,10 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     db.commit()
     login_limiter_reset(db, key)
 
-    token_data = {"sub": user.id, "username": user.username, "role": "user"}
     _log(db, user.id, "login_success", "", request)
-    return TokenResponse(
-        access_token=create_access_token(token_data),
-        refresh_token=create_refresh_token(token_data),
-        role="user",
-    )
+    access, refresh = _issue_session_tokens(db, user, request)
+    db.commit()
+    return TokenResponse(access_token=access, refresh_token=refresh, role="user")
 
 
 # ---- 用户注册 ----
@@ -298,13 +360,10 @@ def register(req: RegisterRequest, request: Request, db: Session = Depends(get_d
     db.commit()
     db.refresh(user)
 
-    token_data = {"sub": user.id, "username": user.username, "role": "user"}
     _log(db, user.id, "register", "", request)
-    return TokenResponse(
-        access_token=create_access_token(token_data),
-        refresh_token=create_refresh_token(token_data),
-        role="user",
-    )
+    access, refresh = _issue_session_tokens(db, user, request)
+    db.commit()
+    return TokenResponse(access_token=access, refresh_token=refresh, role="user")
 
 
 # ---- 忘记密码 ----
@@ -355,6 +414,7 @@ def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Sessio
         raise HTTPException(400, pwd_err)
 
     user.password_hash = hash_password(req.new_password)
+    _bump_password_version(db, user)
     # 顺带把旧 sha256 密保答案升级为 bcrypt（sha256 预哈希）
     if _is_legacy_answer(user.security_answer):
         user.security_answer = _hash_security_answer(req.answer)
@@ -371,13 +431,26 @@ def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(401, "无效的刷新令牌")
     role = payload.get("role", "user")
-    # 校验账户仍然有效（被禁用的用户不能刷新令牌）
     if role == "user":
         user = db.query(User).filter_by(id=payload.get("sub")).first()
         if not user:
             raise HTTPException(401, "用户不存在")
         if user.status == "disabled":
             raise HTTPException(403, "账户已被禁用")
+        # 密码版本校验：改/重置密码后旧 refresh 立即失效
+        if payload.get("password_version") != user.password_version:
+            raise HTTPException(401, "登录已失效，请重新登录")
+        # 会话令牌吊销校验：refresh 必须在 access_tokens 表中且未吊销
+        refresh_hash = hashlib.sha256(req.refresh_token.encode()).hexdigest()
+        session_token = db.query(AccessToken).filter_by(
+            token_hash=refresh_hash, kind="session").first()
+        if not session_token or session_token.revoked:
+            raise HTTPException(401, "登录已失效，请重新登录")
+        # 节流更新最近活跃时间（与设备令牌一致）
+        now = datetime.utcnow()
+        if not session_token.last_used_at or (now - session_token.last_used_at).total_seconds() > 60:
+            session_token.last_used_at = now
+            db.commit()
     elif role == "admin":
         admin = db.query(Admin).filter_by(id=payload.get("sub")).first()
         if not admin:
@@ -387,11 +460,12 @@ def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
         "username": payload.get("username"),
         "role": role,
     }
-    return TokenResponse(
-        access_token=create_access_token(token_data),
-        refresh_token=create_refresh_token(token_data),
-        role=role,
-    )
+    if role == "user":
+        token_data["password_version"] = user.password_version
+    access = create_access_token(token_data)
+    # 不轮转 refresh：复用原 refresh（仍绑定会话行，可吊销、随密码失效），
+    # 避免「先改库再返回响应」带来的并发竞态与重试失败。
+    return TokenResponse(access_token=access, refresh_token=req.refresh_token, role=role)
 
 
 # ---- 管理员登录（独立入口）----
@@ -480,7 +554,7 @@ def create_device_token(label: str = "device", expires_days: int = 0, db: Sessio
     expires = None
     if expires_days > 0:
         expires = datetime.utcnow() + timedelta(days=expires_days)
-    db.add(AccessToken(user_id=user.id, label=label, token_hash=h, expires_at=expires))
+    db.add(AccessToken(user_id=user.id, kind="device", label=label, token_hash=h, expires_at=expires))
     db.commit()
     return DeviceTokenResponse(token=raw, label=label, expires_at=str(expires) if expires else "")
 
@@ -489,7 +563,7 @@ def create_device_token(label: str = "device", expires_days: int = 0, db: Sessio
 def list_tokens(db: Session = Depends(get_db), user=Depends(get_current_user)):
     tokens = db.query(AccessToken).filter_by(user_id=user.id).order_by(AccessToken.created_at.desc()).all()
     return [{
-        "id": t.id, "label": t.label, "revoked": t.revoked,
+        "id": t.id, "kind": t.kind or "device", "label": t.label, "revoked": t.revoked,
         "expires_at": str(t.expires_at) if t.expires_at else "",
         "last_used_at": str(t.last_used_at) if t.last_used_at else "",
         "created_at": str(t.created_at),
@@ -511,6 +585,8 @@ def revoke_all_tokens(request: Request, db: Session = Depends(get_db), user=Depe
     tokens = db.query(AccessToken).filter_by(user_id=user.id, revoked=False).all()
     for t in tokens:
         t.revoked = True
+    # 同时 bump 密码版本号，使已签发的 access JWT 立即失效（紧急下线不留 60 分钟窗口）
+    user.password_version = (user.password_version or 0) + 1
     db.commit()
     _log(db, user.id, "revoke_all_tokens", f"用户主动吊销全部令牌（{len(tokens)} 个）", request)
     return {"message": f"已吊销 {len(tokens)} 个令牌", "count": len(tokens)}
@@ -524,15 +600,18 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/change-password")
-def change_password(req: ChangePasswordRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def change_password(req: ChangePasswordRequest, request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if not verify_password(req.old_password, user.password_hash):
         raise HTTPException(400, "原密码错误")
     pwd_err = validate_password(req.new_password, user.username)
     if pwd_err:
         raise HTTPException(400, pwd_err)
     user.password_hash = hash_password(req.new_password)
+    _bump_password_version(db, user)  # 旧 access/refresh 立即失效；旧会话行标记吊销
+    # 为调用者签发新会话令牌，避免改密码后立即被踢下线
+    access, refresh = _issue_session_tokens(db, user, request)
     db.commit()
-    return {"message": "密码已修改"}
+    return {"message": "密码已修改", "access_token": access, "refresh_token": refresh}
 
 
 # ---- 用户信息 ----
