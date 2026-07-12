@@ -448,7 +448,7 @@ async function loadUserTokens(userId) {
     const now = Date.now();
     el.innerHTML = `
       <table class="data-table">
-        <thead><tr><th>标签</th><th>状态</th><th>创建时间</th><th>最后使用</th><th>过期时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>标签</th><th>类型</th><th>状态</th><th>创建时间</th><th>最后使用</th><th>过期时间</th><th>操作</th></tr></thead>
         <tbody>
           ${tokens.map(t => {
             const expired = t.expires_at && new Date(t.expires_at).getTime() < now;
@@ -459,6 +459,7 @@ async function loadUserTokens(userId) {
             const action = (t.revoked || expired) ? '-' : `<button class="btn btn-danger btn-icon" data-action="revokeUserToken" data-user-id="${userId}" data-token-id="${t.id}" title="吊销">${ICONS.trash}</button>`;
             return `<tr>
               <td>${esc(t.label) || '-'}</td>
+              <td>${t.kind === 'session' ? '浏览器会话' : '设备令牌'}</td>
               <td>${badge}</td>
               <td style="font-size:12px;color:var(--text-muted)">${t.created_at ? t.created_at.split('.')[0] : '-'}</td>
               <td style="font-size:12px;color:var(--text-muted)">${t.last_used_at ? t.last_used_at.split('.')[0] : '从未'}</td>
@@ -491,7 +492,7 @@ async function createUserToken(userId) {
 window.createUserToken = createUserToken;
 
 async function revokeUserToken(userId, tokenId) {
-  if (!confirm('确定吊销该访问令牌？吊销后相关设备将立即无法访问。')) return;
+  if (!confirm('确定吊销该访问令牌？吊销后该令牌将立即无法访问。')) return;
   try {
     const res = await API.del(`/api/admin/users/${userId}/tokens/${tokenId}`);
     if (res.ok) { Toast.show('令牌已吊销', 'success'); loadUserTokens(userId); }
@@ -501,7 +502,7 @@ async function revokeUserToken(userId, tokenId) {
 window.revokeUserToken = revokeUserToken;
 
 async function revokeAllUserTokens(userId) {
-  if (!confirm('确定吊销该用户的全部有效令牌？所有设备将立即下线。')) return;
+  if (!confirm('确定吊销该用户的全部令牌（含浏览器会话）？所有设备与会话将立即下线。')) return;
   try {
     const res = await API.del(`/api/admin/users/${userId}/tokens`);
     if (res.ok) { const d = await res.json(); Toast.show(d.message, 'success'); loadUserTokens(userId); }

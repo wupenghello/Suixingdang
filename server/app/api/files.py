@@ -1,17 +1,17 @@
 """文件操作 API（多账户版）：所有操作带 owner_id 隔离。"""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import mimetypes
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FAFile, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FAFile, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User, get_db
+from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User, AccessToken, get_db
 from ..core import storage, indexer, guard
 from ..config import settings
-from .auth import get_current_user
+from .auth import get_current_user, get_current_session, _log
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -34,6 +34,14 @@ def _check_quota(db: Session, user: User, file_size: int):
     used = db.query(func.sum(FileModel.size)).filter(FileModel.owner_id == user.id).scalar() or 0
     if used + file_size > user.quota_mb * 1024 * 1024:
         raise HTTPException(413, f"存储空间不足（配额 {user.quota_mb}MB）")
+
+
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
+def _download_granted(session, now):
+    """当前会话是否处于临时下载授权窗口内（单一真源，避免 download 与 status 谓词漂移）。"""
+    return bool(session and session.download_granted_until and session.download_granted_until > now)
 
 
 @router.get("/list")
@@ -174,7 +182,10 @@ async def upload_file(
 
 
 @router.get("/download")
-def download_file(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def download_file(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
+    # 浏览器端下载需开启临时下载窗口；守护进程走 /api/sync/download 不受此限
+    if not _download_granted(session, datetime.utcnow()):
+        raise HTTPException(403, "未开启临时下载，请到设置页开启")
     f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
     try:
         p = storage.read_file(user.id, path)
@@ -182,26 +193,60 @@ def download_file(path: str = Query(...), db: Session = Depends(get_db), user=De
         raise HTTPException(404, "文件不存在")
     db.add(AccessLog(user_id=user.id, action="file_download", detail=path))
     db.commit()
-    return FileResponse(path=str(p), filename=p.name, media_type=f.mime_type if f else "application/octet-stream")
+    return FileResponse(path=str(p), filename=p.name,
+                        media_type=f.mime_type if f else "application/octet-stream",
+                        headers=_NO_STORE)
+
+
+# ---- 临时下载授权（浏览器端默认禁下载，主动开启短期窗口）----
+
+@router.post("/download-grant")
+def grant_download(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
+    """开启当前浏览器会话的临时下载窗口（默认 5 分钟，可配置 DOWNLOAD_GRANT_MINUTES）。"""
+    if not session:
+        # 旧 token 无 sid / device token / 已吊销会话：401 触发前端刷新续签
+        raise HTTPException(401, "登录状态需刷新，请重试")
+    until = datetime.utcnow() + timedelta(minutes=settings.DOWNLOAD_GRANT_MINUTES)
+    session.download_granted_until = until
+    # _log 内部 commit，与授权写入同事务，避免「授权已生效但日志失败返回 500」的不一致
+    _log(db, user.id, "download_grant", f"开启临时下载（{settings.DOWNLOAD_GRANT_MINUTES} 分钟）", request)
+    return {"granted": True, "until": until.isoformat(), "minutes": settings.DOWNLOAD_GRANT_MINUTES}
+
+
+@router.post("/download-revoke")
+def revoke_download(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
+    """手动关闭当前会话的临时下载窗口。"""
+    if session and session.download_granted_until:
+        session.download_granted_until = None
+        _log(db, user.id, "download_revoke", "手动关闭临时下载", request)
+    return {"granted": False}
+
+
+@router.get("/download-status")
+def download_status(db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
+    """查询当前会话的临时下载状态。"""
+    granted = _download_granted(session, datetime.utcnow())
+    return {"granted": granted, "until": session.download_granted_until.isoformat() if granted else ""}
 
 
 @router.get("/preview")
 def preview_file(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
     """以 inline 方式返回文件，供前端预览（图片/视频/音频/PDF 等）。
 
-    HTML/SVG/XML 等可执行类型强制 attachment 下载，防止上传恶意文件后预览触发存储型 XSS。
+    HTML/SVG/XML 等可执行类型不支持浏览器预览（避免存储型 XSS，也避免预览触发
+    attachment 下载绕过临时下载限制）；请在守护进程设备查看。
     """
     f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
     try:
         p = storage.read_file(user.id, path)
     except FileNotFoundError:
         raise HTTPException(404, "文件不存在")
-    db.add(AccessLog(user_id=user.id, action="file_preview", detail=path))
-    db.commit()
     media_type = f.mime_type if f else (mimetypes.guess_type(str(p))[0] or "application/octet-stream")
     if media_type in _UNSAFE_PREVIEW_TYPES:
-        return FileResponse(path=str(p), media_type=media_type, filename=p.name)
-    return FileResponse(path=str(p), media_type=media_type)
+        raise HTTPException(415, "此类型不支持浏览器预览，请在守护进程设备查看")
+    db.add(AccessLog(user_id=user.id, action="file_preview", detail=path))
+    db.commit()
+    return FileResponse(path=str(p), media_type=media_type, headers=_NO_STORE)
 
 
 @router.get("/preview-text")
@@ -218,7 +263,8 @@ def preview_text(path: str = Query(...), db: Session = Depends(get_db), user=Dep
         content = fh.read(MAX_CHARS)
     db.add(AccessLog(user_id=user.id, action="file_preview", detail=path))
     db.commit()
-    return {"content": content, "truncated": truncated, "size": size}
+    return JSONResponse(content={"content": content, "truncated": truncated, "size": size},
+                        headers=_NO_STORE)
 
 
 @router.delete("")

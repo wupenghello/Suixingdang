@@ -28,6 +28,7 @@ def test_preview_text_traversal_returns_404_not_db(client, make_user):
 
 def test_download_traversal_returns_404(client, make_user):
     token, _uid, _ = make_user()
+    client.post("/api/files/download-grant", headers=_h(token))  # 开启临时下载以测路径校验
     r = client.get("/api/files/download",
                    params={"path": "../../db.sqlite"}, headers=_h(token))
     assert r.status_code == 404
@@ -42,8 +43,11 @@ def test_preview_traversal_returns_404(client, make_user):
 
 def test_sync_download_traversal_returns_404(client, make_user):
     token, _uid, _ = make_user()
+    # sync 通道仅接受设备令牌（浏览器 JWT 走 /api/files/*）
+    dev = client.post("/api/auth/tokens?label=t&expires_days=0", headers=_h(token))
+    assert dev.status_code == 200, dev.text
     r = client.get("/api/sync/download",
-                   params={"path": "../../db.sqlite"}, headers=_h(token))
+                   params={"path": "../../db.sqlite"}, headers=_h(dev.json()["token"]))
     assert r.status_code == 404
 
 
@@ -93,6 +97,7 @@ def test_legitimate_subdir_upload_download_not_regressed(client, make_user):
                     files={"file": ("report.txt", io.BytesIO(b"subdir content"), "text/plain")})
     assert r.status_code == 200, r.text
     assert r.json()["path"] == "work/2026/report.txt"
+    client.post("/api/files/download-grant", headers=_h(token))  # 开启临时下载
     r = client.get("/api/files/download",
                    params={"path": "work/2026/report.txt"}, headers=_h(token))
     assert r.status_code == 200

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..db.models import File as FileModel, SyncEvent, get_db
 from ..core import storage, indexer, guard
-from .auth import get_current_user
+from .auth import get_current_device_user
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -18,7 +18,7 @@ async def sync_upload(
     relative_path: str = Query(...),
     source: str = Query("home"),
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_device_user),
 ):
     # 文件名检查（落盘前）
     status, reason = guard.check_filename(relative_path)
@@ -83,7 +83,7 @@ async def sync_upload(
 
 
 @router.get("/download")
-def sync_download(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def sync_download(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_device_user)):
     try:
         p = storage.read_file(user.id, path)
     except FileNotFoundError:
@@ -94,7 +94,7 @@ def sync_download(path: str = Query(...), db: Session = Depends(get_db), user=De
 
 
 @router.get("/manifest")
-def get_manifest(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def get_manifest(db: Session = Depends(get_db), user=Depends(get_current_device_user)):
     files = storage.list_all_files(user.id)
     manifest = []
     for rel in files:
@@ -105,7 +105,7 @@ def get_manifest(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 
 @router.get("/events")
-def sync_events(limit: int = Query(50), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def sync_events(limit: int = Query(50), db: Session = Depends(get_db), user=Depends(get_current_device_user)):
     events = db.query(SyncEvent).filter_by(user_id=user.id).order_by(SyncEvent.created_at.desc()).limit(limit).all()
     return {"events": [{
         "id": e.id, "file_name": e.file_name, "direction": e.direction,
@@ -114,7 +114,7 @@ def sync_events(limit: int = Query(50), db: Session = Depends(get_db), user=Depe
 
 
 @router.get("/status")
-def sync_status(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def sync_status(db: Session = Depends(get_db), user=Depends(get_current_device_user)):
     total = db.query(SyncEvent).filter_by(user_id=user.id).count()
     failed = db.query(SyncEvent).filter_by(user_id=user.id, status="failed").count()
     latest = db.query(SyncEvent).filter_by(user_id=user.id).order_by(SyncEvent.created_at.desc()).first()
@@ -122,7 +122,7 @@ def sync_status(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 
 @router.post("/delete")
-def sync_delete(path: str = Query(...), source: str = Query("home"), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def sync_delete(path: str = Query(...), source: str = Query("home"), db: Session = Depends(get_db), user=Depends(get_current_device_user)):
     storage.delete_file(user.id, path)
     indexer.remove_from_index(user.id, path)
     f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()

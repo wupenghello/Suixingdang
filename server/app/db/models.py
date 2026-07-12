@@ -35,6 +35,7 @@ class User(Base):
     llm_provider_id = Column(String, nullable=True)    # 分配的大模型，为空则用默认
     security_question = Column(Text, default="")      # 密保问题
     security_answer = Column(Text, default="")        # 密保答案（哈希存储）
+    password_version = Column(Integer, default=1)     # 密码版本号：改/重置密码时 +1，使旧 refresh/access 立即失效
     last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -136,11 +137,13 @@ class AccessToken(Base):
 
     id = Column(String, primary_key=True, default=_uuid)
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    kind = Column(String, default="device")           # device=守护进程等外部令牌 / session=浏览器登录会话
     label = Column(String, default="")
     token_hash = Column(String, unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=True)
     revoked = Column(Boolean, default=False)
     last_used_at = Column(DateTime, nullable=True)
+    download_granted_until = Column(DateTime, nullable=True)  # 临时下载授权窗口（仅 session 用）
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -396,6 +399,7 @@ def _migrate_columns():
         "last_login_at": "DATETIME",
         "ai_enabled": "BOOLEAN DEFAULT 1",
         "llm_provider_id": "TEXT",
+        "password_version": "INTEGER DEFAULT 1",
     }
     for col, coltype in additions.items():
         if col not in cols:
@@ -403,6 +407,20 @@ def _migrate_columns():
                 cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {coltype}")
             except Exception:
                 pass
+
+    # access_tokens 表新增 kind / download_granted_until 列
+    cursor.execute("PRAGMA table_info(access_tokens)")
+    tcols = [r[1] for r in cursor.fetchall()]
+    if "kind" not in tcols:
+        try:
+            cursor.execute('ALTER TABLE access_tokens ADD COLUMN kind TEXT DEFAULT "device"')
+        except Exception:
+            pass
+    if "download_granted_until" not in tcols:
+        try:
+            cursor.execute('ALTER TABLE access_tokens ADD COLUMN download_granted_until DATETIME')
+        except Exception:
+            pass
 
     # files 表新增 group_id 列（关联 file_groups）
     cursor.execute("PRAGMA table_info(files)")
