@@ -41,3 +41,30 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    # 镜像构建成功后自动 SSH 登录服务器拉新镜像并重启，省掉手动 pull && up。
+    # 所需 Secrets（仓库 Settings → Secrets and variables → Actions）：
+    #   SSH_HOST    服务器 IP 或域名
+    #   SSH_USER    SSH 登录用户（如 root）
+    #   SSH_KEY     SSH 私钥（专用 deploy key，见 docs/UPDATE.md）
+    #   SSH_PORT    SSH 端口（可选，默认 22）
+    #   DEPLOY_DIR  部署目录（可选，默认 ~）
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: SSH 部署到服务器
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script_stop: true
+          script: |
+            cd ${{ secrets.DEPLOY_DIR || '~' }}
+            docker compose pull
+            docker compose up -d
+            docker compose ps
+            docker image prune -f || true
