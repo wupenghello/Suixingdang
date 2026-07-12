@@ -9,11 +9,12 @@
 ### 方式一：一键脚本（推荐）
 
 ```bash
-git clone https://github.com/wupenghello/Suixingdang.git suixingdang && cd suixingdang
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/wupenghello/Suixingdang/main/install.sh | bash
 ```
 
-脚本交互式询问域名与管理员密码，自动生成三项密钥并启动容器。已有 `.env` 时复用配置直接启动；后续改配置直接编辑 `.env` 后重跑 `./install.sh` 即可。
+脚本自动下载 `docker-compose.yml`/`Caddyfile`、生成 `.env`、拉镜像启动，**无需 clone 源码**。也可 `git clone` 后 `./install.sh`（从源码构建镜像，不依赖镜像发布）。
+
+> 首次部署前请等 [GitHub Actions](.github/workflows/docker.yml) 把镜像构建发布到 GHCR（约 5-10 分钟），并在 [包设置页](https://github.com/users/wupenghello/packages/container/suixingdang/settings) 将镜像设为 public，否则服务器需 `docker login ghcr.io` 才能拉取。
 
 ### 方式二：手动逐步
 

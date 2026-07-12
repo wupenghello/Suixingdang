@@ -1,6 +1,7 @@
 services:
   server:
-    build: ./server
+    image: ghcr.io/wupenghello/suixingdang:latest
+    build: ./server   # 生产部署拉 image 无需源码；本地/CI 构建用 build
     container_name: suixingdang-server
     restart: unless-stopped
     env_file: .env

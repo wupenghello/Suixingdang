@@ -17,12 +17,20 @@ die()  { printf "${R}✗${N} %s\n" "$*" >&2; exit 1; }
 
 # ---------- 依赖检查 ----------
 command -v openssl >/dev/null || die "缺少 openssl,请先安装"
+command -v curl    >/dev/null || die "缺少 curl,请先安装"
 command -v docker  >/dev/null || die "缺少 docker,请先安装 Docker"
 if docker compose version >/dev/null 2>&1; then DC="docker compose"
 elif command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"
 else die "缺少 docker compose,请先安装 Docker Compose"; fi
 
 cd "$(dirname "$0")"
+
+# 不 clone 也能部署:当前目录缺 compose/Caddyfile 时,从仓库 raw 下载
+RAW="https://raw.githubusercontent.com/wupenghello/Suixingdang/main"
+[ -f docker-compose.yml ] || curl -fsSL -o docker-compose.yml "$RAW/docker-compose.yml" \
+  || die "下载 docker-compose.yml 失败;请检查网络,或改用 git clone 后 ./install.sh"
+[ -f Caddyfile ] || curl -fsSL -o Caddyfile "$RAW/Caddyfile" \
+  || die "下载 Caddyfile 失败"
 
 # ---------- 生成 .env ----------
 gen_env() {
@@ -31,7 +39,7 @@ gen_env() {
   local domain="${DOMAIN:-}"
   if [ -z "$domain" ]; then
     while true; do
-      read -rp "请输入你的域名(如 files.example.com): " domain
+      read -rp "请输入你的域名(如 files.example.com): " domain </dev/tty
       if [[ "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then break; fi
       warn "域名格式不正确,请重新输入"
     done
@@ -40,7 +48,7 @@ gen_env() {
   local admin_pw="${ADMIN_PASSWORD:-}"
   local pw_auto=0
   if [ -z "$admin_pw" ]; then
-    read -s -rp "请输入管理员密码(≥8 位,直接回车则随机生成): " admin_pw; echo
+    read -s -rp "请输入管理员密码(≥8 位,直接回车则随机生成): " admin_pw </dev/tty; echo
     if [ -z "$admin_pw" ]; then
       admin_pw="$(openssl rand -hex 16)"; pw_auto=1
     elif [ "${#admin_pw}" -lt 8 ]; then
@@ -104,8 +112,16 @@ else
 fi
 
 # ---------- 启动 ----------
-say "构建并启动容器(首次构建需几分钟拉依赖)..."
-$DC up -d --build
+if [ -d server ]; then
+  # 有源码(clone 部署):从本地构建,不依赖镜像是否已发布
+  say "从源码构建并启动..."
+  $DC up -d --build
+else
+  # 无源码(curl|bash 部署):拉已发布镜像
+  say "拉取镜像并启动(首次需 GitHub Actions 已发布镜像,约 5-10 分钟)..."
+  $DC pull 2>/dev/null || warn "镜像拉取失败--若刚推送,请等 Actions 构建完成后重试"
+  $DC up -d || die "启动失败;若镜像尚未发布,可 git clone 后 ./install.sh 从源码构建"
+fi
 
 # ---------- 健康检查 ----------
 say "等待服务就绪..."
