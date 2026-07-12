@@ -29,7 +29,7 @@
 
 | 差异点 | 说明 |
 |--------|------|
-| 零痕迹 | 公司电脑只开浏览器，不装任何东西。离职时在服务器一键吊销访问权 + 清浏览器记录即可 |
+| 零痕迹 | 公司电脑默认不下载文件，只在线预览（no-store，关页即失）；离职/换机一键吊销令牌即切断访问，文件不落本地 |
 | 即问即得 | 不用翻文件夹，用自然语言告诉 agent 意图，它找到文件、传好、通知你 |
 | 懂你的文件 | agent 索引过文件名和内容，能分类、能提醒、能建议 |
 
@@ -60,12 +60,12 @@
 
 **服务器（唯一真正的服务）**——存储中枢（所有文件的中央仓库）、Web 服务（浏览器访问界面）、AI 大脑（文件索引、语义搜索、内容问答）、权限与审计（访问控制、操作日志）。
 
-**公司电脑（零安装）**——只开浏览器，登录域名找文件 / 对话 / 上传下载，没有客户端、配置文件或同步缓存。
+**公司电脑（零安装）**——只开浏览器，登录域名找文件 / 对话 / 在线预览；默认禁止下载（需临时窗口），没有客户端、配置文件或同步缓存。
 
 ### 2.3 离职清理链路
 
 ```
-服务器后台点"吊销公司访问"
+设置页「吊销全部」或单条吊销浏览器会话
         │
         ▼
 公司那台机器上不存在任何需要删的东西
@@ -266,9 +266,9 @@ SQLite，共 12 张表（`db/models.py`）。按职责分组：
 
 | 表 | 用途 | 关键字段 |
 |------|------|------|
-| `users` | 普通用户 | `username` / `password_hash` / `totp_*` / `role` / `status` / `quota_mb` / `ai_enabled` / `llm_provider_id` / 密保问答 |
+| `users` | 普通用户 | `username` / `password_hash` / `totp_*` / `role` / `status` / `quota_mb` / `ai_enabled` / `llm_provider_id` / 密保问答 / `password_version` |
 | `admins` | 管理员（独立表，与用户彻底分离） | `username` / `password_hash` / `totp_*` |
-| `access_tokens` | 可吊销的设备令牌 | `user_id` / `label` / `token_hash` / `expires_at` / `revoked` / `last_used_at` |
+| `access_tokens` | 设备/会话令牌（可吊销） | `user_id` / `kind` / `label` / `token_hash` / `expires_at` / `revoked` / `last_used_at` / `download_granted_until` |
 | `login_attempts` | 登录限流 + 聊天限流计数（DB 共享，多 worker 生效） | `key`（按 login/adminlogin/reset/chatrl 四套 scope 隔离）/ `fail_count` / `locked_until` |
 
 ### 7.2 文件
@@ -303,7 +303,7 @@ SQLite，共 12 张表（`db/models.py`）。按职责分组：
 
 ### 8.2 文件 `/api/files`
 
-上传 / 列表 / 详情 / 下载 / 删除、语义搜索、文件分组管理。上传时做 Guard 检测、配额检查、`content_hash` 去重。
+上传 / 列表 / 详情 / 下载（需临时授权）/ 在线预览（no-store）/ 删除、语义搜索、文件分组管理。上传时做 Guard 检测、配额检查、`content_hash` 去重。
 
 ### 8.3 对话 `/api/chat`
 
@@ -311,7 +311,7 @@ SQLite，共 12 张表（`db/models.py`）。按职责分组：
 
 ### 8.4 同步 `/api/sync`
 
-同步状态查询、推送文件、同步事件历史。家里守护进程通过设备令牌调用。
+同步状态查询、推送文件、同步事件历史。仅接受设备令牌（浏览器 JWT 拒绝），家里守护进程调用。
 
 ### 8.5 管理后台 `/api/admin`
 

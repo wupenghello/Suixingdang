@@ -544,7 +544,7 @@ function renderLanding() {
               <span class="sx-ref">SXD-0001 · 归档于你名下</span>
             </div>
             <h1 class="sx-hero-title">只对你一人<br><span class="sx-fade">显影</span>的档案。</h1>
-            <p class="sx-hero-lead">随行档是一处自托管的私人档案室。文件在此加密归档、由 AI 检索应答,只对你显影——离开时一键清空,如同从未存在。</p>
+            <p class="sx-hero-lead">随行档是一处自托管的私人档案室。文件在此加密归档、由 AI 检索应答,只对你显影。公司电脑上只看不留——默认不下载、预览不留缓存,离开时一键吊销,如同从未存在。</p>
             <div class="sx-hero-cta">
               <button class="sx-btn" type="button" id="landing-cta-hero" data-action="renderLogin">开启卷宗 →</button>
               <a class="sx-quiet" href="#spec">查阅规格</a>
@@ -580,7 +580,7 @@ function renderLanding() {
         <header class="sx-sec-head">
           <span class="sx-sec-num">§ 规格</span>
           <h2>它替你做什么</h2>
-          <p>八条,不喧哗。</p>
+          <p>九条,不喧哗。</p>
         </header>
         <dl class="sx-spec-table">
           <div class="sx-spec-row"><dt>语义检索</dt><dd class="sx-spec-desc">一句话找到文件,内容级匹配,Word / Excel / PDF 皆可。</dd><dd class="sx-spec-val">向量 · 中文</dd></div>
@@ -588,7 +588,8 @@ function renderLanding() {
           <div class="sx-spec-row"><dt>Guard 检测</dt><dd class="sx-spec-desc">识别凭据、隐私、机密文件,方向感知,上传即提醒。</dd><dd class="sx-spec-val">敏感预警</dd></div>
           <div class="sx-spec-row"><dt>多端同步</dt><dd class="sx-spec-desc">家里守护进程实时监听,公司浏览器即开即用。</dd><dd class="sx-spec-val">双向 · 实时</dd></div>
           <div class="sx-spec-row"><dt>多账户隔离</dt><dd class="sx-spec-desc">每人独立空间、配额与向量库,互不可见。</dd><dd class="sx-spec-val">三重隔离</dd></div>
-          <div class="sx-spec-row"><dt>设备令牌</dt><dd class="sx-spec-desc">每台设备一枚独立令牌,可单独吊销或一键全吊销。</dd><dd class="sx-spec-val">可吊销</dd></div>
+          <div class="sx-spec-row"><dt>会话吊销</dt><dd class="sx-spec-desc">浏览器会话与设备令牌皆可单独或一键吊销,吊销即切断;改密码后旧会话立即失效。</dd><dd class="sx-spec-val">可远程吊销</dd></div>
+          <div class="sx-spec-row"><dt>临时下载</dt><dd class="sx-spec-desc">浏览器端默认禁下载,需要时开启 5 分钟窗口,到期自动关闭,文件不落公司电脑。</dd><dd class="sx-spec-val">默认零落盘</dd></div>
           <div class="sx-spec-row"><dt>落盘加密</dt><dd class="sx-spec-desc">文件、数据库、向量库一体化加密保护。</dd><dd class="sx-spec-val">AES</dd></div>
           <div class="sx-spec-row"><dt>双因子</dt><dd class="sx-spec-desc">JWT + TOTP,自托管,数据在你手里。</dd><dd class="sx-spec-val">TOTP</dd></div>
         </dl>
@@ -598,13 +599,27 @@ function renderLanding() {
         <div class="sx-seal-mark"><span>档</span></div>
         <div class="sx-seal-body">
           <span class="sx-stamp">零痕迹 · Ephemeral</span>
-          <h2>带走文件,不留痕迹。</h2>
-          <p>每台设备一枚独立令牌,可单独吊销;离开时,封存、清痕、走人——如同这处档案室从未被翻开。</p>
+          <h2>看完就走,这台电脑上没有你的文件。</h2>
+          <p>公司电脑默认根本不下载文件——只在线预览,关页即失。想下载,得你主动开一个 5 分钟的临时窗口,且明确告知"文件会留在本机"。离职或换机时,一键吊销令牌,服务端即刻切断,不留 60 分钟窗口。</p>
+          <div class="sx-seal-layers" style="display:grid;gap:14px;margin:20px 0">
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">壹</span>
+              <div><strong>服务端 · 可远程吊销</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">浏览器会话与设备令牌皆可单条或一键吊销,吊销即切断访问,已签发凭证立即失效。</p></div>
+            </div>
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">贰</span>
+              <div><strong>本地 · 默认不落盘</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">浏览器端默认禁止下载,文件不落到公司电脑。需要时开启 5 分钟临时窗口,到期自动关闭。</p></div>
+            </div>
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">叁</span>
+              <div><strong>缓存 · 关页即失</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">在线预览带 no-store,文件内容不进浏览器磁盘缓存,关掉页面便无迹可寻。</p></div>
+            </div>
+          </div>
           <ul class="sx-seal-points">
-            <li><span class="sx-bullet">◆</span>设备令牌 · 可吊销</li>
-            <li><span class="sx-bullet">◆</span>Guard · 敏感预警</li>
-            <li><span class="sx-bullet">◆</span>落盘加密 · 三重隔离</li>
-            <li><span class="sx-bullet">◆</span>审计日志 · 操作可追溯</li>
+            <li><span class="sx-bullet">◆</span>会话/设备令牌 · 可吊销</li>
+            <li><span class="sx-bullet">◆</span>临时下载 · 5 分钟窗口</li>
+            <li><span class="sx-bullet">◆</span>预览 no-store · 关页即失</li>
+            <li><span class="sx-bullet">◆</span>改密码 · 旧会话立即失效</li>
           </ul>
         </div>
       </section>
@@ -620,7 +635,7 @@ function renderLanding() {
           <div class="sx-edge"><span class="sx-edge-label">加密通道</span></div>
           <div class="sx-node sx-node--hub"><span class="sx-node-glyph">档</span><span class="sx-node-name">服务器</span><span class="sx-node-note">你的 · 档案室</span></div>
           <div class="sx-edge"><span class="sx-edge-label">零安装</span></div>
-          <div class="sx-node sx-node--work"><span class="sx-node-glyph">▣</span><span class="sx-node-name">公司</span><span class="sx-node-note">浏览器 · 即开即用</span></div>
+          <div class="sx-node sx-node--work"><span class="sx-node-glyph">▣</span><span class="sx-node-name">公司</span><span class="sx-node-note">浏览器 · 只看不留</span></div>
         </div>
       </section>
 
