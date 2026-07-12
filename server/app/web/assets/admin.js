@@ -120,6 +120,10 @@ function renderLogin() {
   document.getElementById('admin-app').innerHTML = `
     <div class="login-container">
       <div class="login-card">
+        <div class="login-card-banner">
+          <span>SXD · 系统管理</span>
+          <span class="sx-stamp">朱印核验</span>
+        </div>
         <div class="login-logo">管</div>
         <h1>管理后台</h1>
         <p class="subtitle">随行档 · 系统管理</p>
