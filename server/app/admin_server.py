@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from .config import settings
 from .db.models import init_db
 from .core.storage import ensure_storage
+from .core.sensitive_paths import is_sensitive_path
 from .api import auth, admin
 
 
@@ -61,6 +62,8 @@ if ADMIN_DIR.exists():
     def serve_admin(full_path: str):
         if full_path.startswith("api/"):
             return {"detail": "Not Found"}
+        if is_sensitive_path(full_path):
+            raise HTTPException(status_code=404, detail="Not Found")
         index = ADMIN_DIR / "index.html"
         if index.exists():
             return FileResponse(str(index))

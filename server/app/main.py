@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from .config import settings
 from .db.models import init_db
 from .core.storage import ensure_storage
+from .core.sensitive_paths import is_sensitive_path
 from .api import auth, files, chat, sync, admin, transfer
 
 
@@ -68,6 +69,9 @@ if WEB_DIR.exists():
     def serve_spa(full_path: str):
         if full_path.startswith("api/"):
             return {"detail": "Not Found"}
+        # 扫描器常探的敏感路径直接 404,不返回 SPA index.html(否则会被当 200 命中)
+        if is_sensitive_path(full_path):
+            raise HTTPException(status_code=404, detail="Not Found")
         # 管理后台前端入口：/admin 及其子路径返回 admin/index.html
         admin_index = WEB_DIR / "admin" / "index.html"
         if full_path == "admin" or full_path.startswith("admin/"):
