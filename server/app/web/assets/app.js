@@ -400,13 +400,36 @@ function setupPaste() {
 
 
 // ============ Register ============
-async function renderRegister() {
-  document.getElementById('app').innerHTML = `
+// 登录/注册/找回 共用的分屏外壳：左品牌面板 + 右表单
+function loginShell(card) {
+  return `
     <div class="login-container">
+      <aside class="login-brand">
+        <div class="login-brand-top">
+          <span class="login-brand-mark">档</span>
+          <span class="login-brand-name">随行档</span>
+        </div>
+        <div class="login-brand-body">
+          <h2>只对你显影的<br>私人档案室。</h2>
+          <p>文件加密归档、一句话语义检索、由 AI 作答。公司电脑上只看不留,离开一键吊销。</p>
+          <ul class="login-brand-points">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/><path d="M9 12l2 2 4-4"/></svg>AES-256 落盘加密</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>一句话语义检索</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>默认零落盘,一键吊销</li>
+          </ul>
+        </div>
+        <div class="login-brand-foot">© 2026 随行档 · 自托管</div>
+      </aside>
+      <main class="login-main">${card}</main>
+    </div>`;
+}
+
+async function renderRegister() {
+  document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo">档</div>
-        <h1>注册账号</h1>
-        <p class="subtitle">创建你的私人文件中枢</p>
+        <h1>创建账号</h1>
+        <p class="subtitle">建立你的私人档案室</p>
         <form id="register-form">
           <div class="form-group"><label>用户名</label><input type="text" id="reg-username" class="form-input" placeholder="2个字符以上" autofocus></div>
           <div class="form-group"><label>密码</label><input type="password" id="reg-password" class="form-input" placeholder="8个字符以上"></div>
@@ -416,7 +439,7 @@ async function renderRegister() {
         </form>
         <p style="text-align:center;margin-top:16px"><a href="#" data-action="renderLogin" style="color:var(--text-muted);font-size:13px;text-decoration:none">已有账号？登录</a></p>
       </div>
-    </div>`;
+    `);
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = document.getElementById('reg-username').value;
@@ -446,8 +469,7 @@ window.renderRegister = renderRegister;
 
 // ============ Forgot Password ============
 function renderForgotPassword() {
-  document.getElementById('app').innerHTML = `
-    <div class="login-container">
+  document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo">档</div>
         <h1>找回密码</h1>
@@ -463,7 +485,7 @@ function renderForgotPassword() {
         </form>
         <p style="text-align:center;margin-top:16px"><a href="#" data-action="renderLogin" style="color:var(--text-muted);font-size:13px;text-decoration:none">返回登录</a></p>
       </div>
-    </div>`;
+    `);
   let step = 1;
   const form = document.getElementById('forgot-form');
   const btn = document.getElementById('fp-btn');
@@ -515,147 +537,256 @@ window.renderForgotPassword = renderForgotPassword;
 // 未登录访问根路径时展示的产品官网:顶栏 + Hero + 特性 + 安全/多端 + CTA + Footer。
 // 纯静态渲染,右上角"登录"跳 renderLogin;注册 CTA 随 register-status 开关,失败降级为仅"登录"。
 function renderLanding() {
+  const ic = {
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+    chat:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
+    sync:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 18 0"/><path d="M7.5 12a4.5 4.5 0 0 1 9 0"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>',
+    guard:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/><path d="M12 8v4M12 16h.01"/></svg>',
+    trace:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+    lock:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1" fill="currentColor"/></svg>',
+    key:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2M18 5l3 3M15 8l3 3"/></svg>',
+    doc:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/></svg>',
+    block:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>',
+    warn:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+    check:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    docker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="9" width="4" height="4"/><rect x="8" y="9" width="4" height="4"/><rect x="13" y="9" width="4" height="4"/><rect x="8" y="4" width="4" height="4"/><path d="M2 14c2 3 6 4 10 4 6 0 10-3 10-7 0-1-.5-2-1.5-2.5"/></svg>',
+    ssl:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    db:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/></svg>',
+    audit:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+    cite:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+    twofa:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 12l2 2 4-4"/></svg>',
+    arrow:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  };
+
   document.getElementById('app').innerHTML = `
     <div class="sx-page">
       <header class="sx-bar">
         <a class="sx-brand" href="#" data-action="renderLanding" title="随行档">
           <span class="sx-mark">档</span>
-          <span class="sx-brand-meta">
-            <span class="sx-brand-name">随行档</span>
-            <span class="sx-brand-sub">SXD · 私人文件中枢</span>
-          </span>
+          <span class="sx-brand-meta"><span class="sx-brand-name">随行档</span><span class="sx-brand-sub">私人文件中枢</span></span>
         </a>
         <nav class="sx-bar-nav">
-          <a href="#dossier">卷宗</a>
-          <a href="#spec">规格</a>
-          <a href="#access">接入</a>
+          <a href="#features">功能</a>
+          <a href="#demo">演示</a>
+          <a href="#security">安全</a>
+          <a href="#deploy">部署</a>
         </nav>
         <div class="sx-bar-cta">
           <button class="sx-link" type="button" data-action="renderLogin">登录</button>
-          <button class="sx-link sx-link--solid" type="button" id="landing-cta-nav" data-action="renderLogin">建立卷宗</button>
+          <button class="sx-link sx-link--solid" type="button" id="landing-cta-nav" data-action="renderLogin">免费开始</button>
         </div>
       </header>
 
-      <section class="sx-hero" id="dossier">
-        <div class="sx-hero-grid">
-          <div class="sx-hero-left">
-            <div class="sx-dossier-head">
-              <span class="sx-stamp">私密 · Personal</span>
-              <span class="sx-ref">SXD-0001 · 归档于你名下</span>
-            </div>
-            <h1 class="sx-hero-title">只对你一人<br><span class="sx-fade">显影</span>的档案。</h1>
-            <p class="sx-hero-lead">随行档是一处自托管的私人档案室。文件在此加密归档、由 AI 检索应答,只对你显影。公司电脑上只看不留——默认不下载、预览不留缓存,离开时一键吊销,如同从未存在。</p>
-            <div class="sx-hero-cta">
-              <button class="sx-btn" type="button" id="landing-cta-hero" data-action="renderLogin">开启卷宗 →</button>
-              <a class="sx-quiet" href="#spec">查阅规格</a>
-            </div>
-            <dl class="sx-hero-meta">
-              <div><dt>加密</dt><dd>落盘 AES</dd></div>
-              <div><dt>检索</dt><dd>语义向量</dd></div>
-              <div><dt>托管</dt><dd>你自己</dd></div>
-            </dl>
+      <section class="sx-hero">
+        <div class="sx-hero-inner">
+          <span class="sx-pill">自托管 · 加密归档 · 零痕迹</span>
+          <h1>把所有文件，装进<br>只对你<span class="sx-accent">显影</span>的档案室。</h1>
+          <p class="sx-hero-lead">不想在公司电脑装网盘客户端，又需要随时取文件。随行档长在你自己的服务器上——浏览器打开就能用，文件加密归档、一句话检索、AI 直接回答。用完关页，这台电脑上什么都没留下。</p>
+          <div class="sx-hero-cta">
+            <button class="sx-btn" type="button" id="landing-cta-hero" data-action="renderLogin">免费开始 <span class="sx-arrow">→</span></button>
+            <a class="sx-btn sx-btn--ghost" href="#demo">看演示</a>
           </div>
-          <aside class="sx-hero-right">
-            <div class="sx-archive" aria-hidden="true">
-              <div class="sx-archive-head">
-                <span>已归档</span>
-                <span class="sx-archive-lock">ENCRYPTED ●</span>
-              </div>
-              <ul class="sx-archive-list">
-                <li><span class="sx-idx">001</span><span class="sx-row-name">报价单_2026Q2.xlsx</span><span class="sx-row-tag">已封存</span></li>
-                <li><span class="sx-idx">002</span><span class="sx-row-name">身份证_扫描件.jpg</span><span class="sx-row-tag sx-warn">敏感</span></li>
-                <li><span class="sx-idx">003</span><span class="sx-row-name">学习笔记 / 算法</span><span class="sx-row-tag">索引中</span></li>
-                <li><span class="sx-idx">004</span><span class="sx-row-name">合同_甲方.pdf</span><span class="sx-row-tag">已封存</span></li>
-                <li><span class="sx-idx">005</span><span class="sx-row-name">2024-年度总结.md</span><span class="sx-row-tag">已封存</span></li>
-              </ul>
-              <div class="sx-archive-foot">
-                <span class="sx-prompt">▸ 上个月哪份报价最高?</span>
+
+          <div class="sx-mockup" aria-hidden="true">
+            <div class="sx-mockup-bar"><span class="sx-mockup-dot"></span><span class="sx-mockup-dot"></span><span class="sx-mockup-dot"></span></div>
+            <div class="sx-mockup-body">
+              <aside class="sx-mockup-side">
+                <div class="sx-mockup-sideh">档案室</div>
+                <div class="sx-mockup-item is-active">${ic.doc}全部文件</div>
+                <div class="sx-mockup-item">${ic.doc}工作</div>
+                <div class="sx-mockup-item">${ic.doc}证件</div>
+                <div class="sx-mockup-item">${ic.doc}笔记</div>
+              </aside>
+              <div class="sx-mockup-main">
+                <div class="sx-mockup-q">上个月哪份报价最高？</div>
+                <div class="sx-mockup-a">在已归档文件中，<strong>报价单_2026Q2.xlsx</strong> 金额最高，为 ¥182,400。</div>
+                <div class="sx-mockup-files">
+                  <span class="sx-mockup-chip">${ic.doc}报价单_2026Q2.xlsx</span>
+                  <span class="sx-mockup-chip">${ic.doc}合同_甲方.pdf</span>
+                  <span class="sx-mockup-chip">${ic.doc}身份证.jpg</span>
+                </div>
               </div>
             </div>
-          </aside>
+          </div>
         </div>
       </section>
 
-      <section class="sx-spec" id="spec">
-        <header class="sx-sec-head">
-          <span class="sx-sec-num">§ 规格</span>
-          <h2>它替你做什么</h2>
-          <p>九条,不喧哗。</p>
-        </header>
-        <dl class="sx-spec-table">
-          <div class="sx-spec-row"><dt>语义检索</dt><dd class="sx-spec-desc">一句话找到文件,内容级匹配,Word / Excel / PDF 皆可。</dd><dd class="sx-spec-val">向量 · 中文</dd></div>
-          <div class="sx-spec-row"><dt>AI 应答</dt><dd class="sx-spec-desc">检索相关文件后作答,流式输出,DeepSeek / OpenAI 可选。</dd><dd class="sx-spec-val">RAG · 流式</dd></div>
-          <div class="sx-spec-row"><dt>Guard 检测</dt><dd class="sx-spec-desc">识别凭据、隐私、机密文件,方向感知,上传即提醒。</dd><dd class="sx-spec-val">敏感预警</dd></div>
-          <div class="sx-spec-row"><dt>多端同步</dt><dd class="sx-spec-desc">家里守护进程实时监听,公司浏览器即开即用。</dd><dd class="sx-spec-val">双向 · 实时</dd></div>
-          <div class="sx-spec-row"><dt>多账户隔离</dt><dd class="sx-spec-desc">每人独立空间、配额与向量库,互不可见。</dd><dd class="sx-spec-val">三重隔离</dd></div>
-          <div class="sx-spec-row"><dt>会话吊销</dt><dd class="sx-spec-desc">浏览器会话与设备令牌皆可单独或一键吊销,吊销即切断;改密码后旧会话立即失效。</dd><dd class="sx-spec-val">可远程吊销</dd></div>
-          <div class="sx-spec-row"><dt>临时下载</dt><dd class="sx-spec-desc">浏览器端默认禁下载,需要时开启 5 分钟窗口,到期自动关闭,文件不落公司电脑。</dd><dd class="sx-spec-val">默认零落盘</dd></div>
-          <div class="sx-spec-row"><dt>落盘加密</dt><dd class="sx-spec-desc">文件、数据库、向量库一体化加密保护。</dd><dd class="sx-spec-val">AES</dd></div>
-          <div class="sx-spec-row"><dt>双因子</dt><dd class="sx-spec-desc">JWT + TOTP,自托管,数据在你手里。</dd><dd class="sx-spec-val">TOTP</dd></div>
-        </dl>
-      </section>
-
-      <section class="sx-seal">
-        <div class="sx-seal-mark"><span>档</span></div>
-        <div class="sx-seal-body">
-          <span class="sx-stamp">零痕迹 · Ephemeral</span>
-          <h2>看完就走,这台电脑上没有你的文件。</h2>
-          <p>公司电脑默认根本不下载文件——只在线预览,关页即失。想下载,得你主动开一个 5 分钟的临时窗口,且明确告知"文件会留在本机"。离职或换机时,一键吊销令牌,服务端即刻切断,不留 60 分钟窗口。</p>
-          <div class="sx-seal-layers" style="display:grid;gap:14px;margin:20px 0">
-            <div style="display:flex;gap:14px;align-items:flex-start">
-              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">壹</span>
-              <div><strong>服务端 · 可远程吊销</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">浏览器会话与设备令牌皆可单条或一键吊销,吊销即切断访问,已签发凭证立即失效。</p></div>
+      <section class="sx-section" id="features">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>一处档案室，替你收拢散落的文件</h2>
+            <p>加密归档、语义检索、AI 作答、敏感预警。文件从家里、从手机、从各个角落汇到一处，只对你开放。</p>
+          </div>
+          <div class="sx-bento">
+            <div class="sx-cell sx-cell--wide sx-cell--tint">
+              <div class="sx-cell-ico">${ic.search}</div>
+              <h3>语义检索</h3>
+              <p>不用记文件名。搜"上季度报价"、"甲方合同条款"、"体检结论"，按内容匹配。Word、Excel、PDF、PPT 都能读。</p>
+              <div class="sx-cell-art"><div class="sx-searchbar">${ic.search}上个月哪家供应商最贵<span class="sx-cursor"></span></div></div>
             </div>
-            <div style="display:flex;gap:14px;align-items:flex-start">
-              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">贰</span>
-              <div><strong>本地 · 默认不落盘</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">浏览器端默认禁止下载,文件不落到公司电脑。需要时开启 5 分钟临时窗口,到期自动关闭。</p></div>
+            <div class="sx-cell">
+              <div class="sx-cell-ico">${ic.chat}</div>
+              <h3>AI 对话</h3>
+              <p>问"尾款什么时候付"、"合同到期了吗"，Agent 在你的文件里找答案再回答，不用自己翻。</p>
             </div>
-            <div style="display:flex;gap:14px;align-items:flex-start">
-              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">叁</span>
-              <div><strong>缓存 · 关页即失</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">在线预览带 no-store,文件内容不进浏览器磁盘缓存,关掉页面便无迹可寻。</p></div>
+            <div class="sx-cell">
+              <div class="sx-cell-ico">${ic.sync}</div>
+              <h3>多端同步</h3>
+              <p>家里守护进程盯着文件夹，新增即加密上传；公司用浏览器，不装任何客户端。</p>
+            </div>
+            <div class="sx-cell">
+              <div class="sx-cell-ico">${ic.guard}</div>
+              <h3>方向感知</h3>
+              <p>银行流水往公司带会提醒，公司合同往家带也会提醒。.env 密钥直接拦。</p>
+            </div>
+            <div class="sx-cell">
+              <div class="sx-cell-ico">${ic.trace}</div>
+              <h3>零痕迹</h3>
+              <p>默认不让下载，预览走 no-store。离职一键吊销令牌，只剩浏览器历史记录。</p>
+            </div>
+            <div class="sx-cell sx-cell--wide sx-cell--tint">
+              <div class="sx-cell-ico">${ic.lock}</div>
+              <h3>落盘加密</h3>
+              <p>文件、数据库、向量库一体化 AES 加密。密钥在你手里，服务器被偷也读不出内容。支持挂 LUKS 加密卷做静态保护。</p>
             </div>
           </div>
-          <ul class="sx-seal-points">
-            <li><span class="sx-bullet">◆</span>会话/设备令牌 · 可吊销</li>
-            <li><span class="sx-bullet">◆</span>临时下载 · 5 分钟窗口</li>
-            <li><span class="sx-bullet">◆</span>预览 no-store · 关页即失</li>
-            <li><span class="sx-bullet">◆</span>改密码 · 旧会话立即失效</li>
-          </ul>
         </div>
       </section>
 
-      <section class="sx-topo" id="access">
-        <header class="sx-sec-head">
-          <span class="sx-sec-num">§ 接入</span>
-          <h2>三处出入</h2>
-          <p>家里、公司、还有你自己的服务器。</p>
-        </header>
-        <div class="sx-topo-graph" aria-hidden="true">
-          <div class="sx-node sx-node--home"><span class="sx-node-glyph">⌂</span><span class="sx-node-name">家里</span><span class="sx-node-note">守护进程 · 自动同步</span></div>
-          <div class="sx-edge"><span class="sx-edge-label">加密通道</span></div>
-          <div class="sx-node sx-node--hub"><span class="sx-node-glyph">档</span><span class="sx-node-name">服务器</span><span class="sx-node-note">你的 · 档案室</span></div>
-          <div class="sx-edge"><span class="sx-edge-label">零安装</span></div>
-          <div class="sx-node sx-node--work"><span class="sx-node-glyph">▣</span><span class="sx-node-name">公司</span><span class="sx-node-note">浏览器 · 只看不留</span></div>
+      <section class="sx-section sx-section--soft" id="demo">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>不用翻文件夹，直接问</h2>
+            <p>Agent 不只是聊天——它能搜文件、读内容、给建议、替你检查。下面是几个真实场景。</p>
+          </div>
+          <div class="sx-demo-chat">
+            <div class="sx-demo-q">上次和甲方签的合同，尾款什么时候付？</div>
+            <div class="sx-demo-a">在 <strong>合同_甲方_0603.pdf</strong> 第 2 页。尾款 ¥60,800，约定验收后 15 个工作日内支付，首期已于 6 月 15 日到账。<span class="sx-demo-cite">${ic.cite}合同_甲方_0603.pdf</span></div>
+
+            <div class="sx-demo-q">下周从公司离职，帮我看看该清什么</div>
+            <div class="sx-demo-a">当前 2 台设备在线。公司那台（<strong>ThinkPad-T14</strong>）缓存了 3 份敏感文件：银行流水_06.xlsx、体检报告.pdf、身份证_扫描件.jpg。这些已在服务器加密归档，建议吊销该设备令牌后清浏览器记录。<span class="sx-demo-act">需要我现在帮你吊销吗？</span></div>
+
+            <div class="sx-demo-q">桌面上那堆文件，哪些该归档？</div>
+            <div class="sx-demo-a">这周新增 14 个文件。建议归档：会议纪要_Q1.docx（87 天没打开）、设计稿_v3.fig（已有 v4 版本）。另外 <strong>config.env</strong> 检测到 API 密钥，已自动拦截上传。<span class="sx-demo-cite">${ic.cite}Guard 拦截</span></div>
+          </div>
         </div>
       </section>
 
-      <section class="sx-cta">
-        <span class="sx-stamp">归档 · 开始</span>
-        <h2>建立你的私人卷宗。</h2>
-        <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" data-action="renderLogin">开启随行档 →</button>
-        <p class="sx-cta-note">自托管。数据在你手里,只对你显影。</p>
+      <section class="sx-section" id="guard">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>同一份文件，往不同方向，判断不同</h2>
+            <p>Guard 是文件的安检岗。它在文件被搬运之前先看一眼：该不该动、往这个方向动合不合适。凭据硬拦，隐私提醒。</p>
+          </div>
+          <div class="sx-guard-table">
+            <div class="sx-guard-head">
+              <span>文件</span><span>→ 带去公司</span><span>→ 带回家</span>
+            </div>
+            <div class="sx-guard-row">
+              <span class="sx-guard-file">${ic.key}密钥 / .env / token</span>
+              <span><span class="sx-guard-verdict sx-guard-block">${ic.block}拦截</span></span>
+              <span><span class="sx-guard-verdict sx-guard-block">${ic.block}拦截</span></span>
+            </div>
+            <div class="sx-guard-row">
+              <span class="sx-guard-file">${ic.doc}银行流水 / 体检报告</span>
+              <span><span class="sx-guard-verdict sx-guard-warn">${ic.warn}提醒隐私</span></span>
+              <span><span class="sx-guard-verdict sx-guard-pass">${ic.check}放行</span></span>
+            </div>
+            <div class="sx-guard-row">
+              <span class="sx-guard-file">${ic.doc}公司合同 / 内部文档</span>
+              <span><span class="sx-guard-verdict sx-guard-pass">${ic.check}放行</span></span>
+              <span><span class="sx-guard-verdict sx-guard-warn">${ic.warn}提醒保密</span></span>
+            </div>
+            <div class="sx-guard-row">
+              <span class="sx-guard-file">${ic.doc}普通笔记 / 资料</span>
+              <span><span class="sx-guard-verdict sx-guard-pass">${ic.check}放行</span></span>
+              <span><span class="sx-guard-verdict sx-guard-pass">${ic.check}放行</span></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-section sx-section--soft" id="security">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>看完就走，这台电脑上没有你的文件</h2>
+            <p>从落盘到传输到访问，每一层都有控制。不是喊口号，是实打实的机制。</p>
+          </div>
+          <div class="sx-list">
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.lock}</div><div><h3>落盘 · AES 加密</h3><p>文件、SQLite 数据库、Chroma 向量索引一体化 AES 加密。可选挂 LUKS/dm-crypt 加密卷，磁盘被偷也读不出内容。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.key}</div><div><h3>令牌 · 可远程吊销</h3><p>会话和设备令牌皆可单条或一键吊销，旧凭证立即失效。改密码后旧会话同步失效。离职换机，一个按钮切断全部。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.twofa}</div><div><h3>登录 · TOTP 双因子</h3><p>支持 TOTP 验证器（Google Authenticator 等），密码泄露也进不来。登录限流防爆破。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.trace}</div><div><h3>本地 · 默认不落盘</h3><p>浏览器端默认禁止下载，预览走 no-store。需要时开 5 分钟临时下载窗口，到期自动关。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.audit}</div><div><h3>审计 · 全量留痕</h3><p>登录、上传、删除、令牌操作全程记录。管理员后台可查，谁在什么时候干了什么一目了然。</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-section" id="access">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>三处出入，档案随行</h2>
+            <p>家里守护、服务器归档、公司浏览器只看不留。不对称设计是这个产品的地基。</p>
+          </div>
+          <div class="sx-flow">
+            <div class="sx-flow-node"><div class="sx-flow-ico">${ic.guard}</div><h3>家里</h3><p>守护进程自动监听文件夹，新增文件实时加密同步至档案室。可以装软件，你的地盘。</p></div>
+            <div class="sx-flow-arrow">${ic.arrow}</div>
+            <div class="sx-flow-node sx-flow-node--hub"><div class="sx-flow-ico">${ic.db}</div><h3>服务器</h3><p>你自己的机器上运行，文件加密归档、建立向量索引，只对你开放。</p></div>
+            <div class="sx-flow-arrow">${ic.arrow}</div>
+            <div class="sx-flow-node"><div class="sx-flow-ico">${ic.doc}</div><h3>公司</h3><p>浏览器即开即用，只看不留，离开一键吊销，如同从未存在。</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-section sx-section--soft" id="deploy">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>长在你自己的服务器上</h2>
+            <p>Docker Compose 一键起，Caddy 自动签 HTTPS，SQLite + Chroma 嵌入式不用额外起数据库。一行命令跑起来。</p>
+          </div>
+          <div class="sx-deploy-grid">
+            <div class="sx-terminal">
+              <div class="sx-terminal-bar"><span></span><span></span><span></span></div>
+<div class="sx-terminal-body"><span class="sx-comment"># 一行命令，自动下载、配置、启动</span>
+<span class="sx-cmd">curl -fsSL</span> https://raw.githubusercontent.com/wupenghello/Suixingdang/main/install.sh | bash
+<span class="sx-comment"># 脚本会问：域名、管理员密码（其余自动生成）</span>
+<span class="sx-ok">✓</span> <span class="sx-comment">生成三把密钥 · 下载 compose/Caddyfile</span>
+<span class="sx-ok">✓</span> <span class="sx-comment">Caddy 自动签发 HTTPS · 拉镜像启动容器</span>
+<span class="sx-ok">✓</span> <span class="sx-comment">打开 https://你的域名 即可使用</span></div>
+            </div>
+            <div class="sx-deploy-facts">
+              <div class="sx-fact"><div class="sx-fact-ico">${ic.docker}</div><div><h4>一键脚本</h4><p>自动下载 compose/Caddyfile、生成密钥、拉镜像启动，无需 clone 源码。也可 git clone 后 ./install.sh 从源码构建。</p></div></div>
+              <div class="sx-fact"><div class="sx-fact-ico">${ic.ssl}</div><div><h4>Caddy 自动 HTTPS</h4><p>配置文件写上域名，自动签发和续期 Let's Encrypt 证书，零手动操作。</p></div></div>
+              <div class="sx-fact"><div class="sx-fact-ico">${ic.db}</div><div><h4>零外部依赖</h4><p>SQLite (WAL) 做数据库，Chroma 嵌入式做向量库，不用额外起服务进程。</p></div></div>
+              <div class="sx-fact"><div class="sx-fact-ico">${ic.chat}</div><div><h4>大模型按需配</h4><p>管理后台填 DeepSeek 或 OpenAI 的 API Key，Fernet 加密入库。不同用户可分配不同模型。</p></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-outro">
+        <div class="sx-outro-inner">
+          <h2>把文件收回自己手里</h2>
+          <p>部署在你自己的服务器上，数据落在你自己的磁盘上。不经过任何第三方云盘，不经过任何中间商。</p>
+          <div class="sx-outro-cta">
+            <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" data-action="renderLogin">开始使用 <span class="sx-arrow">→</span></button>
+            <a class="sx-outro-link" href="https://github.com/wupenghello/Suixingdang" target="_blank" rel="noopener">源码 ↗</a>
+            <a class="sx-outro-link" href="#deploy">部署文档</a>
+            <a class="sx-outro-link" href="#features">再看一眼功能</a>
+          </div>
+        </div>
       </section>
 
       <footer class="sx-foot">
-        <div class="sx-foot-brand">
-          <span class="sx-mark sx-mark--sm">档</span>
-          <span>随行档 · 私人文件中枢</span>
+        <div class="sx-foot-inner">
+          <div class="sx-foot-brand"><span class="sx-mark sx-mark--sm">档</span> 随行档 · 私人文件中枢</div>
+          <div class="sx-foot-links">
+            <a href="/admin">管理后台</a>
+            <a href="#" data-action="renderLogin">登录</a>
+          </div>
+          <span class="sx-foot-copy">© 2026 SXD</span>
         </div>
-        <div class="sx-foot-links">
-          <a href="/admin">管理后台</a>
-          <a href="#" data-action="renderLogin">登录</a>
-        </div>
-        <span class="sx-foot-copy">© 2026 SXD</span>
       </footer>
     </div>`;
 
@@ -670,18 +801,14 @@ function renderLanding() {
 }
 window.renderLanding = renderLanding;
 
+
 // ============ Login ============
 function renderLogin() {
-  document.getElementById('app').innerHTML = `
-    <div class="login-container">
+  document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
-        <div class="login-card-banner">
-          <span>SXD · 私人文件中枢</span>
-          <span class="sx-stamp">凭证核验</span>
-        </div>
         <div class="login-logo" id="login-logo" title="返回官网">档</div>
-        <h1>随行档</h1>
-        <p class="subtitle">核验凭证,档案室再次显影。</p>
+        <h1>欢迎回来</h1>
+        <p class="subtitle">登录你的私人档案室</p>
         <form id="login-form">
           <div class="form-group">
             <label>用户名</label>
@@ -703,8 +830,7 @@ function renderLogin() {
         </div>
         <a class="login-back" href="#" data-action="renderLanding">← 返回官网</a>
       </div>
-    </div>
-  `;
+    `);
   // 动态检查注册是否开放
   fetch('/api/auth/register-status').then(r => r.json()).then(d => {
     const link = document.getElementById('register-link');
@@ -768,13 +894,14 @@ async function renderFiles() {
       </div>
       <div class="files-search search-box">${ICONS.search}<input type="text" id="search-input" placeholder="搜索文件名、类型…" value="${escapeHtml(searchQuery)}"></div>
       <div class="files-controls">
+        <button class="btn btn-primary" id="btn-upload">${ICONS.upload}<span>上传</span></button>
+        <span class="files-divider"></span>
         <button class="btn btn-secondary btn-icon-only" id="btn-view" title="切换视图">${fileView === 'grid' ? LIST_ICON : GRID_ICON}</button>
         <button class="btn btn-secondary btn-icon-only" id="btn-sort" title="排序">${SORT_ICON}</button>
         <button class="btn btn-secondary btn-icon-only" id="btn-select" title="批量选择">${SELECT_ICON}</button>
+        <button class="btn btn-secondary btn-icon-only" id="btn-groups" title="分组管理">${ICONS.groups}</button>
         <span class="files-divider"></span>
         <button class="btn btn-secondary btn-icon-only" id="btn-refresh" title="刷新">${ICONS.refresh}</button>
-        <button class="btn btn-secondary" id="btn-groups" title="分组管理">${ICONS.groups}<span>分组</span></button>
-        <button class="btn btn-primary" id="btn-upload">${ICONS.upload}<span>上传</span></button>
       </div>
     </div>
     <div class="files-body">
@@ -1241,10 +1368,10 @@ function renderFileList(items) {
 
   if (!displayItems.length) {
     const emptyMsg = selectedGroup
-      ? '<div>该分组暂无文件</div><div style="font-size:13px;margin-top:4px">点击"上传"将文件加入此分组</div>'
+      ? '<div class="empty-title">该分组暂无文件</div><div class="empty-desc">点击"上传"将文件加入此分组</div>'
       : isRoot
-        ? `${ICONS.groups}<div>还没有分组或文件</div><div style="font-size:13px;margin-top:4px">点击"分组"创建分组，或直接"上传"文件</div>`
-        : '<div>这个目录是空的</div><div style="font-size:13px;margin-top:4px">拖拽文件到此或点击"上传"</div>';
+        ? `${ICONS.groups}<div class="empty-title">还没有分组或文件</div><div class="empty-desc">点击分组图标创建分组，或直接「上传」文件</div>`
+        : '<div class="empty-title">这个目录是空的</div><div class="empty-desc">拖拽文件到此或点击「上传」</div>';
     content.innerHTML = `<div class="file-table"><div class="empty-state">${emptyMsg}</div></div>`;
     updateBatchBar();
     return;
@@ -1512,7 +1639,7 @@ function showFileMenu(eventOrX, path, name, isDir) {
 function renderSearchResults(results) {
   const content = document.getElementById('file-content');
   if (!results.length) {
-    content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.search}<div>没有找到匹配的文件</div></div></div>`;
+    content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.search}<div class="empty-title">没有找到匹配的文件</div></div></div>`;
     return;
   }
   content.innerHTML = `<div class="file-table">
@@ -1678,6 +1805,7 @@ async function previewFile(path, name) {
 async function downloadFile(path) {
   try {
     const res = await API.get(`/api/files/download?path=${encodeURIComponent(path)}`);
+    if (!res) return;  // 会话已失效并被登出（API.request 返回 undefined）
     if (res.status === 403) { Toast.show('未开启临时下载，请到设置页开启', 'info'); return; }
     if (!res.ok) { Toast.show('下载失败', 'error'); return; }
     const blob = await res.blob();
@@ -1807,10 +1935,29 @@ async function renderChat() {
     const data = await res.json();
     chatMessages = (data.messages || []).reverse();
   } catch { chatMessages = []; }
-  if (!chatMessages.length) {
-    chatMessages.push({ role: 'assistant', content: '你好！我是你的文件助手。你可以问我：\n\n• "找一下上个月的报价"\n• "存了哪些学习资料"\n• "哪些文件很久没用了"\n• "存储用了多少空间"', tool_calls: [] });
+  const container = document.getElementById('chat-messages');
+  if (!chatMessages.length && container) {
+    container.innerHTML = `
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">${ICONS.chat}</div>
+        <h2 class="chat-welcome-title">问点什么</h2>
+        <p class="chat-welcome-desc">我会翻遍你的档案室，找到文件、读内容、再回答。</p>
+        <div class="chat-welcome-hints">
+          <button class="chat-hint" data-hint="找一下上个月的报价">找一下上个月的报价</button>
+          <button class="chat-hint" data-hint="存了哪些学习资料">存了哪些学习资料</button>
+          <button class="chat-hint" data-hint="哪些文件很久没用了">哪些文件很久没用了</button>
+          <button class="chat-hint" data-hint="存储用了多少空间">存储用了多少空间</button>
+        </div>
+      </div>`;
+    container.querySelectorAll('.chat-hint').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const inp = document.getElementById('chat-input');
+        if (inp) { inp.value = btn.dataset.hint; inp.focus(); }
+      });
+    });
+  } else if (chatMessages.length) {
+    renderChatMessages();
   }
-  renderChatMessages();
   document.getElementById('btn-send').addEventListener('click', () => {
     if (chatSending) { if (currentChatAbort) currentChatAbort.abort(); }
     else sendChatMessage();
@@ -1860,6 +2007,8 @@ async function sendChatMessage() {
   input.value = ''; input.style.height = 'auto';
 
   const container = document.getElementById('chat-messages');
+  const welcome = container.querySelector('.chat-welcome');
+  if (welcome) welcome.remove();
   container.appendChild(messageElement(userMsg));
 
   const assistantMsg = { role: 'assistant', content: '', tool_calls: [] };
@@ -2119,11 +2268,35 @@ function previewTransferFile(path, name) {
 
 // ============ Settings ============
 async function renderSettings() {
+  const TAB_ICONS = {
+    general: ICONS.database,
+    security: ICONS.shield,
+    account: ICONS.user,
+  };
+  const activeTab = loadPref('settingsTab', 'general');
   document.getElementById('main-content').innerHTML = `
-    <div class="topbar"><div class="topbar-title">设置</div></div>
-    <div class="settings-container">
-      <div class="settings-group">
-        <div class="settings-group-title">存储与索引</div>
+    <div class="settings-layout">
+      <nav class="settings-nav" id="settings-nav">
+        <button class="settings-nav-item" data-tab="general">${TAB_ICONS.general}存储与索引</button>
+        <button class="settings-nav-item" data-tab="security">${TAB_ICONS.security}安全</button>
+        <button class="settings-nav-item" data-tab="account">${TAB_ICONS.account}账户</button>
+      </nav>
+      <div class="settings-panel">
+        <div class="settings-panel-content" id="settings-panel-content"></div>
+      </div>
+    </div>`;
+
+  // 渲染对应标签面板内容
+  function renderTab(tab) {
+    savePref('settingsTab', tab);
+    document.querySelectorAll('.settings-nav-item').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    const content = document.getElementById('settings-panel-content');
+    if (tab === 'general') {
+      content.innerHTML = `
+        <div class="settings-panel-title">存储与索引</div>
+        <div class="settings-panel-desc">查看存储用量、磁盘剩余空间，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.database}</div>
@@ -2133,19 +2306,21 @@ async function renderSettings() {
         </div>
         <div class="settings-section">
           <div class="setting-head">
-            <div class="setting-head-icon icon-purple">${ICONS.refresh}</div>
+            <div class="setting-head-icon icon-neutral">${ICONS.refresh}</div>
             <div class="setting-head-text"><h3>全文索引</h3><p class="section-desc">重建文件索引以支持语义搜索</p></div>
             <div class="setting-head-action"><button class="btn btn-secondary" id="btn-reindex">${ICONS.refresh}<span>重建索引</span></button></div>
           </div>
-        </div>
-      </div>
-
-      <div class="settings-group">
-        <div class="settings-group-title">安全</div>
+        </div>`;
+      document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
+      loadStats();
+    } else if (tab === 'security') {
+      content.innerHTML = `
+        <div class="settings-panel-title">安全</div>
+        <div class="settings-panel-desc">设备令牌可单条或一键吊销；浏览器默认禁止下载（零痕迹），需要时开临时窗口；建议在公用设备上开启双因子验证。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-success">${ICONS.key}</div>
-            <div class="setting-head-text"><h3>访问令牌与会话</h3><p class="section-desc">管理设备令牌与浏览器登录会话，离职或换机时吊销即可切断访问。</p></div>
+            <div class="setting-head-text"><h3>访问令牌与会话</h3><p class="section-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。</p></div>
             <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
           </div>
           <div class="setting-body">
@@ -2169,14 +2344,14 @@ async function renderSettings() {
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-warning">${ICONS.shield}</div>
-            <div class="setting-head-text"><h3>双因子验证</h3><p class="section-desc">增强账户安全性，公用设备建议开启。</p></div>
+            <div class="setting-head-text"><h3>双因子验证</h3><p class="section-desc">用 Google Authenticator 等验证器扫码绑定，开启后登录需额外输入验证码。</p></div>
           </div>
           <div class="setting-body" id="totp-content">加载中...</div>
         </div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
-            <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">定期更换密码以保障账户安全</p></div>
+            <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">修改后旧令牌与会话自动失效，需用新密码重新登录</p></div>
           </div>
           <div class="setting-body">
             <div class="setting-form">
@@ -2185,15 +2360,19 @@ async function renderSettings() {
               <button class="btn btn-primary" id="btn-change-pwd">修改密码</button>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div class="settings-group">
-        <div class="settings-group-title">账户</div>
+        </div>`;
+      document.getElementById('btn-create-token').addEventListener('click', createToken);
+      document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
+      bindChangePassword();
+      loadTokens(); loadTOTP(); loadDownloadGrant();
+    } else if (tab === 'account') {
+      content.innerHTML = `
+        <div class="settings-panel-title">账户</div>
+        <div class="settings-panel-desc">查看账号身份、存储配额与最近登录记录。修改密码后所有旧会话自动失效。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.user}</div>
-            <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">当前登录的账号身份与状态</p></div>
+            <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、存储配额、安全状态与登录记录</p></div>
           </div>
           <div class="setting-body" id="account-info">加载中...</div>
         </div>
@@ -2203,31 +2382,36 @@ async function renderSettings() {
             <div class="setting-head-text"><h3>退出登录</h3><p class="section-desc">退出当前账户，需要重新登录</p></div>
             <div class="setting-head-action"><button class="btn btn-danger" id="btn-logout">${ICONS.logout}<span>退出</span></button></div>
           </div>
-        </div>
-      </div>
-    </div>
-  `;
-  document.getElementById('btn-logout').addEventListener('click', () => App.logout());
-  document.getElementById('btn-change-pwd')?.addEventListener('click', async () => {
-    const oldP = document.getElementById('old-pass').value;
-    const newP = document.getElementById('new-pass').value;
-    if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
-    try {
-      const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
-      if (res.ok) {
-        const d = await res.json();
-        if (d.access_token) API.setTokens(d.access_token, d.refresh_token);  // 续登：用新令牌继续会话
-        Toast.show('密码已修改', 'success');
-        document.getElementById('old-pass').value = '';
-        document.getElementById('new-pass').value = '';
-      }
-      else { const d = await res.json(); Toast.show(d.detail || '修改失败', 'error'); }
-    } catch { Toast.show('网络错误', 'error'); }
+        </div>`;
+      document.getElementById('btn-logout').addEventListener('click', () => App.logout());
+      loadAccountInfo();
+    }
+  }
+
+  // 修改密码事件绑定（抽出来，切到 security 时复用）
+  function bindChangePassword() {
+    document.getElementById('btn-change-pwd')?.addEventListener('click', async () => {
+      const oldP = document.getElementById('old-pass').value;
+      const newP = document.getElementById('new-pass').value;
+      if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
+      try {
+        const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.access_token) API.setTokens(d.access_token, d.refresh_token);
+          Toast.show('密码已修改', 'success');
+          document.getElementById('old-pass').value = '';
+          document.getElementById('new-pass').value = '';
+        }
+        else { const d = await res.json(); Toast.show(d.detail || '修改失败', 'error'); }
+      } catch { Toast.show('网络错误', 'error'); }
+    });
+  }
+
+  document.querySelectorAll('.settings-nav-item').forEach(btn => {
+    btn.addEventListener('click', () => renderTab(btn.dataset.tab));
   });
-  document.getElementById('btn-create-token').addEventListener('click', createToken);
-  document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
-  document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
-  loadStats(); loadTokens(); loadTOTP(); loadAccountInfo(); loadDownloadGrant();
+  renderTab(activeTab);
 }
 
 async function loadAccountInfo() {
@@ -2275,15 +2459,16 @@ async function loadAccountInfo() {
 
 async function loadStats() {
   const el = document.getElementById('stats-content');
+  if (!el) return;
   try {
     const res = await API.get('/api/files/stats');
     const data = await res.json();
     el.innerHTML = `
       <div class="stats-grid">
-        <div class="stat-card" style="--stat-accent:var(--primary)"><div class="stat-label">文件总数</div><div class="stat-value">${data.total_files}</div></div>
-        <div class="stat-card" style="--stat-accent:var(--success)"><div class="stat-label">占用空间</div><div class="stat-value">${data.total_size_mb}<span class="stat-unit"> MB</span></div></div>
-        <div class="stat-card" style="--stat-accent:#a78bfa"><div class="stat-label">磁盘总量</div><div class="stat-value">${data.disk.total_gb}<span class="stat-unit"> GB</span></div></div>
-        <div class="stat-card" style="--stat-accent:var(--warning)"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
+        <div class="stat-card"><div class="stat-label">文件总数</div><div class="stat-value">${data.total_files}</div></div>
+        <div class="stat-card accent-success"><div class="stat-label">占用空间</div><div class="stat-value">${data.total_size_mb}<span class="stat-unit"> MB</span></div></div>
+        <div class="stat-card"><div class="stat-label">磁盘总量</div><div class="stat-value">${data.disk.total_gb}<span class="stat-unit"> GB</span></div></div>
+        <div class="stat-card accent-warning"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
       </div>
     `;
   } catch { renderErrorState(el, '统计加载失败', () => loadStats()); }
@@ -2469,16 +2654,16 @@ function renderDownloadGrant(el, granted, until) {
   if (_downloadGrantTimer) { clearInterval(_downloadGrantTimer); _downloadGrantTimer = null; }
   if (!granted) {
     el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <p class="section-desc" style="margin:0;flex:1;min-width:200px">未开启。下载的文件会保留在本机，请及时清理。</p>
+      <div class="setting-row">
+        <p class="section-desc setting-row-text">未开启。下载的文件会保留在本机，请及时清理。</p>
         <button class="btn btn-primary" id="btn-download-grant">${ICONS.download}<span>开启临时下载</span></button>
       </div>`;
     document.getElementById('btn-download-grant')?.addEventListener('click', grantDownload);
     return;
   }
   el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <p style="margin:0;flex:1;min-width:200px">下载已开启，剩余 <strong id="download-grant-countdown">--:--</strong></p>
+    <div class="setting-row">
+      <p class="setting-row-text">下载已开启，剩余 <strong id="download-grant-countdown">--:--</strong></p>
       <button class="btn btn-secondary" id="btn-download-revoke"><span>立即关闭</span></button>
     </div>`;
   document.getElementById('btn-download-revoke')?.addEventListener('click', revokeDownload);
@@ -2497,6 +2682,7 @@ async function grantDownload() {
   if (!await confirmDialog({ title: '开启临时下载', message: '开启后可下载文件，到期自动关闭。下载的文件会保留在本机，请及时清理。确定继续？', confirmText: '开启' })) return;
   try {
     const res = await API.post('/api/files/download-grant');
+    if (!res) return;  // 会话已失效并被登出
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '开启失败', 'error'); return; }
     const d = await res.json();
     Toast.show(`已开启临时下载（${d.minutes} 分钟）`, 'success');
@@ -2507,6 +2693,7 @@ async function grantDownload() {
 async function revokeDownload() {
   try {
     const res = await API.post('/api/files/download-revoke');
+    if (!res) return;  // 会话已失效并被登出
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
     Toast.show('已关闭临时下载', 'success');
     renderDownloadGrant(document.getElementById('download-grant-content'), false, '');
@@ -2533,7 +2720,7 @@ async function loadTOTP() {
     document.getElementById('btn-disable-totp').addEventListener('click', disableTOTP);
   } else {
     el.innerHTML = `
-      <p class="setting-empty" style="margin-top:0">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。公用设备强烈建议开启。</p>
+      <p class="setting-empty">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。公用设备强烈建议开启。</p>
       <button class="btn btn-primary" id="btn-setup-totp">设置双因子验证</button>`;
     document.getElementById('btn-setup-totp').addEventListener('click', setupTOTP);
   }
