@@ -2296,7 +2296,7 @@ async function renderSettings() {
     if (tab === 'general') {
       content.innerHTML = `
         <div class="settings-panel-title">存储与索引</div>
-        <div class="settings-panel-desc">档案室占用了多少空间、检索索引是否最新。</div>
+        <div class="settings-panel-desc">查看存储用量、磁盘剩余空间，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.database}</div>
@@ -2316,11 +2316,11 @@ async function renderSettings() {
     } else if (tab === 'security') {
       content.innerHTML = `
         <div class="settings-panel-title">安全</div>
-        <div class="settings-panel-desc">令牌、下载、双因子、密码——控制谁能拿到你的文件。</div>
+        <div class="settings-panel-desc">设备令牌可单条或一键吊销；浏览器默认禁止下载（零痕迹），需要时开临时窗口；建议在公用设备上开启双因子验证。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-success">${ICONS.key}</div>
-            <div class="setting-head-text"><h3>访问令牌与会话</h3><p class="section-desc">管理设备令牌与浏览器登录会话，离职或换机时吊销即可切断访问。</p></div>
+            <div class="setting-head-text"><h3>访问令牌与会话</h3><p class="section-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。</p></div>
             <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
           </div>
           <div class="setting-body">
@@ -2344,14 +2344,14 @@ async function renderSettings() {
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-warning">${ICONS.shield}</div>
-            <div class="setting-head-text"><h3>双因子验证</h3><p class="section-desc">增强账户安全性，公用设备建议开启。</p></div>
+            <div class="setting-head-text"><h3>双因子验证</h3><p class="section-desc">用 Google Authenticator 等验证器扫码绑定，开启后登录需额外输入验证码。</p></div>
           </div>
           <div class="setting-body" id="totp-content">加载中...</div>
         </div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
-            <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">定期更换密码以保障账户安全</p></div>
+            <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">修改后旧令牌与会话自动失效，需用新密码重新登录</p></div>
           </div>
           <div class="setting-body">
             <div class="setting-form">
@@ -2368,11 +2368,11 @@ async function renderSettings() {
     } else if (tab === 'account') {
       content.innerHTML = `
         <div class="settings-panel-title">账户</div>
-        <div class="settings-panel-desc">你的身份、状态与登录设备。</div>
+        <div class="settings-panel-desc">查看账号身份、存储配额与最近登录记录。修改密码后所有旧会话自动失效。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.user}</div>
-            <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">当前登录的账号身份与状态</p></div>
+            <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、存储配额、安全状态与登录记录</p></div>
           </div>
           <div class="setting-body" id="account-info">加载中...</div>
         </div>
