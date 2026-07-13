@@ -493,7 +493,6 @@ body {
   margin-bottom: 6px; color: var(--text);
 }
 .settings-panel-desc { font-size: 13.5px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 24px; max-width: 36em; }
-.settings-panel-section + .settings-panel-section { margin-top: 16px; }
 .settings-section {
   background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: 22px 24px; margin-bottom: 14px; transition: border-color .15s, box-shadow .15s; box-shadow: var(--shadow-xs);

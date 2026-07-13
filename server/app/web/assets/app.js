@@ -2459,6 +2459,7 @@ async function loadAccountInfo() {
 
 async function loadStats() {
   const el = document.getElementById('stats-content');
+  if (!el) return;
   try {
     const res = await API.get('/api/files/stats');
     const data = await res.json();
