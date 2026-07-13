@@ -143,7 +143,7 @@ function renderLogin() {
           <form id="admin-login-form">
             <div class="form-group"><label>管理员用户名</label><input type="text" id="login-user" class="form-input" autofocus></div>
             <div class="form-group"><label>密码</label><input type="password" id="login-pass" class="form-input"></div>
-            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:11px">登录</button>
+            <button type="submit" class="btn btn-primary" class="btn-block">登录</button>
           </form>
         </div>
       </main>
@@ -270,7 +270,7 @@ async function renderDashboard() {
             <td>${u.status === 'active' ? '<span class="badge badge-success">正常</span>' : '<span class="badge badge-danger">已禁用</span>'}</td>
             <td>${u.file_count}</td>
             <td>${u.used_mb} MB</td>
-            <td style="font-size:12px;color:var(--text-muted)">${u.last_login || '-'}</td>
+            <td class="td-meta">${u.last_login || '-'}</td>
           </tr>`).join('')}
         </tbody>
       </table>`;
@@ -283,7 +283,7 @@ async function renderUsers() {
     <div class="admin-topbar">
       <h2>用户管理</h2>
       <div class="admin-spacer"></div>
-      <div class="search-box">${ICONS.search}<input type="text" id="user-search" placeholder="搜索用户名..." style="background:transparent;border:none;outline:none;color:var(--text);font-size:13px;width:140px"></div>
+      <div class="search-box">${ICONS.search}<input type="text" id="user-search" placeholder="搜索用户名..." class="search-input" style="width:140px"></div>
       <button class="btn btn-primary" id="btn-add-user">${ICONS.add} 添加用户</button>
     </div>
     <div id="users-content">加载中...</div>`;
@@ -305,7 +305,7 @@ async function loadUsers(search, page) {
     const data = await res.json();
     pager.users.total = data.total || 0;
     if (!data.users.length) {
-      document.getElementById('users-content').innerHTML = '<p style="color:var(--text-muted);padding:20px">没有匹配的用户</p>';
+      document.getElementById('users-content').innerHTML = '<p class="empty-text">没有匹配的用户</p>';
       return;
     }
     document.getElementById('users-content').innerHTML = `
@@ -319,8 +319,8 @@ async function loadUsers(search, page) {
             <td>${u.file_count}</td>
             <td>${u.used_mb} MB</td>
             <td>${u.totp_enabled ? '已启用' : '-'}</td>
-            <td style="font-size:12px;color:var(--text-muted)">${u.last_login || '-'}</td>
-            <td style="display:flex;gap:4px">
+            <td class="td-meta">${u.last_login || '-'}</td>
+            <td class="td-actions">
               <button class="btn btn-secondary btn-icon" data-action="viewUserDetail" data-user-id="${u.id}" title="详情">${ICONS.file}</button>
               <button class="btn btn-secondary btn-icon" data-action="editUser" data-user-id="${u.id}" data-username="${esc(u.username)}" data-quota="${u.quota_mb}" data-status="${u.status}" title="编辑">${ICONS.edit}</button>
               <button class="btn btn-danger btn-icon" data-action="deleteUser" data-user-id="${u.id}" data-username="${esc(u.username)}" title="删除">${ICONS.trash}</button>
@@ -351,33 +351,33 @@ async function viewUserDetail(userId) {
         <div class="stat-card"><div class="stat-label">文件数</div><div class="stat-value">${u.file_count}</div></div>
         <div class="stat-card"><div class="stat-label">已用空间</div><div class="stat-value">${u.used_mb}<span class="stat-unit"> MB</span></div></div>
         <div class="stat-card"><div class="stat-label">配额</div><div class="stat-value">${u.quota_mb > 0 ? u.quota_mb + '<span class="stat-unit"> MB</span>' : '无限'}</div></div>
-        <div class="stat-card"><div class="stat-label">状态</div><div class="stat-value" style="font-size:16px">${u.status === 'active' ? '正常' : '已禁用'}</div></div>
+        <div class="stat-card"><div class="stat-label">状态</div><div class="stat-value stat-value-sm">${u.status === 'active' ? '正常' : '已禁用'}</div></div>
       </div>
-      <div style="margin-bottom:8px;font-size:13px;color:var(--text-muted)">
+      <div style="margin-bottom:8px" class="section-hint">
        创建: ${u.created_at.split('.')[0]} | 最近登录: ${u.last_login ? u.last_login.split('.')[0] : '从未'} | 双因子: ${u.totp_enabled ? '已启用' : '未启用'} | 密保: ${u.has_security_question ? '已设置' : '未设置'}
      </div>
-      <div style="margin:16px 0;padding:16px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border)">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <h3 style="margin:0;font-size:14px">${ICONS.llm} AI 助手权限</h3>
+      <div class="user-detail-block">
+        <div class="user-detail-block-head">
+          <h3>${ICONS.llm} AI 助手权限</h3>
           <div class="admin-spacer" style="flex:1"></div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="user-ai-enabled" ${u.ai_enabled ? 'checked' : ''} style="width:16px;height:16px"> 允许使用 AI 助手
+          <label class="checkbox-label">
+            <input type="checkbox" id="user-ai-enabled" ${u.ai_enabled ? 'checked' : ''} class="checkbox-input"> 允许使用 AI 助手
           </label>
         </div>
-        <div class="form-group" style="margin:0" id="user-llm-assign-area">
-          <label style="font-size:13px">分配大模型（不选则用默认）</label>
-          <select id="user-llm-provider" class="form-input" style="max-width:300px"></select>
+        <div class="form-group user-detail-form-group" id="user-llm-assign-area">
+          <label>分配大模型（不选则用默认）</label>
+          <select id="user-llm-provider" class="form-input form-max"></select>
           <button class="btn btn-primary" style="margin-left:8px" id="btn-save-user-ai">保存</button>
         </div>
       </div>
-      <h3 style="margin:20px 0 8px;font-size:14px;display:flex;align-items:center;gap:8px">
+      <h3 class="user-detail-h3">
         访问令牌 (<span id="user-tokens-count">0</span>)
         <div class="admin-spacer" style="flex:1"></div>
         <button class="btn btn-primary" data-action="createUserToken" data-user-id="${u.id}">${ICONS.add} 创建令牌</button>
         <button class="btn btn-danger" data-action="revokeAllUserTokens" data-user-id="${u.id}">全部吊销</button>
       </h3>
       <div id="user-tokens-content">加载中...</div>
-      <h3 style="margin:20px 0 8px;font-size:14px">最近文件 (${d.files.length})</h3>
+      <h3 class="user-detail-h3">最近文件 (${d.files.length})</h3>
       <table class="data-table">
         <thead><tr><th>文件名</th><th>大小</th><th>分组</th><th>Guard</th><th>上传时间</th></tr></thead>
         <tbody>
@@ -386,20 +386,20 @@ async function viewUserDetail(userId) {
             <td>${f.size} B</td>
             <td>${f.group_name ? '<span class="badge badge-info">' + esc(f.group_name) + '</span>' : '-'}</td>
             <td>${f.guard_status === 'safe' ? '-' : '<span class="badge badge-danger">' + esc(f.guard_status) + '</span>'}</td>
-            <td style="font-size:12px;color:var(--text-muted)">${f.uploaded_at.split('.')[0]}</td>
-          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">暂无文件</td></tr>'}
+            <td class="td-meta">${f.uploaded_at.split('.')[0]}</td>
+          </tr>`).join('') : '<tr><td colspan="5" class="empty-text">暂无文件</td></tr>'}
         </tbody>
       </table>
-      <h3 style="margin:20px 0 8px;font-size:14px">操作日志 (${d.logs.length})</h3>
+      <h3 class="user-detail-h3">操作日志 (${d.logs.length})</h3>
       <table class="data-table">
         <thead><tr><th>时间</th><th>操作</th><th>详情</th><th>IP</th></tr></thead>
         <tbody>
           ${d.logs.length ? d.logs.map(l => `<tr>
-            <td style="font-size:12px;color:var(--text-muted)">${l.time.split('.')[0]}</td>
+            <td class="td-meta">${l.time.split('.')[0]}</td>
             <td><span class="badge ${l.action.includes('fail') || l.action.includes('delete') ? 'badge-danger' : 'badge-success'}">${esc(actionLabel(l.action))}</span></td>
-            <td style="font-size:12px">${esc(l.detail) || '-'}</td>
-            <td style="font-size:12px;color:var(--text-muted)">${l.ip || '-'}</td>
-          </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">暂无日志</td></tr>'}
+            <td class="td-detail">${esc(l.detail) || '-'}</td>
+            <td class="td-meta">${l.ip || '-'}</td>
+          </tr>`).join('') : '<tr><td colspan="4" class="empty-text">暂无日志</td></tr>'}
         </tbody>
     </table>`;
     loadUserTokens(u.id);
@@ -456,7 +456,7 @@ async function loadUserTokens(userId) {
     const countEl = document.getElementById('user-tokens-count');
     if (countEl) countEl.textContent = tokens.length;
     if (!tokens.length) {
-      el.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-top:4px">暂无访问令牌</p>';
+      el.innerHTML = '<p class="empty-text--sm">暂无访问令牌</p>';
       return;
     }
     const now = Date.now();
@@ -475,15 +475,15 @@ async function loadUserTokens(userId) {
               <td>${esc(t.label) || '-'}</td>
               <td>${t.kind === 'session' ? '浏览器会话' : '设备令牌'}</td>
               <td>${badge}</td>
-              <td style="font-size:12px;color:var(--text-muted)">${t.created_at ? t.created_at.split('.')[0] : '-'}</td>
-              <td style="font-size:12px;color:var(--text-muted)">${t.last_used_at ? t.last_used_at.split('.')[0] : '从未'}</td>
-              <td style="font-size:12px;color:var(--text-muted)">${t.expires_at ? t.expires_at.split('.')[0] : '永久'}</td>
+              <td class="td-meta">${t.created_at ? t.created_at.split('.')[0] : '-'}</td>
+              <td class="td-meta">${t.last_used_at ? t.last_used_at.split('.')[0] : '从未'}</td>
+              <td class="td-meta">${t.expires_at ? t.expires_at.split('.')[0] : '永久'}</td>
               <td>${action}</td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>`;
-  } catch { el.innerHTML = '<p style="color:var(--text-muted)">加载令牌失败</p>'; }
+  } catch { el.innerHTML = '<p class="empty-text">加载令牌失败</p>'; }
 }
 window.loadUserTokens = loadUserTokens;
 
@@ -581,7 +581,7 @@ async function renderFiles() {
     <div class="admin-topbar">
       <h2>全局文件</h2>
       <div class="admin-spacer"></div>
-      <div class="search-box">${ICONS.search}<input type="text" id="file-search" placeholder="搜索文件名..." style="background:transparent;border:none;outline:none;color:var(--text);font-size:13px;width:160px"></div>
+      <div class="search-box">${ICONS.search}<input type="text" id="file-search" placeholder="搜索文件名..." class="search-input" style="width:160px"></div>
       <button class="btn btn-secondary btn-icon" id="btn-refresh-files" title="刷新">${ICONS.refresh}</button>
     </div>
     <div id="files-content">加载中...</div>`;
@@ -603,7 +603,7 @@ async function loadFiles(search, page) {
     const data = await res.json();
     pager.files.total = data.total || 0;
     if (!data.files.length) {
-      document.getElementById('files-content').innerHTML = '<p style="color:var(--text-muted);padding:20px">没有文件</p>';
+      document.getElementById('files-content').innerHTML = '<p class="empty-text">没有文件</p>';
       return;
     }
     document.getElementById('files-content').innerHTML = `
@@ -616,7 +616,7 @@ async function loadFiles(search, page) {
             <td>${f.size > 1048576 ? (f.size/1048576).toFixed(1) + ' MB' : f.size > 1024 ? (f.size/1024).toFixed(1) + ' KB' : f.size + ' B'}</td>
             <td>${f.group_name ? '<span class="badge badge-info">' + esc(f.group_name) + '</span>' : '-'}</td>
             <td>${f.guard_status === 'safe' ? '-' : '<span class="badge badge-danger">' + esc(f.guard_status) + '</span>'}</td>
-            <td style="font-size:12px;color:var(--text-muted)">${f.uploaded_at.split('.')[0]}</td>
+            <td class="td-meta">${f.uploaded_at.split('.')[0]}</td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -635,7 +635,7 @@ async function renderGroups() {
     <div class="admin-topbar">
       <h2>分组管理</h2>
       <div class="admin-spacer"></div>
-      <div class="search-box">${ICONS.search}<input type="text" id="group-search" placeholder="搜索分组或用户..." style="background:transparent;border:none;outline:none;color:var(--text);font-size:13px;width:180px"></div>
+      <div class="search-box">${ICONS.search}<input type="text" id="group-search" placeholder="搜索分组或用户..." class="search-input" style="width:180px"></div>
       <button class="btn btn-secondary btn-icon" id="btn-refresh-groups" title="刷新">${ICONS.refresh}</button>
     </div>
     <div id="groups-content">加载中...</div>`;
@@ -658,7 +658,7 @@ async function loadGroups(search, page) {
     pager.groups.total = data.total || 0;
     const el = document.getElementById('groups-content');
     if (!data.groups.length) {
-      el.innerHTML = '<p style="color:var(--text-muted);padding:20px">暂无分组</p>';
+      el.innerHTML = '<p class="empty-text">暂无分组</p>';
       return;
     }
     el.innerHTML = `
@@ -667,10 +667,10 @@ async function loadGroups(search, page) {
         <tbody>
           ${data.groups.map(g => `<tr>
             <td><strong>${esc(g.name)}</strong></td>
-            <td><a href="#" data-action="viewUserDetail" data-user-id="${g.owner_id}" style="color:var(--primary);text-decoration:none">${esc(g.owner)}</a></td>
+            <td><a href="#" data-action="viewUserDetail" data-user-id="${g.owner_id}" class="td-link">${esc(g.owner)}</a></td>
             <td>${g.file_count}</td>
             <td>${fmtBytes(g.size)}</td>
-            <td style="font-size:12px;color:var(--text-muted)">${g.created_at.split('.')[0]}</td>
+            <td class="td-meta">${g.created_at.split('.')[0]}</td>
             <td><button class="btn btn-danger btn-sm" data-action="adminDeleteGroup" data-group-id="${g.id}" data-name="${esc(g.name)}">删除</button></td>
           </tr>`).join('')}
         </tbody>
@@ -695,10 +695,10 @@ async function renderLlm() {
       <div class="admin-spacer"></div>
       <button class="btn btn-primary" id="btn-add-llm">${ICONS.add} 添加大模型</button>
     </div>
-    <div style="padding:0 24px 8px;font-size:13px;color:var(--text-muted)">
+    <div class="section-hint">
       管理多个大模型，分配给不同用户使用。标记为「默认」的模型会自动分配给未指定模型的用户。
     </div>
-    <div id="llm-content" style="padding:0 24px">加载中...</div>`;
+    <div id="llm-content" class="section-body">加载中...</div>`;
   document.getElementById('btn-add-llm').addEventListener('click', () => showLlmModal());
   await loadLlmProviders();
 }
@@ -710,9 +710,9 @@ async function loadLlmProviders() {
     const list = data.providers || [];
     if (!list.length) {
       document.getElementById('llm-content').innerHTML = `
-        <div style="text-align:center;padding:40px;color:var(--text-muted)">
+        <div class="llm-empty">
           <p>尚未配置任何大模型</p>
-          <p style="font-size:13px">点击右上角「添加大模型」开始配置</p>
+          <p>点击右上角「添加大模型」开始配置</p>
         </div>`;
       return;
     }
@@ -724,10 +724,10 @@ async function loadLlmProviders() {
             <td><strong>${esc(p.name)}</strong>${p.is_default ? ' <span class="badge badge-info">默认</span>' : ''}</td>
             <td>${esc(p.provider)}</td>
             <td>${esc(p.model)}</td>
-            <td style="font-size:12px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(p.base_url)}</td>
+            <td class="td-ellipsis">${esc(p.base_url)}</td>
             <td>${p.has_key ? '<span class="badge badge-success">已设置</span>' : '<span class="badge badge-danger">未设置</span>'}</td>
             <td>${p.enabled ? '<span class="badge badge-success">启用</span>' : '<span class="badge badge-danger">禁用</span>'}</td>
-            <td style="display:flex;gap:4px">
+            <td class="td-actions">
               <button class="btn btn-secondary btn-icon" data-action="testLlmProvider" data-provider-id="${p.id}" title="测试连通">${ICONS.refresh}</button>
               <button class="btn btn-secondary btn-icon" data-action="editLlmProvider" data-provider-id="${p.id}" title="编辑">${ICONS.edit}</button>
               <button class="btn btn-danger btn-icon" data-action="deleteLlmProvider" data-provider-id="${p.id}" data-name="${esc(p.name)}" title="删除">${ICONS.trash}</button>
@@ -746,7 +746,7 @@ function showLlmModal(id) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
-    <div class="modal" style="max-width:520px">
+    <div class="modal modal-wide">
       <h3>${isEdit ? '编辑大模型' : '添加大模型'}</h3>
       <div class="form-group">
         <label>名称</label>
@@ -773,10 +773,10 @@ function showLlmModal(id) {
         <input type="text" id="llm-model" class="form-input" placeholder="deepseek-chat">
       </div>
       <div style="display:flex;gap:16px;margin-bottom:16px">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <label class="checkbox-label">
           <input type="checkbox" id="llm-enabled" checked> 启用
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <label class="checkbox-label">
           <input type="checkbox" id="llm-default"> 设为默认
         </label>
       </div>
@@ -884,18 +884,18 @@ async function renderSettings() {
         <h3>注册与配额</h3>
         <div class="form-group">
           <label>开放用户注册</label>
-          <select id="set-register" class="form-input" style="max-width:300px">
+          <select id="set-register" class="form-input form-max">
             <option value="true" ${s.allow_register === 'true' ? 'selected' : ''}>开放注册</option>
             <option value="false" ${s.allow_register !== 'true' ? 'selected' : ''}>关闭注册（仅管理员创建）</option>
           </select>
         </div>
         <div class="form-group">
           <label>新用户默认配额 (MB，0=无限)</label>
-          <input type="number" id="set-quota" class="form-input" style="max-width:300px" value="${s.default_quota_mb}">
+          <input type="number" id="set-quota" class="form-input form-max" value="${s.default_quota_mb}">
         </div>
         <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
       </div>
-      <div class="settings-section" style="margin-top:24px">
+      <div class="settings-section settings-group-gap">
         <h3>系统信息</h3>
         <table class="info-table">
           <tr><td>应用版本</td><td>${si.app_version}</td></tr>
@@ -926,7 +926,7 @@ async function renderLogs() {
     <div class="admin-topbar">
       <h2>审计日志</h2>
       <div class="admin-spacer"></div>
-      <div class="search-box">${ICONS.search}<input type="text" id="log-search" placeholder="搜索操作类型..." style="background:transparent;border:none;outline:none;color:var(--text);font-size:13px;width:160px"></div>
+      <div class="search-box">${ICONS.search}<input type="text" id="log-search" placeholder="搜索操作类型..." class="search-input" style="width:160px"></div>
     </div>
     <div id="logs-content">加载中...</div>`;
   let st;
@@ -950,11 +950,11 @@ async function loadLogs(action, page) {
         <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th><th>IP</th></tr></thead>
         <tbody>
           ${data.logs.map(l => `<tr>
-            <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">${l.time.split('.')[0]}</td>
+            <td class="td-meta">${l.time.split('.')[0]}</td>
             <td>${esc(l.username)}</td>
             <td><span class="badge ${l.action.includes('fail') || l.action.includes('delete') ? 'badge-danger' : 'badge-success'}">${esc(actionLabel(l.action))}</span></td>
-            <td style="font-size:12px">${esc(l.detail) || '-'}</td>
-            <td style="font-size:12px;color:var(--text-muted)">${l.ip || '-'}</td>
+            <td class="td-detail">${esc(l.detail) || '-'}</td>
+            <td class="td-meta">${l.ip || '-'}</td>
           </tr>`).join('')}
         </tbody>
       </table>

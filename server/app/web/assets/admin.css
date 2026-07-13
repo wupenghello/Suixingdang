@@ -68,8 +68,7 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-sans); font-size: 15px; font-weight: 700;
   color: #fff; border: none; border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #3F6BFF, #2B5FFF);
-  box-shadow: var(--shadow-sm);
+  background: var(--primary); box-shadow: var(--shadow-xs);
 }
 .admin-logo-text { font-family: var(--font-sans); font-size: 15px; font-weight: 600; white-space: nowrap; letter-spacing: -0.011em; }
 .admin-nav { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 0 12px; }
@@ -203,6 +202,33 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
   .btn:active:not(:disabled), .stat-card:hover { transform: none !important; }
 }
 
+
+/* ---- Admin 工具类（替代重复 inline style）---- */
+.td-meta { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.td-detail { font-size: 12px; }
+.td-ellipsis { font-size: 12px; color: var(--text-muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-actions { display: flex; gap: 4px; }
+.empty-text { color: var(--text-muted); padding: 20px; text-align: center; }
+.empty-text--sm { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+.search-input { background: transparent; border: none; outline: none; color: var(--text); font-size: 13px; font-family: inherit; width: 100%; min-width: 100px; }
+.search-input:focus { outline: none; }
+.section-hint { padding: 0 24px 8px; font-size: 13px; color: var(--text-muted); }
+.section-body { padding: 0 24px; }
+.llm-empty { text-align: center; padding: 40px; color: var(--text-muted); }
+.llm-empty p { font-size: 13px; }
+.user-detail-block { margin: 16px 0; padding: 16px; background: var(--bg); border-radius: var(--radius); border: 1px solid var(--border); }
+.user-detail-block-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.user-detail-block-head h3 { margin: 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.user-detail-h3 { margin: 20px 0 8px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.checkbox-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; }
+.checkbox-input { width: 16px; height: 16px; }
+.td-link { color: var(--primary); text-decoration: none; }
+.td-link:hover { text-decoration: underline; }
+.stat-value-sm { font-size: 16px !important; }
+.modal-wide { max-width: 520px; }
+.form-max { max-width: 300px; }
+.settings-group-gap { margin-top: 24px; }
+
 /* ---- 响应式 ---- */
 @media (max-width: 900px) {
   .admin-main { padding: 16px; }
@@ -222,3 +248,5 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
   .admin-main { padding: 12px; }
   .modal { max-width: 94vw; }
 }
+
+.btn-block { width: 100%; justify-content: center; }
