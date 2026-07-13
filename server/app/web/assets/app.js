@@ -2268,11 +2268,35 @@ function previewTransferFile(path, name) {
 
 // ============ Settings ============
 async function renderSettings() {
+  const TAB_ICONS = {
+    general: ICONS.database,
+    security: ICONS.shield,
+    account: ICONS.user,
+  };
+  const activeTab = loadPref('settingsTab', 'general');
   document.getElementById('main-content').innerHTML = `
-    <div class="topbar"><div class="topbar-title">设置</div></div>
-    <div class="settings-container">
-      <div class="settings-group">
-        <div class="settings-group-title">存储与索引</div>
+    <div class="settings-layout">
+      <nav class="settings-nav" id="settings-nav">
+        <button class="settings-nav-item" data-tab="general">${TAB_ICONS.general}存储与索引</button>
+        <button class="settings-nav-item" data-tab="security">${TAB_ICONS.security}安全</button>
+        <button class="settings-nav-item" data-tab="account">${TAB_ICONS.account}账户</button>
+      </nav>
+      <div class="settings-panel">
+        <div class="settings-panel-content" id="settings-panel-content"></div>
+      </div>
+    </div>`;
+
+  // 渲染对应标签面板内容
+  function renderTab(tab) {
+    savePref('settingsTab', tab);
+    document.querySelectorAll('.settings-nav-item').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    const content = document.getElementById('settings-panel-content');
+    if (tab === 'general') {
+      content.innerHTML = `
+        <div class="settings-panel-title">存储与索引</div>
+        <div class="settings-panel-desc">档案室占用了多少空间、检索索引是否最新。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.database}</div>
@@ -2286,11 +2310,13 @@ async function renderSettings() {
             <div class="setting-head-text"><h3>全文索引</h3><p class="section-desc">重建文件索引以支持语义搜索</p></div>
             <div class="setting-head-action"><button class="btn btn-secondary" id="btn-reindex">${ICONS.refresh}<span>重建索引</span></button></div>
           </div>
-        </div>
-      </div>
-
-      <div class="settings-group">
-        <div class="settings-group-title">安全</div>
+        </div>`;
+      document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
+      loadStats();
+    } else if (tab === 'security') {
+      content.innerHTML = `
+        <div class="settings-panel-title">安全</div>
+        <div class="settings-panel-desc">令牌、下载、双因子、密码——控制谁能拿到你的文件。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-success">${ICONS.key}</div>
@@ -2334,11 +2360,15 @@ async function renderSettings() {
               <button class="btn btn-primary" id="btn-change-pwd">修改密码</button>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div class="settings-group">
-        <div class="settings-group-title">账户</div>
+        </div>`;
+      document.getElementById('btn-create-token').addEventListener('click', createToken);
+      document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
+      bindChangePassword();
+      loadTokens(); loadTOTP(); loadDownloadGrant();
+    } else if (tab === 'account') {
+      content.innerHTML = `
+        <div class="settings-panel-title">账户</div>
+        <div class="settings-panel-desc">你的身份、状态与登录设备。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.user}</div>
@@ -2352,31 +2382,36 @@ async function renderSettings() {
             <div class="setting-head-text"><h3>退出登录</h3><p class="section-desc">退出当前账户，需要重新登录</p></div>
             <div class="setting-head-action"><button class="btn btn-danger" id="btn-logout">${ICONS.logout}<span>退出</span></button></div>
           </div>
-        </div>
-      </div>
-    </div>
-  `;
-  document.getElementById('btn-logout').addEventListener('click', () => App.logout());
-  document.getElementById('btn-change-pwd')?.addEventListener('click', async () => {
-    const oldP = document.getElementById('old-pass').value;
-    const newP = document.getElementById('new-pass').value;
-    if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
-    try {
-      const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
-      if (res.ok) {
-        const d = await res.json();
-        if (d.access_token) API.setTokens(d.access_token, d.refresh_token);  // 续登：用新令牌继续会话
-        Toast.show('密码已修改', 'success');
-        document.getElementById('old-pass').value = '';
-        document.getElementById('new-pass').value = '';
-      }
-      else { const d = await res.json(); Toast.show(d.detail || '修改失败', 'error'); }
-    } catch { Toast.show('网络错误', 'error'); }
+        </div>`;
+      document.getElementById('btn-logout').addEventListener('click', () => App.logout());
+      loadAccountInfo();
+    }
+  }
+
+  // 修改密码事件绑定（抽出来，切到 security 时复用）
+  function bindChangePassword() {
+    document.getElementById('btn-change-pwd')?.addEventListener('click', async () => {
+      const oldP = document.getElementById('old-pass').value;
+      const newP = document.getElementById('new-pass').value;
+      if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
+      try {
+        const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.access_token) API.setTokens(d.access_token, d.refresh_token);
+          Toast.show('密码已修改', 'success');
+          document.getElementById('old-pass').value = '';
+          document.getElementById('new-pass').value = '';
+        }
+        else { const d = await res.json(); Toast.show(d.detail || '修改失败', 'error'); }
+      } catch { Toast.show('网络错误', 'error'); }
+    });
+  }
+
+  document.querySelectorAll('.settings-nav-item').forEach(btn => {
+    btn.addEventListener('click', () => renderTab(btn.dataset.tab));
   });
-  document.getElementById('btn-create-token').addEventListener('click', createToken);
-  document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
-  document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
-  loadStats(); loadTokens(); loadTOTP(); loadAccountInfo(); loadDownloadGrant();
+  renderTab(activeTab);
 }
 
 async function loadAccountInfo() {
