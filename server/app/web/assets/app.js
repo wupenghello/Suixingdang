@@ -896,13 +896,14 @@ async function renderFiles() {
       </div>
       <div class="files-search search-box">${ICONS.search}<input type="text" id="search-input" placeholder="搜索文件名、类型…" value="${escapeHtml(searchQuery)}"></div>
       <div class="files-controls">
+        <button class="btn btn-primary" id="btn-upload">${ICONS.upload}<span>上传</span></button>
+        <span class="files-divider"></span>
         <button class="btn btn-secondary btn-icon-only" id="btn-view" title="切换视图">${fileView === 'grid' ? LIST_ICON : GRID_ICON}</button>
         <button class="btn btn-secondary btn-icon-only" id="btn-sort" title="排序">${SORT_ICON}</button>
         <button class="btn btn-secondary btn-icon-only" id="btn-select" title="批量选择">${SELECT_ICON}</button>
+        <button class="btn btn-secondary btn-icon-only" id="btn-groups" title="分组管理">${ICONS.groups}</button>
         <span class="files-divider"></span>
         <button class="btn btn-secondary btn-icon-only" id="btn-refresh" title="刷新">${ICONS.refresh}</button>
-        <button class="btn btn-secondary" id="btn-groups" title="分组管理">${ICONS.groups}<span>分组</span></button>
-        <button class="btn btn-primary" id="btn-upload">${ICONS.upload}<span>上传</span></button>
       </div>
     </div>
     <div class="files-body">
@@ -1369,10 +1370,10 @@ function renderFileList(items) {
 
   if (!displayItems.length) {
     const emptyMsg = selectedGroup
-      ? '<div>该分组暂无文件</div><div style="font-size:13px;margin-top:4px">点击"上传"将文件加入此分组</div>'
+      ? '<div class="empty-title">该分组暂无文件</div><div class="empty-desc">点击"上传"将文件加入此分组</div>'
       : isRoot
-        ? `${ICONS.groups}<div>还没有分组或文件</div><div style="font-size:13px;margin-top:4px">点击"分组"创建分组，或直接"上传"文件</div>`
-        : '<div>这个目录是空的</div><div style="font-size:13px;margin-top:4px">拖拽文件到此或点击"上传"</div>';
+        ? `${ICONS.groups}<div class="empty-title">还没有分组或文件</div><div class="empty-desc">点击「分组」创建分组，或直接「上传」文件</div>`
+        : '<div class="empty-title">这个目录是空的</div><div class="empty-desc">拖拽文件到此或点击「上传」</div>';
     content.innerHTML = `<div class="file-table"><div class="empty-state">${emptyMsg}</div></div>`;
     updateBatchBar();
     return;
@@ -1640,7 +1641,7 @@ function showFileMenu(eventOrX, path, name, isDir) {
 function renderSearchResults(results) {
   const content = document.getElementById('file-content');
   if (!results.length) {
-    content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.search}<div>没有找到匹配的文件</div></div></div>`;
+    content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.search}<div class="empty-title">没有找到匹配的文件</div></div></div>`;
     return;
   }
   content.innerHTML = `<div class="file-table">
@@ -1936,10 +1937,29 @@ async function renderChat() {
     const data = await res.json();
     chatMessages = (data.messages || []).reverse();
   } catch { chatMessages = []; }
-  if (!chatMessages.length) {
-    chatMessages.push({ role: 'assistant', content: '你好！我是你的文件助手。你可以问我：\n\n• "找一下上个月的报价"\n• "存了哪些学习资料"\n• "哪些文件很久没用了"\n• "存储用了多少空间"', tool_calls: [] });
+  const container = document.getElementById('chat-messages');
+  if (!chatMessages.length && container) {
+    container.innerHTML = `
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">${ICONS.chat}</div>
+        <h2 class="chat-welcome-title">问点什么</h2>
+        <p class="chat-welcome-desc">我会翻遍你的档案室，找到文件、读内容、再回答。</p>
+        <div class="chat-welcome-hints">
+          <button class="chat-hint" data-hint="找一下上个月的报价">找一下上个月的报价</button>
+          <button class="chat-hint" data-hint="存了哪些学习资料">存了哪些学习资料</button>
+          <button class="chat-hint" data-hint="哪些文件很久没用了">哪些文件很久没用了</button>
+          <button class="chat-hint" data-hint="存储用了多少空间">存储用了多少空间</button>
+        </div>
+      </div>`;
+    container.querySelectorAll('.chat-hint').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const inp = document.getElementById('chat-input');
+        if (inp) { inp.value = btn.dataset.hint; inp.focus(); }
+      });
+    });
+  } else if (chatMessages.length) {
+    renderChatMessages();
   }
-  renderChatMessages();
   document.getElementById('btn-send').addEventListener('click', () => {
     if (chatSending) { if (currentChatAbort) currentChatAbort.abort(); }
     else sendChatMessage();
@@ -2262,7 +2282,7 @@ async function renderSettings() {
         </div>
         <div class="settings-section">
           <div class="setting-head">
-            <div class="setting-head-icon icon-purple">${ICONS.refresh}</div>
+            <div class="setting-head-icon icon-neutral">${ICONS.refresh}</div>
             <div class="setting-head-text"><h3>全文索引</h3><p class="section-desc">重建文件索引以支持语义搜索</p></div>
             <div class="setting-head-action"><button class="btn btn-secondary" id="btn-reindex">${ICONS.refresh}<span>重建索引</span></button></div>
           </div>
@@ -2409,10 +2429,10 @@ async function loadStats() {
     const data = await res.json();
     el.innerHTML = `
       <div class="stats-grid">
-        <div class="stat-card" style="--stat-accent:var(--primary)"><div class="stat-label">文件总数</div><div class="stat-value">${data.total_files}</div></div>
-        <div class="stat-card" style="--stat-accent:var(--success)"><div class="stat-label">占用空间</div><div class="stat-value">${data.total_size_mb}<span class="stat-unit"> MB</span></div></div>
-        <div class="stat-card" style="--stat-accent:#a78bfa"><div class="stat-label">磁盘总量</div><div class="stat-value">${data.disk.total_gb}<span class="stat-unit"> GB</span></div></div>
-        <div class="stat-card" style="--stat-accent:var(--warning)"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
+        <div class="stat-card"><div class="stat-label">文件总数</div><div class="stat-value">${data.total_files}</div></div>
+        <div class="stat-card accent-success"><div class="stat-label">占用空间</div><div class="stat-value">${data.total_size_mb}<span class="stat-unit"> MB</span></div></div>
+        <div class="stat-card"><div class="stat-label">磁盘总量</div><div class="stat-value">${data.disk.total_gb}<span class="stat-unit"> GB</span></div></div>
+        <div class="stat-card accent-warning"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
       </div>
     `;
   } catch { renderErrorState(el, '统计加载失败', () => loadStats()); }
@@ -2598,16 +2618,16 @@ function renderDownloadGrant(el, granted, until) {
   if (_downloadGrantTimer) { clearInterval(_downloadGrantTimer); _downloadGrantTimer = null; }
   if (!granted) {
     el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <p class="section-desc" style="margin:0;flex:1;min-width:200px">未开启。下载的文件会保留在本机，请及时清理。</p>
+      <div class="setting-row">
+        <p class="section-desc setting-row-text">未开启。下载的文件会保留在本机，请及时清理。</p>
         <button class="btn btn-primary" id="btn-download-grant">${ICONS.download}<span>开启临时下载</span></button>
       </div>`;
     document.getElementById('btn-download-grant')?.addEventListener('click', grantDownload);
     return;
   }
   el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <p style="margin:0;flex:1;min-width:200px">下载已开启，剩余 <strong id="download-grant-countdown">--:--</strong></p>
+    <div class="setting-row">
+      <p class="setting-row-text">下载已开启，剩余 <strong id="download-grant-countdown">--:--</strong></p>
       <button class="btn btn-secondary" id="btn-download-revoke"><span>立即关闭</span></button>
     </div>`;
   document.getElementById('btn-download-revoke')?.addEventListener('click', revokeDownload);
@@ -2664,7 +2684,7 @@ async function loadTOTP() {
     document.getElementById('btn-disable-totp').addEventListener('click', disableTOTP);
   } else {
     el.innerHTML = `
-      <p class="setting-empty" style="margin-top:0">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。公用设备强烈建议开启。</p>
+      <p class="setting-empty">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。公用设备强烈建议开启。</p>
       <button class="btn btn-primary" id="btn-setup-totp">设置双因子验证</button>`;
     document.getElementById('btn-setup-totp').addEventListener('click', setupTOTP);
   }

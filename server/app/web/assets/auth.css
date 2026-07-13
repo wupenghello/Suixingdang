@@ -1,0 +1,92 @@
+/* ============================================================
+   auth.css · 登录/注册/找回共用样式（用户端 + 管理端共用）
+   分屏：左品牌面板 + 右表单 · Notion / 飞书 式
+   ============================================================ */
+/* ---- Login（分屏：品牌面板 + 表单 · Notion / 飞书 式）---- */
+.login-container {
+  --ink: #F6F7F9; --ink-2: #FFFFFF; --bone: #15161A; --bone-2: #4A4D57; --bone-3: #8A8E99;
+  --rule: #E6E8EC; --amber: #2B5FFF; --amber-2: #1A47E6; --amber-soft: rgba(43,95,255,0.10);
+  min-height: 100vh; display: grid; grid-template-columns: 1.08fr 1fr;
+  background: var(--ink-2); color: var(--bone);
+  font-family: var(--font-sans);
+}
+
+/* 左：品牌面板 */
+.login-brand {
+  position: relative; overflow: hidden;
+  background: #2B5FFF;
+  color: #fff;
+  padding: 44px 52px; display: flex; flex-direction: column; justify-content: space-between; gap: 32px;
+}
+.login-brand::before {
+  content: ""; position: absolute; top: -140px; right: -120px; width: 440px; height: 440px;
+  background: radial-gradient(circle, rgba(255,255,255,0.16), transparent 64%); pointer-events: none;
+}
+.login-brand::after {
+  content: ""; position: absolute; bottom: -160px; left: -100px; width: 380px; height: 380px;
+  background: radial-gradient(circle, rgba(255,255,255,0.08), transparent 62%); pointer-events: none;
+}
+.login-brand-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
+.login-brand-mark {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.22);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700;
+}
+.login-brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.login-brand-body { position: relative; z-index: 1; max-width: 26em; }
+.login-brand-body h2 { font-size: clamp(26px, 2.8vw, 36px); font-weight: 600; letter-spacing: -0.028em; line-height: 1.12; margin-bottom: 14px; }
+.login-brand-body p { font-size: 14.5px; line-height: 1.65; color: rgba(255,255,255,0.82); margin-bottom: 26px; }
+.login-brand-points { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.login-brand-points li { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: rgba(255,255,255,0.92); }
+.login-brand-points svg { width: 17px; height: 17px; color: rgba(255,255,255,0.95); flex-shrink: 0; }
+.login-brand-foot { position: relative; z-index: 1; font-size: 11.5px; color: rgba(255,255,255,0.55); }
+
+/* 右：表单面板 */
+.login-main { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; background: var(--ink-2); }
+.login-card { width: 100%; max-width: 360px; }
+/* 桌面分屏：表单卡无边框/阴影，直接浮于右白板；移动端品牌隐藏后 logo 显出 */
+.login-logo {
+  width: 40px; height: 40px; margin: 0 auto 18px;
+  display: none; align-items: center; justify-content: center;
+  font-family: var(--font-sans); font-size: 19px; font-weight: 700; color: #fff;
+  border: none; border-radius: var(--radius-sm);
+  background: #2B5FFF;
+}
+.login-card h1 {
+  text-align: center; font-family: var(--font-sans);
+  font-size: 24px; font-weight: 600; letter-spacing: -0.02em;
+  margin-bottom: 6px; color: var(--bone);
+}
+.login-card .subtitle { text-align: center; font-size: 13.5px; color: var(--bone-2); margin-bottom: 26px; }
+.login-card .form-group { margin-bottom: 14px; }
+.login-card .form-group label { display: block; font-size: 12.5px; color: var(--bone-2); margin-bottom: 6px; font-weight: 500; }
+.login-card .form-input {
+  width: 100%; padding: 10px 14px;
+  background: var(--ink); border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  color: var(--bone); font-size: 14px; font-family: inherit;
+  transition: border-color .15s, background .15s;
+}
+.login-card .form-input::placeholder { color: var(--bone-3); }
+.login-card .form-input:focus { outline: none; border-color: var(--amber); background: var(--ink-2); box-shadow: 0 0 0 3px rgba(43,95,255,0.16); }
+.login-card .form-input.error, .login-card .form-input.error:focus { border-color: var(--danger); }
+.login-card .btn-primary {
+  width: 100%; margin-top: 6px; padding: 11px; border: none; border-radius: var(--radius-sm);
+  background: var(--amber); color: #fff;
+  font-size: 14.5px; font-weight: 600;
+}
+.login-card .btn-primary:hover { background: var(--amber-2); }
+.login-card .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-links { display: flex; justify-content: space-between; margin-top: 18px; }
+.login-links a { font-size: 12.5px; color: var(--bone-2); text-decoration: none; transition: color .15s; }
+.login-links a:hover { color: var(--bone); }
+.login-back { display: block; text-align: center; margin-top: 16px; font-size: 12px; color: var(--bone-3); text-decoration: none; transition: color .15s; }
+.login-back:hover { color: var(--bone-2); }
+
+/* 响应式：窄屏隐藏品牌面板，表单居中并显 logo */
+@media (max-width: 880px) {
+  .login-container { grid-template-columns: 1fr; }
+  .login-brand { display: none; }
+  .login-logo { display: flex; }
+}
+

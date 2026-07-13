@@ -156,55 +156,7 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
 .badge-info { background: var(--seal-soft); color: var(--seal); }
 .badge-warning { background: rgba(154, 107, 31, 0.13); color: var(--warning); }
 
-/* ---- 登录（分屏：品牌面板 + 表单）---- */
-.login-container {
-  --ink: #F6F7F9; --ink-2: #FFFFFF; --bone: #15161A; --bone-2: #4A4D57; --bone-3: #8A8E99;
-  --rule: #E6E8EC; --seal: #2B5FFF; --seal-2: #1A47E6; --seal-soft: rgba(43,95,255,0.10);
-  min-height: 100vh; display: grid; grid-template-columns: 1.08fr 1fr;
-  background: var(--ink-2); color: var(--bone);
-  font-family: var(--font-sans);
-}
-.login-brand {
-  position: relative; overflow: hidden;
-  background: linear-gradient(155deg, #2B5FFF 0%, #1B47E6 55%, #1230A8 100%);
-  color: #fff;
-  padding: 44px 52px; display: flex; flex-direction: column; justify-content: space-between; gap: 32px;
-}
-.login-brand::before { content: ""; position: absolute; top: -140px; right: -120px; width: 440px; height: 440px; background: radial-gradient(circle, rgba(255,255,255,0.16), transparent 64%); pointer-events: none; }
-.login-brand::after { content: ""; position: absolute; bottom: -160px; left: -100px; width: 380px; height: 380px; background: radial-gradient(circle, rgba(255,255,255,0.08), transparent 62%); pointer-events: none; }
-.login-brand-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
-.login-brand-mark { width: 30px; height: 30px; border-radius: 8px; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.22); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; }
-.login-brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
-.login-brand-body { position: relative; z-index: 1; max-width: 26em; }
-.login-brand-body h2 { font-size: clamp(26px, 2.8vw, 36px); font-weight: 600; letter-spacing: -0.028em; line-height: 1.12; margin-bottom: 14px; }
-.login-brand-body p { font-size: 14.5px; line-height: 1.65; color: rgba(255,255,255,0.82); margin-bottom: 26px; }
-.login-brand-points { list-style: none; display: flex; flex-direction: column; gap: 12px; }
-.login-brand-points li { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: rgba(255,255,255,0.92); }
-.login-brand-points svg { width: 17px; height: 17px; color: rgba(255,255,255,0.95); flex-shrink: 0; }
-.login-brand-foot { position: relative; z-index: 1; font-size: 11.5px; color: rgba(255,255,255,0.55); }
-.login-main { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; background: var(--ink-2); }
-.login-card { width: 100%; max-width: 360px; }
-.login-logo {
-  width: 40px; height: 40px; margin: 0 auto 18px;
-  display: none; align-items: center; justify-content: center;
-  font-family: var(--font-sans); font-size: 19px; font-weight: 700; color: #fff;
-  border: none; border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #3F6BFF, #2B5FFF);
-}
-.login-card h1 { text-align: center; font-family: var(--font-sans); font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 6px; color: var(--bone); }
-.login-card .subtitle { text-align: center; color: var(--bone-2); margin-bottom: 26px; font-size: 13.5px; }
-.login-card .form-group { margin-bottom: 14px; }
-.login-card .form-group label { display: block; font-size: 12.5px; color: var(--bone-2); margin-bottom: 6px; font-weight: 500; }
-.login-card .form-input { width: 100%; padding: 10px 14px; background: var(--ink); border: 1px solid var(--rule); border-radius: var(--radius-sm); color: var(--bone); font-size: 14px; font-family: inherit; transition: border-color .15s, background .15s; }
-.login-card .form-input::placeholder { color: var(--bone-3); }
-.login-card .form-input:focus { outline: none; border-color: var(--seal); background: var(--ink-2); }
-.login-card .btn-primary { width: 100%; justify-content: center; padding: 11px; border: none; border-radius: var(--radius-sm); background: var(--seal); color: #fff; font-size: 14.5px; font-weight: 600; }
-.login-card .btn-primary:hover { background: var(--seal-2); }
-@media (max-width: 880px) {
-  .login-container { grid-template-columns: 1fr; }
-  .login-brand { display: none; }
-  .login-logo { display: flex; }
-}
+/* ---- 登录样式已抽到 auth.css（用户端 + 管理端共用）---- */
 
 /* ---- 弹窗 ---- */
 .modal-overlay { position: fixed; inset: 0; background: rgba(28, 25, 18, 0.42); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 999; }
