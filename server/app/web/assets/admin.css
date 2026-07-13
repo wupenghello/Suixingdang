@@ -4,12 +4,12 @@
    ============================================================ */
 :root {
   /* -- 背景层：冷灰画布 + 白卡 -- */
-  --bg: #F6F7F9;
+  --bg: #F7F7F5;
   --bg-surface: #FFFFFF;
-  --bg-surface-hover: #F0F2F5;
+  --bg-surface-hover: #F0F0EC;
   --bg-elevated: #FFFFFF;
   --bg-secondary: #FFFFFF;   /* 兼容 admin.js 内联引用 */
-  --bg-sunken: #F0F2F5;
+  --bg-sunken: #F0F0EC;
   /* -- 文字层 -- */
   --text: #15161A;
   --text-secondary: #4A4D57;

@@ -4,11 +4,11 @@
    ============================================================ */
 :root {
   /* —— 背景层：冷灰画布 + 白卡浮起 —— */
-  --bg: #F6F7F9;            /* 画布 · 冷浅灰（= 首页 bg-soft）*/
+  --bg: #F7F7F5;            /* 画布 · 冷浅灰（= 首页 bg-soft）*/
   --bg-surface: #FFFFFF;    /* 卡片 / 侧栏 / 顶栏 · 白，浮于灰画布 */
-  --bg-surface-hover: #F0F2F5; /* 悬停 · 比画布略深 */
+  --bg-surface-hover: #F0F0EC; /* 悬停 · 比画布略深 */
   --bg-elevated: #FFFFFF;   /* 浮起 · 菜单 / toast（靠投影分离）*/
-  --bg-sunken: #F0F2F5;     /* 凹陷 · 输入框 / 代码块 */
+  --bg-sunken: #F0F0EC;     /* 凹陷 · 输入框 / 代码块 */
   /* —— 文字层 —— */
   --text: #15161A;          /* 主文字 · 近黑（微冷）*/
   --text-secondary: #4A4D57;/* 次文字 */
@@ -714,7 +714,7 @@ html { scroll-behavior: smooth; }
 
 .sx-page {
   --bg: #FFFFFF;
-  --bg-soft: #F6F7F9;
+  --bg-soft: #F7F7F5;
   --ink: #15161A;            /* 主文字 · 近黑（微冷）*/
   --ink-2: #4A4D57;          /* 次文字 */
   --ink-3: #8A8E99;          /* 弱文字 */

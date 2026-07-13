@@ -4,7 +4,7 @@
    ============================================================ */
 /* ---- Login（分屏：品牌面板 + 表单 · Notion / 飞书 式）---- */
 .login-container {
-  --ink: #F6F7F9; --ink-2: #FFFFFF; --bone: #15161A; --bone-2: #4A4D57; --bone-3: #8A8E99;
+  --ink: #F7F7F5; --ink-2: #FFFFFF; --bone: #15161A; --bone-2: #4A4D57; --bone-3: #8A8E99;
   --rule: #E6E8EC; --amber: #2B5FFF; --amber-2: #1A47E6; --amber-soft: rgba(43,95,255,0.10);
   min-height: 100vh; display: grid; grid-template-columns: 1.08fr 1fr;
   background: var(--ink-2); color: var(--bone);
