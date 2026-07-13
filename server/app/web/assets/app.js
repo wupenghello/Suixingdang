@@ -537,6 +537,28 @@ window.renderForgotPassword = renderForgotPassword;
 // 未登录访问根路径时展示的产品官网:顶栏 + Hero + 特性 + 安全/多端 + CTA + Footer。
 // 纯静态渲染,右上角"登录"跳 renderLogin;注册 CTA 随 register-status 开关,失败降级为仅"登录"。
 function renderLanding() {
+  const ic = {
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+    chat:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
+    sync:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 18 0"/><path d="M7.5 12a4.5 4.5 0 0 1 9 0"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>',
+    guard:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/><path d="M12 8v4M12 16h.01"/></svg>',
+    trace:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+    lock:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1" fill="currentColor"/></svg>',
+    key:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2M18 5l3 3M15 8l3 3"/></svg>',
+    doc:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/></svg>',
+    block:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>',
+    warn:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+    check:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    docker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="9" width="4" height="4"/><rect x="8" y="9" width="4" height="4"/><rect x="13" y="9" width="4" height="4"/><rect x="8" y="4" width="4" height="4"/><path d="M2 14c2 3 6 4 10 4 6 0 10-3 10-7 0-1-.5-2-1.5-2.5"/></svg>',
+    ssl:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    db:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/></svg>',
+    audit:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+    cite:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+    twofa:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 12l2 2 4-4"/></svg>',
+    arrow:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  };
+
   document.getElementById('app').innerHTML = `
     <div class="sx-page">
       <header class="sx-bar">
@@ -546,8 +568,9 @@ function renderLanding() {
         </a>
         <nav class="sx-bar-nav">
           <a href="#features">功能</a>
+          <a href="#demo">演示</a>
           <a href="#security">安全</a>
-          <a href="#access">接入</a>
+          <a href="#deploy">部署</a>
         </nav>
         <div class="sx-bar-cta">
           <button class="sx-link" type="button" data-action="renderLogin">登录</button>
@@ -557,12 +580,12 @@ function renderLanding() {
 
       <section class="sx-hero">
         <div class="sx-hero-inner">
-          <span class="sx-pill">自托管、端到端加密、零痕迹</span>
+          <span class="sx-pill">自托管 · 加密归档 · 零痕迹</span>
           <h1>把所有文件，装进<br>只对你<span class="sx-accent">显影</span>的档案室。</h1>
-          <p class="sx-hero-lead">随行档是一处自托管的私人档案室：文件加密归档、一句话语义检索、由 AI 作答。公司电脑上只看不留，离开一键吊销，如同从未存在。</p>
+          <p class="sx-hero-lead">不想在公司电脑装网盘客户端，又需要随时取文件。随行档长在你自己的服务器上——浏览器打开就能用，文件加密归档、一句话检索、AI 直接回答。用完关页，这台电脑上什么都没留下。</p>
           <div class="sx-hero-cta">
             <button class="sx-btn" type="button" id="landing-cta-hero" data-action="renderLogin">免费开始 <span class="sx-arrow">→</span></button>
-            <a class="sx-btn sx-btn--ghost" href="#features">了解功能</a>
+            <a class="sx-btn sx-btn--ghost" href="#demo">看演示</a>
           </div>
 
           <div class="sx-mockup" aria-hidden="true">
@@ -570,18 +593,18 @@ function renderLanding() {
             <div class="sx-mockup-body">
               <aside class="sx-mockup-side">
                 <div class="sx-mockup-sideh">档案室</div>
-                <div class="sx-mockup-item is-active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>全部文件</div>
-                <div class="sx-mockup-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>工作</div>
-                <div class="sx-mockup-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>证件</div>
-                <div class="sx-mockup-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>笔记</div>
+                <div class="sx-mockup-item is-active">${ic.doc}全部文件</div>
+                <div class="sx-mockup-item">${ic.doc}工作</div>
+                <div class="sx-mockup-item">${ic.doc}证件</div>
+                <div class="sx-mockup-item">${ic.doc}笔记</div>
               </aside>
               <div class="sx-mockup-main">
                 <div class="sx-mockup-q">上个月哪份报价最高？</div>
                 <div class="sx-mockup-a">在已归档文件中，<strong>报价单_2026Q2.xlsx</strong> 金额最高，为 ¥182,400。</div>
                 <div class="sx-mockup-files">
-                  <span class="sx-mockup-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>报价单_2026Q2.xlsx</span>
-                  <span class="sx-mockup-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>合同_甲方.pdf</span>
-                  <span class="sx-mockup-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>身份证.jpg</span>
+                  <span class="sx-mockup-chip">${ic.doc}报价单_2026Q2.xlsx</span>
+                  <span class="sx-mockup-chip">${ic.doc}合同_甲方.pdf</span>
+                  <span class="sx-mockup-chip">${ic.doc}身份证.jpg</span>
                 </div>
               </div>
             </div>
@@ -592,21 +615,94 @@ function renderLanding() {
       <section class="sx-section" id="features">
         <div class="sx-container">
           <div class="sx-head">
-            <h2>一处档案室，替你打理所有文件</h2>
-            <p>加密归档、语义检索、AI 作答、敏感预警。把散落的文件收回一处，只为你显影。</p>
+            <h2>一处档案室，替你收拢散落的文件</h2>
+            <p>加密归档、语义检索、AI 作答、敏感预警。文件从家里、从手机、从各个角落汇到一处，只对你开放。</p>
           </div>
           <div class="sx-bento">
             <div class="sx-cell sx-cell--wide sx-cell--tint">
-              <div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+              <div class="sx-cell-ico">${ic.search}</div>
               <h3>语义检索</h3>
-              <p>一句话找到文件，内容级匹配，Word、Excel、PDF 皆可。</p>
-              <div class="sx-cell-art"><div class="sx-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>报价单<span class="sx-cursor"></span></div></div>
+              <p>不用记文件名。搜"上季度报价"、"甲方合同条款"、"体检结论"，按内容匹配。Word、Excel、PDF、PPT 都能读。</p>
+              <div class="sx-cell-art"><div class="sx-searchbar">${ic.search}上个月哪家供应商最贵<span class="sx-cursor"></span></div></div>
             </div>
-            <div class="sx-cell"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2 5 5 .5-3.8 3.3 1.2 5L12 19l-4.6 2.8 1.2-5L4.8 8.5 10 8z"/></svg></div><h3>AI 应答</h3><p>检索相关文件后作答，流式输出，DeepSeek、OpenAI 可选。</p></div>
-            <div class="sx-cell"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/><path d="M12 8v4M12 16h.01"/></svg></div><h3>敏感预警</h3><p>识别凭据、隐私、机密文件，方向感知，上传即提醒。</p></div>
-            <div class="sx-cell"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 0 1 18 0"/><path d="M7.5 12a4.5 4.5 0 0 1 9 0"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg></div><h3>多端同步</h3><p>家里守护进程实时监听，公司浏览器即开即用。</p></div>
-            <div class="sx-cell"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.2"/><path d="M3 20a6 6 0 0 1 12 0M14 20a5 5 0 0 1 7-4.5"/></svg></div><h3>账户隔离</h3><p>每人独立空间、配额与向量库，互不可见。</p></div>
-            <div class="sx-cell sx-cell--wide sx-cell--tint"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><h3>落盘加密</h3><p>文件、数据库、向量库一体化 AES 加密保护，密钥在你手里。</p></div>
+            <div class="sx-cell">
+              <div class="sx-cell-ico">${ic.chat}</div>
+              <h3>AI 对话</h3>
+              <p>问"尾款什么时候付"、"合同到期了吗"，Agent 在你的文件里找答案再回答，不用自己翻。</p>
+            </div>
+            <div class="sx-cell">
+              <div class="sx-cell-ico">${ic.sync}</div>
+              <h3>多端同步</h3>
+              <p>家里守护进程盯着文件夹，新增即加密上传；公司用浏览器，不装任何客户端。</p>
+            </div>
+            <div class="sx-cell">
+              <div class="sx-cell-ico">${ic.guard}</div>
+              <h3>方向感知</h3>
+              <p>银行流水往公司带会提醒，公司合同往家带也会提醒。.env 密钥直接拦。</p>
+            </div>
+            <div class="sx-cell">
+              <div class="sx-cell-ico">${ic.trace}</div>
+              <h3>零痕迹</h3>
+              <p>默认不让下载，预览走 no-store。离职一键吊销令牌，只剩浏览器历史记录。</p>
+            </div>
+            <div class="sx-cell sx-cell--wide sx-cell--tint">
+              <div class="sx-cell-ico">${ic.lock}</div>
+              <h3>落盘加密</h3>
+              <p>文件、数据库、向量库一体化 AES 加密。密钥在你手里，服务器被偷也读不出内容。支持挂 LUKS 加密卷做静态保护。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-section sx-section--soft" id="demo">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>不用翻文件夹，直接问</h2>
+            <p>Agent 不只是聊天——它能搜文件、读内容、给建议、替你检查。下面是几个真实场景。</p>
+          </div>
+          <div class="sx-demo-chat">
+            <div class="sx-demo-q">上次和甲方签的合同，尾款什么时候付？</div>
+            <div class="sx-demo-a">在 <strong>合同_甲方_0603.pdf</strong> 第 2 页。尾款 ¥60,800，约定验收后 15 个工作日内支付，首期已于 6 月 15 日到账。<span class="sx-demo-cite">${ic.cite}合同_甲方_0603.pdf</span></div>
+
+            <div class="sx-demo-q">下周从公司离职，帮我看看该清什么</div>
+            <div class="sx-demo-a">当前 2 台设备在线。公司那台（<strong>ThinkPad-T14</strong>）缓存了 3 份敏感文件：银行流水_06.xlsx、体检报告.pdf、身份证_扫描件.jpg。这些已在服务器加密归档，建议吊销该设备令牌后清浏览器记录。<span class="sx-demo-act">需要我现在帮你吊销吗？</span></div>
+
+            <div class="sx-demo-q">桌面上那堆文件，哪些该归档？</div>
+            <div class="sx-demo-a">这周新增 14 个文件。建议归档：会议纪要_Q1.docx（87 天没打开）、设计稿_v3.fig（已有 v4 版本）。另外 <strong>config.env</strong> 检测到 API 密钥，已自动拦截上传。<span class="sx-demo-cite">${ic.cite}Guard 拦截</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-section" id="guard">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>同一份文件，往不同方向，判断不同</h2>
+            <p>Guard 是文件的安检岗。它在文件被搬运之前先看一眼：该不该动、往这个方向动合不合适。凭据硬拦，隐私提醒。</p>
+          </div>
+          <div class="sx-guard-table">
+            <div class="sx-guard-head">
+              <span>文件</span><span>→ 带去公司</span><span>→ 带回家</span>
+            </div>
+            <div class="sx-guard-row">
+              <span class="sx-guard-file">${ic.key}密钥 / .env / token</span>
+              <span><span class="sx-guard-verdict sx-guard-block">${ic.block}拦截</span></span>
+              <span><span class="sx-guard-verdict sx-guard-block">${ic.block}拦截</span></span>
+            </div>
+            <div class="sx-guard-row">
+              <span class="sx-guard-file">${ic.doc}银行流水 / 体检报告</span>
+              <span><span class="sx-guard-verdict sx-guard-warn">${ic.warn}提醒隐私</span></span>
+              <span><span class="sx-guard-verdict sx-guard-pass">${ic.check}放行</span></span>
+            </div>
+            <div class="sx-guard-row">
+              <span class="sx-guard-file">${ic.doc}公司合同 / 内部文档</span>
+              <span><span class="sx-guard-verdict sx-guard-pass">${ic.check}放行</span></span>
+              <span><span class="sx-guard-verdict sx-guard-warn">${ic.warn}提醒保密</span></span>
+            </div>
+            <div class="sx-guard-row">
+              <span class="sx-guard-file">${ic.doc}普通笔记 / 资料</span>
+              <span><span class="sx-guard-verdict sx-guard-pass">${ic.check}放行</span></span>
+              <span><span class="sx-guard-verdict sx-guard-pass">${ic.check}放行</span></span>
+            </div>
           </div>
         </div>
       </section>
@@ -615,12 +711,14 @@ function renderLanding() {
         <div class="sx-container">
           <div class="sx-head">
             <h2>看完就走，这台电脑上没有你的文件</h2>
-            <p>公司电脑默认不下载、预览不留缓存；离职换机，一键切断。</p>
+            <p>从落盘到传输到访问，每一层都有控制。不是喊口号，是实打实的机制。</p>
           </div>
           <div class="sx-list">
-            <div class="sx-list-row"><div class="sx-list-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg></div><div><h3>服务端 · 可远程吊销</h3><p>会话与设备令牌皆可单条或一键吊销，吊销即切断，旧凭证立即失效。改密码后，旧会话同步失效。</p></div></div>
-            <div class="sx-list-row"><div class="sx-list-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><div><h3>本地 · 默认不落盘</h3><p>浏览器端默认禁止下载，文件不落到公司电脑。需要时开启 5 分钟临时窗口，到期自动关闭。</p></div></div>
-            <div class="sx-list-row"><div class="sx-list-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/></svg></div><div><h3>缓存 · 关页即失</h3><p>在线预览带 no-store，文件内容不进磁盘缓存，关掉页面便无迹可寻。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.lock}</div><div><h3>落盘 · AES 加密</h3><p>文件、SQLite 数据库、Chroma 向量索引一体化 AES 加密。可选挂 LUKS/dm-crypt 加密卷，磁盘被偷也读不出内容。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.key}</div><div><h3>令牌 · 可远程吊销</h3><p>会话和设备令牌皆可单条或一键吊销，旧凭证立即失效。改密码后旧会话同步失效。离职换机，一个按钮切断全部。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.twofa}</div><div><h3>登录 · TOTP 双因子</h3><p>支持 TOTP 验证器（Google Authenticator 等），密码泄露也进不来。登录限流防爆破。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.trace}</div><div><h3>本地 · 默认不落盘</h3><p>浏览器端默认禁止下载，预览走 no-store。需要时开 5 分钟临时下载窗口，到期自动关。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.audit}</div><div><h3>审计 · 全量留痕</h3><p>登录、上传、删除、令牌操作全程记录。管理员后台可查，谁在什么时候干了什么一目了然。</p></div></div>
           </div>
         </div>
       </section>
@@ -629,23 +727,54 @@ function renderLanding() {
         <div class="sx-container">
           <div class="sx-head">
             <h2>三处出入，档案随行</h2>
-            <p>家里守护、服务器归档、公司浏览器只看不留。</p>
+            <p>家里守护、服务器归档、公司浏览器只看不留。不对称设计是这个产品的地基。</p>
           </div>
           <div class="sx-flow">
-            <div class="sx-flow-node"><div class="sx-flow-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></div><h3>家里</h3><p>守护进程自动监听文件夹，新增文件实时加密同步至档案室。</p></div>
-            <div class="sx-flow-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-            <div class="sx-flow-node sx-flow-node--hub"><div class="sx-flow-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg></div><h3>服务器</h3><p>你自己的机器上运行，文件加密归档、建立向量索引，只对你开放。</p></div>
-            <div class="sx-flow-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-            <div class="sx-flow-node"><div class="sx-flow-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>公司</h3><p>浏览器即开即用，只看不留，离开一键吊销，如同从未存在。</p></div>
+            <div class="sx-flow-node"><div class="sx-flow-ico">${ic.guard}</div><h3>家里</h3><p>守护进程自动监听文件夹，新增文件实时加密同步至档案室。可以装软件，你的地盘。</p></div>
+            <div class="sx-flow-arrow">${ic.arrow}</div>
+            <div class="sx-flow-node sx-flow-node--hub"><div class="sx-flow-ico">${ic.db}</div><h3>服务器</h3><p>你自己的机器上运行，文件加密归档、建立向量索引，只对你开放。</p></div>
+            <div class="sx-flow-arrow">${ic.arrow}</div>
+            <div class="sx-flow-node"><div class="sx-flow-ico">${ic.doc}</div><h3>公司</h3><p>浏览器即开即用，只看不留，离开一键吊销，如同从未存在。</p></div>
           </div>
         </div>
       </section>
 
-      <section class="sx-cta-band">
-        <div class="sx-cta-box">
-          <h2>建立你的私人卷宗</h2>
-          <p>自托管，数据在你手里，只对你显影。</p>
-          <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" data-action="renderLogin">免费开始 <span class="sx-arrow">→</span></button>
+      <section class="sx-section sx-section--soft" id="deploy">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>长在你自己的服务器上</h2>
+            <p>Docker Compose 一键起，Caddy 自动签 HTTPS，SQLite + Chroma 嵌入式不用额外起数据库。一行命令跑起来。</p>
+          </div>
+          <div class="sx-deploy-grid">
+            <div class="sx-terminal">
+              <div class="sx-terminal-bar"><span></span><span></span><span></span></div>
+<div class="sx-terminal-body"><span class="sx-comment"># 一行命令，自动下载、配置、启动</span>
+<span class="sx-cmd">curl -fsSL</span> https://raw.githubusercontent.com/wupenghello/Suixingdang/main/install.sh | bash
+<span class="sx-comment"># 脚本会问：域名、管理员密码（其余自动生成）</span>
+<span class="sx-ok">✓</span> <span class="sx-comment">生成三把密钥 · 下载 compose/Caddyfile</span>
+<span class="sx-ok">✓</span> <span class="sx-comment">Caddy 自动签发 HTTPS · 拉镜像启动容器</span>
+<span class="sx-ok">✓</span> <span class="sx-comment">打开 https://你的域名 即可使用</span></div>
+            </div>
+            <div class="sx-deploy-facts">
+              <div class="sx-fact"><div class="sx-fact-ico">${ic.docker}</div><div><h4>一键脚本</h4><p>自动下载 compose/Caddyfile、生成密钥、拉镜像启动，无需 clone 源码。也可 git clone 后 ./install.sh 从源码构建。</p></div></div>
+              <div class="sx-fact"><div class="sx-fact-ico">${ic.ssl}</div><div><h4>Caddy 自动 HTTPS</h4><p>配置文件写上域名，自动签发和续期 Let's Encrypt 证书，零手动操作。</p></div></div>
+              <div class="sx-fact"><div class="sx-fact-ico">${ic.db}</div><div><h4>零外部依赖</h4><p>SQLite (WAL) 做数据库，Chroma 嵌入式做向量库，不用额外起服务进程。</p></div></div>
+              <div class="sx-fact"><div class="sx-fact-ico">${ic.chat}</div><div><h4>大模型按需配</h4><p>管理后台填 DeepSeek 或 OpenAI 的 API Key，Fernet 加密入库。不同用户可分配不同模型。</p></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-outro">
+        <div class="sx-outro-inner">
+          <h2>把文件收回自己手里</h2>
+          <p>部署在你自己的服务器上，数据落在你自己的磁盘上。不经过任何第三方云盘，不经过任何中间商。</p>
+          <div class="sx-outro-cta">
+            <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" data-action="renderLogin">开始使用 <span class="sx-arrow">→</span></button>
+            <a class="sx-outro-link" href="https://github.com/wupenghello/Suixingdang" target="_blank" rel="noopener">源码 ↗</a>
+            <a class="sx-outro-link" href="#deploy">部署文档</a>
+            <a class="sx-outro-link" href="#features">再看一眼功能</a>
+          </div>
         </div>
       </section>
 
@@ -655,6 +784,8 @@ function renderLanding() {
           <div class="sx-foot-links">
             <a href="/admin">管理后台</a>
             <a href="#" data-action="renderLogin">登录</a>
+            <a href="/privacy">隐私政策</a>
+            <a href="/terms">服务条款</a>
           </div>
           <span class="sx-foot-copy">© 2026 SXD</span>
         </div>
@@ -671,6 +802,7 @@ function renderLanding() {
   }).catch(() => {});
 }
 window.renderLanding = renderLanding;
+
 
 // ============ Login ============
 function renderLogin() {
