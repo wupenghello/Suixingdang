@@ -119,20 +119,34 @@ function paginationHTML(view, fnName) {
 function renderLogin() {
   document.getElementById('admin-app').innerHTML = `
     <div class="login-container">
-      <div class="login-card">
-        <div class="login-card-banner">
-          <span>SXD · 系统管理</span>
-          <span class="sx-stamp">朱印核验</span>
+      <aside class="login-brand">
+        <div class="login-brand-top">
+          <span class="login-brand-mark">管</span>
+          <span class="login-brand-name">随行档 · 管理后台</span>
         </div>
-        <div class="login-logo">管</div>
-        <h1>管理后台</h1>
-        <p class="subtitle">随行档 · 系统管理</p>
-        <form id="admin-login-form">
-          <div class="form-group"><label>管理员用户名</label><input type="text" id="login-user" class="form-input" autofocus></div>
-          <div class="form-group"><label>密码</label><input type="password" id="login-pass" class="form-input"></div>
-          <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">登录</button>
-        </form>
-      </div>
+        <div class="login-brand-body">
+          <h2>集中管理<br>用户、文件与系统。</h2>
+          <p>账号、配额、文件、令牌与系统设置，一处掌控。</p>
+          <ul class="login-brand-points">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.2"/><path d="M3 20a6 6 0 0 1 12 0M14 20a5 5 0 0 1 7-4.5"/></svg>用户与配额管理</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>文件与令牌审计</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 0 1 18 0"/><path d="M3 12v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></svg>系统运行监控</li>
+          </ul>
+        </div>
+        <div class="login-brand-foot">© 2026 随行档 · 管理后台</div>
+      </aside>
+      <main class="login-main">
+        <div class="login-card">
+          <div class="login-logo">管</div>
+          <h1>管理员登录</h1>
+          <p class="subtitle">核验管理员凭证</p>
+          <form id="admin-login-form">
+            <div class="form-group"><label>管理员用户名</label><input type="text" id="login-user" class="form-input" autofocus></div>
+            <div class="form-group"><label>密码</label><input type="password" id="login-pass" class="form-input"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:11px">登录</button>
+          </form>
+        </div>
+      </main>
     </div>`;
   document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
     e.preventDefault();

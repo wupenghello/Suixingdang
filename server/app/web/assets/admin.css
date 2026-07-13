@@ -1,43 +1,49 @@
 /* ============================================================
-   随行档 · 管理后台 · 朱砂印设计系统
-   ink + bone + vermilion · 与用户端共享墨/骨/字体，主色易为朱泥
-   用户端=金印，管理端=朱印
+   随行档 · 管理后台（蓝色现代风 · 与用户端/首页统一）
+   冷灰画布 + 白卡 + 蓝主色 + Geist + 小圆角 7/10/12
    ============================================================ */
 :root {
-  /* -- 墨色背景层 -- */
-  --bg: #0C0E12;
-  --bg-surface: #13161B;
-  --bg-surface-hover: #1B1F26;
-  --bg-elevated: #1B1F26;
-  --bg-secondary: #1B1F26;   /* 兼容 admin.js 内联引用 */
-  /* -- 骨色文字层 -- */
-  --text: #E9E3D6;
-  --text-secondary: #A39C8E;
-  --text-muted: #6B6557;
-  /* -- 细线 -- */
-  --border: #262B33;
-  --border-light: #363B45;
-  /* -- 朱砂主色（朱印）-- */
-  --primary: #B85C3E;
-  --primary-hover: #D17758;
-  --primary-light: rgba(184, 92, 62, 0.12);
-  --seal: #B85C3E;
-  --seal-2: #D17758;
-  --seal-soft: rgba(184, 92, 62, 0.12);
+  /* -- 背景层：冷灰画布 + 白卡 -- */
+  --bg: #F6F7F9;
+  --bg-surface: #FFFFFF;
+  --bg-surface-hover: #F0F2F5;
+  --bg-elevated: #FFFFFF;
+  --bg-secondary: #FFFFFF;   /* 兼容 admin.js 内联引用 */
+  --bg-sunken: #F0F2F5;
+  /* -- 文字层 -- */
+  --text: #15161A;
+  --text-secondary: #4A4D57;
+  --text-muted: #8A8E99;
+  /* -- 细线（冷灰）-- */
+  --border: #E6E8EC;
+  --border-light: #D8DBE2;
+  /* -- 品牌主色：蓝（与用户端统一）-- */
+  --primary: #2B5FFF;
+  --primary-hover: #1A47E6;
+  --primary-light: rgba(43, 95, 255, 0.10);
+  --seal: #2B5FFF;           /* 兼容旧名 */
+  --seal-2: #1A47E6;
+  --seal-soft: rgba(43, 95, 255, 0.10);
+  --brand: #2B5FFF;
+  /* -- 墨色 -- */
+  --ink: #15161A;
+  --ink-hover: #2A2C33;
   /* -- 语义色 -- */
-  --success: #6FAE7E;
-  --warning: #D9A441;
-  --danger: #C76B5E;
-  --danger-light: rgba(199, 107, 94, 0.12);
-  /* -- 圆角 -- */
-  --radius: 4px;
-  --radius-sm: 3px;
-  --radius-lg: 5px;
-  --shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
-  /* -- 字体角色 -- */
-  --font-sans: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-serif: 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', serif;
-  --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, 'Consolas', monospace;
+  --success: #16A34A;
+  --warning: #D97706;
+  --danger: #DC2626;
+  --danger-light: rgba(220, 38, 38, 0.09);
+  /* -- 圆角（= 用户端）-- */
+  --radius-sm: 7px;
+  --radius: 10px;
+  --radius-lg: 12px;
+  --shadow: 0 1px 2px rgba(16,24,40,.05);
+  --shadow-sm: 0 1px 2px rgba(16,24,40,.05);
+  --shadow-lg: 0 2px 8px rgba(16,24,40,.06), 0 30px 70px rgba(16,24,40,.16);
+  /* -- 字体（= 用户端 Geist）-- */
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  --font-serif: 'Songti SC', 'STSong', 'SimSun', 'Noto Serif SC', serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -53,13 +59,14 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
   display: flex; align-items: center; gap: 12px;
   padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px;
 }
-/* 朱印品牌 mark · 取代红橙渐变 */
+/* 品牌 mark · 蓝色渐变（与用户端/首页统一）*/
 .admin-logo-icon {
-  width: 32px; height: 32px; flex-shrink: 0;
+  width: 30px; height: 30px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-serif); font-size: 16px; font-weight: 600;
-  color: var(--seal); border: 1px solid var(--seal); border-radius: var(--radius-sm);
-  background: var(--seal-soft);
+  font-family: var(--font-sans); font-size: 15px; font-weight: 700;
+  color: #fff; border: none; border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, #3F6BFF, #2B5FFF);
+  box-shadow: var(--shadow-sm);
 }
 .admin-logo-text { font-family: var(--font-serif); font-size: 15px; font-weight: 600; white-space: nowrap; letter-spacing: 0.02em; }
 .admin-nav { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 0 12px; }
@@ -108,13 +115,13 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
   transition: background .15s, border-color .15s, color .15s;
 }
 .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
-.btn-primary { background: var(--seal); color: #1a0e08; font-weight: 600; }
-.btn-primary:hover { background: var(--seal-2); }
+.btn-primary { background: var(--primary); color: #fff; font-weight: 500; }
+.btn-primary:hover { background: var(--primary-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-secondary { background: transparent; border-color: var(--border); color: var(--text); }
 .btn-secondary:hover { border-color: var(--border-light); background: var(--bg-surface-hover); }
 .btn-danger { background: var(--danger-light); color: var(--danger); }
-.btn-danger:hover { background: rgba(199, 107, 94, 0.2); }
+.btn-danger:hover { background: rgba(168, 65, 46, 0.14); }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-icon { padding: 6px; width: 30px; height: 30px; justify-content: center; }
 
@@ -140,61 +147,63 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
 
 /* ---- 徽章 ---- */
 .badge { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 500; white-space: nowrap; }
-.badge-success { background: rgba(111, 174, 126, 0.15); color: var(--success); }
+.badge-success { background: rgba(78, 122, 85, 0.13); color: var(--success); }
 .badge-danger { background: var(--danger-light); color: var(--danger); }
 .badge-info { background: var(--seal-soft); color: var(--seal); }
-.badge-warning { background: rgba(217, 164, 65, 0.15); color: var(--warning); }
+.badge-warning { background: rgba(154, 107, 31, 0.13); color: var(--warning); }
 
-/* ---- 登录 · 朱印凭证 ---- */
+/* ---- 登录（分屏：品牌面板 + 表单）---- */
 .login-container {
-  --ink: #0C0E12; --ink-2: #13161B; --bone: #E9E3D6; --bone-2: #A39C8E; --bone-3: #6B6557;
-  --rule: #262B33; --seal: #B85C3E; --seal-2: #D17758; --seal-soft: rgba(184,92,62,0.12);
-  position: relative; overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
-  min-height: 100vh; padding: 40px 20px;
-  background: var(--ink); color: var(--bone);
+  --ink: #F6F7F9; --ink-2: #FFFFFF; --bone: #15161A; --bone-2: #4A4D57; --bone-3: #8A8E99;
+  --rule: #E6E8EC; --seal: #2B5FFF; --seal-2: #1A47E6; --seal-soft: rgba(43,95,255,0.10);
+  min-height: 100vh; display: grid; grid-template-columns: 1.08fr 1fr;
+  background: var(--ink-2); color: var(--bone);
   font-family: var(--font-sans);
 }
-.login-container::before {
-  content: ""; position: absolute; top: -220px; left: 50%; transform: translateX(-50%);
-  width: 760px; height: 500px;
-  background: radial-gradient(ellipse at center, rgba(184, 92, 62, 0.10), transparent 67%);
-  pointer-events: none;
+.login-brand {
+  position: relative; overflow: hidden;
+  background: linear-gradient(155deg, #2B5FFF 0%, #1B47E6 55%, #1230A8 100%);
+  color: #fff;
+  padding: 44px 52px; display: flex; flex-direction: column; justify-content: space-between; gap: 32px;
 }
-.login-card {
-  position: relative; z-index: 1;
-  width: 384px; max-width: 100%;
-  background: var(--ink-2); border: 1px solid var(--rule); border-radius: 4px;
-  padding: 44px 36px 34px; box-shadow: 0 30px 80px rgba(0,0,0,0.5);
-}
-.login-card-banner {
-  margin: -44px -36px 30px; padding: 13px 22px;
-  display: flex; justify-content: space-between; align-items: center;
-  border-bottom: 1px solid var(--rule); background: rgba(184, 92, 62, 0.04);
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--bone-3);
-}
-.login-card-banner .sx-stamp { font-size: 9px; padding: 3px 8px; letter-spacing: 0.2em; border-color: var(--seal); color: var(--seal); }
+.login-brand::before { content: ""; position: absolute; top: -140px; right: -120px; width: 440px; height: 440px; background: radial-gradient(circle, rgba(255,255,255,0.16), transparent 64%); pointer-events: none; }
+.login-brand::after { content: ""; position: absolute; bottom: -160px; left: -100px; width: 380px; height: 380px; background: radial-gradient(circle, rgba(255,255,255,0.08), transparent 62%); pointer-events: none; }
+.login-brand-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; }
+.login-brand-mark { width: 30px; height: 30px; border-radius: 8px; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.22); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; }
+.login-brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.login-brand-body { position: relative; z-index: 1; max-width: 26em; }
+.login-brand-body h2 { font-size: clamp(26px, 2.8vw, 36px); font-weight: 600; letter-spacing: -0.028em; line-height: 1.12; margin-bottom: 14px; }
+.login-brand-body p { font-size: 14.5px; line-height: 1.65; color: rgba(255,255,255,0.82); margin-bottom: 26px; }
+.login-brand-points { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.login-brand-points li { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: rgba(255,255,255,0.92); }
+.login-brand-points svg { width: 17px; height: 17px; color: rgba(255,255,255,0.95); flex-shrink: 0; }
+.login-brand-foot { position: relative; z-index: 1; font-size: 11.5px; color: rgba(255,255,255,0.55); }
+.login-main { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; background: var(--ink-2); }
+.login-card { width: 100%; max-width: 360px; }
 .login-logo {
-  width: 46px; height: 46px; margin: 0 auto 22px;
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-serif); font-size: 23px; font-weight: 600;
-  color: var(--seal); border: 1px solid var(--seal); border-radius: 4px;
-  background: var(--seal-soft);
+  width: 40px; height: 40px; margin: 0 auto 18px;
+  display: none; align-items: center; justify-content: center;
+  font-family: var(--font-sans); font-size: 19px; font-weight: 700; color: #fff;
+  border: none; border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, #3F6BFF, #2B5FFF);
 }
-.login-card h1 { text-align: center; font-family: var(--font-serif); font-size: 24px; font-weight: 600; letter-spacing: 0.03em; margin-bottom: 6px; color: var(--bone); }
-.login-card .subtitle { text-align: center; color: var(--bone-2); margin-bottom: 30px; font-size: 12.5px; }
-/* 登记单式下划线输入 */
-.login-card .form-group { margin-bottom: 18px; }
-.login-card .form-group label { display: block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone-3); margin-bottom: 3px; font-weight: 400; }
-.login-card .form-input { width: 100%; background: transparent; border: none; border-bottom: 1px solid var(--rule); border-radius: 0; padding: 9px 0; color: var(--bone); font-size: 14px; font-family: inherit; transition: border-color .15s; }
+.login-card h1 { text-align: center; font-family: var(--font-sans); font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 6px; color: var(--bone); }
+.login-card .subtitle { text-align: center; color: var(--bone-2); margin-bottom: 26px; font-size: 13.5px; }
+.login-card .form-group { margin-bottom: 14px; }
+.login-card .form-group label { display: block; font-size: 12.5px; color: var(--bone-2); margin-bottom: 6px; font-weight: 500; }
+.login-card .form-input { width: 100%; padding: 10px 14px; background: var(--ink); border: 1px solid var(--rule); border-radius: var(--radius-sm); color: var(--bone); font-size: 14px; font-family: inherit; transition: border-color .15s, background .15s; }
 .login-card .form-input::placeholder { color: var(--bone-3); }
-.login-card .form-input:focus { outline: none; border-bottom-color: var(--seal); }
-.login-card .btn-primary { width: 100%; justify-content: center; padding: 12px; border: none; border-radius: 3px; background: var(--seal); color: #1a0e08; font-size: 14px; font-weight: 600; letter-spacing: 0.04em; }
+.login-card .form-input:focus { outline: none; border-color: var(--seal); background: var(--ink-2); }
+.login-card .btn-primary { width: 100%; justify-content: center; padding: 11px; border: none; border-radius: var(--radius-sm); background: var(--seal); color: #fff; font-size: 14.5px; font-weight: 600; }
 .login-card .btn-primary:hover { background: var(--seal-2); }
+@media (max-width: 880px) {
+  .login-container { grid-template-columns: 1fr; }
+  .login-brand { display: none; }
+  .login-logo { display: flex; }
+}
 
 /* ---- 弹窗 ---- */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 999; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(28, 25, 18, 0.42); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 999; }
 .modal { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; width: 420px; max-width: 90vw; box-shadow: var(--shadow); }
 .modal h3 { font-family: var(--font-serif); margin-bottom: 16px; font-size: 17px; font-weight: 600; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
@@ -218,7 +227,7 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
   transition: border-color .15s, background .15s, color .15s;
 }
 .page-btn:hover:not(:disabled):not(.active) { border-color: var(--border-light); background: var(--bg-surface-hover); color: var(--text); }
-.page-btn.active { background: var(--seal); border-color: var(--seal); color: #1a0e08; font-weight: 600; }
+.page-btn.active { background: var(--seal); border-color: var(--seal); color: #FFFFFF; font-weight: 600; }
 .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .page-ellipsis { color: var(--text-muted); padding: 0 4px; user-select: none; }
 .page-info { margin-left: auto; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); white-space: nowrap; letter-spacing: 0.02em; }

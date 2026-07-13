@@ -400,13 +400,36 @@ function setupPaste() {
 
 
 // ============ Register ============
-async function renderRegister() {
-  document.getElementById('app').innerHTML = `
+// 登录/注册/找回 共用的分屏外壳：左品牌面板 + 右表单
+function loginShell(card) {
+  return `
     <div class="login-container">
+      <aside class="login-brand">
+        <div class="login-brand-top">
+          <span class="login-brand-mark">档</span>
+          <span class="login-brand-name">随行档</span>
+        </div>
+        <div class="login-brand-body">
+          <h2>只对你显影的<br>私人档案室。</h2>
+          <p>文件加密归档、一句话语义检索、由 AI 作答。公司电脑上只看不留,离开一键吊销。</p>
+          <ul class="login-brand-points">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/><path d="M9 12l2 2 4-4"/></svg>AES-256 落盘加密</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>一句话语义检索</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>默认零落盘,一键吊销</li>
+          </ul>
+        </div>
+        <div class="login-brand-foot">© 2026 随行档 · 自托管</div>
+      </aside>
+      <main class="login-main">${card}</main>
+    </div>`;
+}
+
+async function renderRegister() {
+  document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo">档</div>
-        <h1>注册账号</h1>
-        <p class="subtitle">创建你的私人文件中枢</p>
+        <h1>创建账号</h1>
+        <p class="subtitle">建立你的私人档案室</p>
         <form id="register-form">
           <div class="form-group"><label>用户名</label><input type="text" id="reg-username" class="form-input" placeholder="2个字符以上" autofocus></div>
           <div class="form-group"><label>密码</label><input type="password" id="reg-password" class="form-input" placeholder="8个字符以上"></div>
@@ -416,7 +439,7 @@ async function renderRegister() {
         </form>
         <p style="text-align:center;margin-top:16px"><a href="#" data-action="renderLogin" style="color:var(--text-muted);font-size:13px;text-decoration:none">已有账号？登录</a></p>
       </div>
-    </div>`;
+    `);
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = document.getElementById('reg-username').value;
@@ -446,8 +469,7 @@ window.renderRegister = renderRegister;
 
 // ============ Forgot Password ============
 function renderForgotPassword() {
-  document.getElementById('app').innerHTML = `
-    <div class="login-container">
+  document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo">档</div>
         <h1>找回密码</h1>
@@ -463,7 +485,7 @@ function renderForgotPassword() {
         </form>
         <p style="text-align:center;margin-top:16px"><a href="#" data-action="renderLogin" style="color:var(--text-muted);font-size:13px;text-decoration:none">返回登录</a></p>
       </div>
-    </div>`;
+    `);
   let step = 1;
   const form = document.getElementById('forgot-form');
   const btn = document.getElementById('fp-btn');
@@ -520,142 +542,122 @@ function renderLanding() {
       <header class="sx-bar">
         <a class="sx-brand" href="#" data-action="renderLanding" title="随行档">
           <span class="sx-mark">档</span>
-          <span class="sx-brand-meta">
-            <span class="sx-brand-name">随行档</span>
-            <span class="sx-brand-sub">SXD · 私人文件中枢</span>
-          </span>
+          <span class="sx-brand-meta"><span class="sx-brand-name">随行档</span><span class="sx-brand-sub">私人文件中枢</span></span>
         </a>
         <nav class="sx-bar-nav">
-          <a href="#dossier">卷宗</a>
-          <a href="#spec">规格</a>
+          <a href="#features">功能</a>
+          <a href="#security">安全</a>
           <a href="#access">接入</a>
         </nav>
         <div class="sx-bar-cta">
           <button class="sx-link" type="button" data-action="renderLogin">登录</button>
-          <button class="sx-link sx-link--solid" type="button" id="landing-cta-nav" data-action="renderLogin">建立卷宗</button>
+          <button class="sx-link sx-link--solid" type="button" id="landing-cta-nav" data-action="renderLogin">免费开始</button>
         </div>
       </header>
 
-      <section class="sx-hero" id="dossier">
-        <div class="sx-hero-grid">
-          <div class="sx-hero-left">
-            <div class="sx-dossier-head">
-              <span class="sx-stamp">私密 · Personal</span>
-              <span class="sx-ref">SXD-0001 · 归档于你名下</span>
-            </div>
-            <h1 class="sx-hero-title">只对你一人<br><span class="sx-fade">显影</span>的档案。</h1>
-            <p class="sx-hero-lead">随行档是一处自托管的私人档案室。文件在此加密归档、由 AI 检索应答,只对你显影。公司电脑上只看不留——默认不下载、预览不留缓存,离开时一键吊销,如同从未存在。</p>
-            <div class="sx-hero-cta">
-              <button class="sx-btn" type="button" id="landing-cta-hero" data-action="renderLogin">开启卷宗 →</button>
-              <a class="sx-quiet" href="#spec">查阅规格</a>
-            </div>
-            <dl class="sx-hero-meta">
-              <div><dt>加密</dt><dd>落盘 AES</dd></div>
-              <div><dt>检索</dt><dd>语义向量</dd></div>
-              <div><dt>托管</dt><dd>你自己</dd></div>
-            </dl>
+      <section class="sx-hero">
+        <div class="sx-hero-inner">
+          <span class="sx-pill">自托管、端到端加密、零痕迹</span>
+          <h1>把所有文件，装进<br>只对你<span class="sx-accent">显影</span>的档案室。</h1>
+          <p class="sx-hero-lead">随行档是一处自托管的私人档案室：文件加密归档、一句话语义检索、由 AI 作答。公司电脑上只看不留，离开一键吊销，如同从未存在。</p>
+          <div class="sx-hero-cta">
+            <button class="sx-btn" type="button" id="landing-cta-hero" data-action="renderLogin">免费开始 <span class="sx-arrow">→</span></button>
+            <a class="sx-btn sx-btn--ghost" href="#features">了解功能</a>
           </div>
-          <aside class="sx-hero-right">
-            <div class="sx-archive" aria-hidden="true">
-              <div class="sx-archive-head">
-                <span>已归档</span>
-                <span class="sx-archive-lock">ENCRYPTED ●</span>
-              </div>
-              <ul class="sx-archive-list">
-                <li><span class="sx-idx">001</span><span class="sx-row-name">报价单_2026Q2.xlsx</span><span class="sx-row-tag">已封存</span></li>
-                <li><span class="sx-idx">002</span><span class="sx-row-name">身份证_扫描件.jpg</span><span class="sx-row-tag sx-warn">敏感</span></li>
-                <li><span class="sx-idx">003</span><span class="sx-row-name">学习笔记 / 算法</span><span class="sx-row-tag">索引中</span></li>
-                <li><span class="sx-idx">004</span><span class="sx-row-name">合同_甲方.pdf</span><span class="sx-row-tag">已封存</span></li>
-                <li><span class="sx-idx">005</span><span class="sx-row-name">2024-年度总结.md</span><span class="sx-row-tag">已封存</span></li>
-              </ul>
-              <div class="sx-archive-foot">
-                <span class="sx-prompt">▸ 上个月哪份报价最高?</span>
+
+          <div class="sx-mockup" aria-hidden="true">
+            <div class="sx-mockup-bar"><span class="sx-mockup-dot"></span><span class="sx-mockup-dot"></span><span class="sx-mockup-dot"></span></div>
+            <div class="sx-mockup-body">
+              <aside class="sx-mockup-side">
+                <div class="sx-mockup-sideh">档案室</div>
+                <div class="sx-mockup-item is-active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>全部文件</div>
+                <div class="sx-mockup-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>工作</div>
+                <div class="sx-mockup-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>证件</div>
+                <div class="sx-mockup-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>笔记</div>
+              </aside>
+              <div class="sx-mockup-main">
+                <div class="sx-mockup-q">上个月哪份报价最高？</div>
+                <div class="sx-mockup-a">在已归档文件中，<strong>报价单_2026Q2.xlsx</strong> 金额最高，为 ¥182,400。</div>
+                <div class="sx-mockup-files">
+                  <span class="sx-mockup-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>报价单_2026Q2.xlsx</span>
+                  <span class="sx-mockup-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>合同_甲方.pdf</span>
+                  <span class="sx-mockup-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>身份证.jpg</span>
+                </div>
               </div>
             </div>
-          </aside>
-        </div>
-      </section>
-
-      <section class="sx-spec" id="spec">
-        <header class="sx-sec-head">
-          <span class="sx-sec-num">§ 规格</span>
-          <h2>它替你做什么</h2>
-          <p>九条,不喧哗。</p>
-        </header>
-        <dl class="sx-spec-table">
-          <div class="sx-spec-row"><dt>语义检索</dt><dd class="sx-spec-desc">一句话找到文件,内容级匹配,Word / Excel / PDF 皆可。</dd><dd class="sx-spec-val">向量 · 中文</dd></div>
-          <div class="sx-spec-row"><dt>AI 应答</dt><dd class="sx-spec-desc">检索相关文件后作答,流式输出,DeepSeek / OpenAI 可选。</dd><dd class="sx-spec-val">RAG · 流式</dd></div>
-          <div class="sx-spec-row"><dt>Guard 检测</dt><dd class="sx-spec-desc">识别凭据、隐私、机密文件,方向感知,上传即提醒。</dd><dd class="sx-spec-val">敏感预警</dd></div>
-          <div class="sx-spec-row"><dt>多端同步</dt><dd class="sx-spec-desc">家里守护进程实时监听,公司浏览器即开即用。</dd><dd class="sx-spec-val">双向 · 实时</dd></div>
-          <div class="sx-spec-row"><dt>多账户隔离</dt><dd class="sx-spec-desc">每人独立空间、配额与向量库,互不可见。</dd><dd class="sx-spec-val">三重隔离</dd></div>
-          <div class="sx-spec-row"><dt>会话吊销</dt><dd class="sx-spec-desc">浏览器会话与设备令牌皆可单独或一键吊销,吊销即切断;改密码后旧会话立即失效。</dd><dd class="sx-spec-val">可远程吊销</dd></div>
-          <div class="sx-spec-row"><dt>临时下载</dt><dd class="sx-spec-desc">浏览器端默认禁下载,需要时开启 5 分钟窗口,到期自动关闭,文件不落公司电脑。</dd><dd class="sx-spec-val">默认零落盘</dd></div>
-          <div class="sx-spec-row"><dt>落盘加密</dt><dd class="sx-spec-desc">文件、数据库、向量库一体化加密保护。</dd><dd class="sx-spec-val">AES</dd></div>
-          <div class="sx-spec-row"><dt>双因子</dt><dd class="sx-spec-desc">JWT + TOTP,自托管,数据在你手里。</dd><dd class="sx-spec-val">TOTP</dd></div>
-        </dl>
-      </section>
-
-      <section class="sx-seal">
-        <div class="sx-seal-mark"><span>档</span></div>
-        <div class="sx-seal-body">
-          <span class="sx-stamp">零痕迹 · Ephemeral</span>
-          <h2>看完就走,这台电脑上没有你的文件。</h2>
-          <p>公司电脑默认根本不下载文件——只在线预览,关页即失。想下载,得你主动开一个 5 分钟的临时窗口,且明确告知"文件会留在本机"。离职或换机时,一键吊销令牌,服务端即刻切断,不留 60 分钟窗口。</p>
-          <div class="sx-seal-layers" style="display:grid;gap:14px;margin:20px 0">
-            <div style="display:flex;gap:14px;align-items:flex-start">
-              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">壹</span>
-              <div><strong>服务端 · 可远程吊销</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">浏览器会话与设备令牌皆可单条或一键吊销,吊销即切断访问,已签发凭证立即失效。</p></div>
-            </div>
-            <div style="display:flex;gap:14px;align-items:flex-start">
-              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">贰</span>
-              <div><strong>本地 · 默认不落盘</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">浏览器端默认禁止下载,文件不落到公司电脑。需要时开启 5 分钟临时窗口,到期自动关闭。</p></div>
-            </div>
-            <div style="display:flex;gap:14px;align-items:flex-start">
-              <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">叁</span>
-              <div><strong>缓存 · 关页即失</strong><p style="margin:2px 0 0;color:var(--text-muted);font-size:13px;line-height:1.6">在线预览带 no-store,文件内容不进浏览器磁盘缓存,关掉页面便无迹可寻。</p></div>
-            </div>
           </div>
-          <ul class="sx-seal-points">
-            <li><span class="sx-bullet">◆</span>会话/设备令牌 · 可吊销</li>
-            <li><span class="sx-bullet">◆</span>临时下载 · 5 分钟窗口</li>
-            <li><span class="sx-bullet">◆</span>预览 no-store · 关页即失</li>
-            <li><span class="sx-bullet">◆</span>改密码 · 旧会话立即失效</li>
-          </ul>
         </div>
       </section>
 
-      <section class="sx-topo" id="access">
-        <header class="sx-sec-head">
-          <span class="sx-sec-num">§ 接入</span>
-          <h2>三处出入</h2>
-          <p>家里、公司、还有你自己的服务器。</p>
-        </header>
-        <div class="sx-topo-graph" aria-hidden="true">
-          <div class="sx-node sx-node--home"><span class="sx-node-glyph">⌂</span><span class="sx-node-name">家里</span><span class="sx-node-note">守护进程 · 自动同步</span></div>
-          <div class="sx-edge"><span class="sx-edge-label">加密通道</span></div>
-          <div class="sx-node sx-node--hub"><span class="sx-node-glyph">档</span><span class="sx-node-name">服务器</span><span class="sx-node-note">你的 · 档案室</span></div>
-          <div class="sx-edge"><span class="sx-edge-label">零安装</span></div>
-          <div class="sx-node sx-node--work"><span class="sx-node-glyph">▣</span><span class="sx-node-name">公司</span><span class="sx-node-note">浏览器 · 只看不留</span></div>
+      <section class="sx-section" id="features">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>一处档案室，替你打理所有文件</h2>
+            <p>加密归档、语义检索、AI 作答、敏感预警。把散落的文件收回一处，只为你显影。</p>
+          </div>
+          <div class="sx-bento">
+            <div class="sx-cell sx-cell--wide sx-cell--tint">
+              <div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+              <h3>语义检索</h3>
+              <p>一句话找到文件，内容级匹配，Word、Excel、PDF 皆可。</p>
+              <div class="sx-cell-art"><div class="sx-searchbar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>报价单<span class="sx-cursor"></span></div></div>
+            </div>
+            <div class="sx-cell"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2 5 5 .5-3.8 3.3 1.2 5L12 19l-4.6 2.8 1.2-5L4.8 8.5 10 8z"/></svg></div><h3>AI 应答</h3><p>检索相关文件后作答，流式输出，DeepSeek、OpenAI 可选。</p></div>
+            <div class="sx-cell"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5z"/><path d="M12 8v4M12 16h.01"/></svg></div><h3>敏感预警</h3><p>识别凭据、隐私、机密文件，方向感知，上传即提醒。</p></div>
+            <div class="sx-cell"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 0 1 18 0"/><path d="M7.5 12a4.5 4.5 0 0 1 9 0"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg></div><h3>多端同步</h3><p>家里守护进程实时监听，公司浏览器即开即用。</p></div>
+            <div class="sx-cell"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.2"/><path d="M3 20a6 6 0 0 1 12 0M14 20a5 5 0 0 1 7-4.5"/></svg></div><h3>账户隔离</h3><p>每人独立空间、配额与向量库，互不可见。</p></div>
+            <div class="sx-cell sx-cell--wide sx-cell--tint"><div class="sx-cell-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><h3>落盘加密</h3><p>文件、数据库、向量库一体化 AES 加密保护，密钥在你手里。</p></div>
+          </div>
         </div>
       </section>
 
-      <section class="sx-cta">
-        <span class="sx-stamp">归档 · 开始</span>
-        <h2>建立你的私人卷宗。</h2>
-        <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" data-action="renderLogin">开启随行档 →</button>
-        <p class="sx-cta-note">自托管。数据在你手里,只对你显影。</p>
+      <section class="sx-section sx-section--soft" id="security">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>看完就走，这台电脑上没有你的文件</h2>
+            <p>公司电脑默认不下载、预览不留缓存；离职换机，一键切断。</p>
+          </div>
+          <div class="sx-list">
+            <div class="sx-list-row"><div class="sx-list-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg></div><div><h3>服务端 · 可远程吊销</h3><p>会话与设备令牌皆可单条或一键吊销，吊销即切断，旧凭证立即失效。改密码后，旧会话同步失效。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><div><h3>本地 · 默认不落盘</h3><p>浏览器端默认禁止下载，文件不落到公司电脑。需要时开启 5 分钟临时窗口，到期自动关闭。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/></svg></div><div><h3>缓存 · 关页即失</h3><p>在线预览带 no-store，文件内容不进磁盘缓存，关掉页面便无迹可寻。</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-section" id="access">
+        <div class="sx-container">
+          <div class="sx-head">
+            <h2>三处出入，档案随行</h2>
+            <p>家里守护、服务器归档、公司浏览器只看不留。</p>
+          </div>
+          <div class="sx-flow">
+            <div class="sx-flow-node"><div class="sx-flow-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></div><h3>家里</h3><p>守护进程自动监听文件夹，新增文件实时加密同步至档案室。</p></div>
+            <div class="sx-flow-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+            <div class="sx-flow-node sx-flow-node--hub"><div class="sx-flow-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg></div><h3>服务器</h3><p>你自己的机器上运行，文件加密归档、建立向量索引，只对你开放。</p></div>
+            <div class="sx-flow-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+            <div class="sx-flow-node"><div class="sx-flow-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>公司</h3><p>浏览器即开即用，只看不留，离开一键吊销，如同从未存在。</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sx-cta-band">
+        <div class="sx-cta-box">
+          <h2>建立你的私人卷宗</h2>
+          <p>自托管，数据在你手里，只对你显影。</p>
+          <button class="sx-btn sx-btn--lg" type="button" id="landing-cta-band" data-action="renderLogin">免费开始 <span class="sx-arrow">→</span></button>
+        </div>
       </section>
 
       <footer class="sx-foot">
-        <div class="sx-foot-brand">
-          <span class="sx-mark sx-mark--sm">档</span>
-          <span>随行档 · 私人文件中枢</span>
+        <div class="sx-foot-inner">
+          <div class="sx-foot-brand"><span class="sx-mark sx-mark--sm">档</span> 随行档 · 私人文件中枢</div>
+          <div class="sx-foot-links">
+            <a href="/admin">管理后台</a>
+            <a href="#" data-action="renderLogin">登录</a>
+          </div>
+          <span class="sx-foot-copy">© 2026 SXD</span>
         </div>
-        <div class="sx-foot-links">
-          <a href="/admin">管理后台</a>
-          <a href="#" data-action="renderLogin">登录</a>
-        </div>
-        <span class="sx-foot-copy">© 2026 SXD</span>
       </footer>
     </div>`;
 
@@ -672,16 +674,11 @@ window.renderLanding = renderLanding;
 
 // ============ Login ============
 function renderLogin() {
-  document.getElementById('app').innerHTML = `
-    <div class="login-container">
+  document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
-        <div class="login-card-banner">
-          <span>SXD · 私人文件中枢</span>
-          <span class="sx-stamp">凭证核验</span>
-        </div>
         <div class="login-logo" id="login-logo" title="返回官网">档</div>
-        <h1>随行档</h1>
-        <p class="subtitle">核验凭证,档案室再次显影。</p>
+        <h1>欢迎回来</h1>
+        <p class="subtitle">登录你的私人档案室</p>
         <form id="login-form">
           <div class="form-group">
             <label>用户名</label>
@@ -703,8 +700,7 @@ function renderLogin() {
         </div>
         <a class="login-back" href="#" data-action="renderLanding">← 返回官网</a>
       </div>
-    </div>
-  `;
+    `);
   // 动态检查注册是否开放
   fetch('/api/auth/register-status').then(r => r.json()).then(d => {
     const link = document.getElementById('register-link');
@@ -1678,6 +1674,7 @@ async function previewFile(path, name) {
 async function downloadFile(path) {
   try {
     const res = await API.get(`/api/files/download?path=${encodeURIComponent(path)}`);
+    if (!res) return;  // 会话已失效并被登出（API.request 返回 undefined）
     if (res.status === 403) { Toast.show('未开启临时下载，请到设置页开启', 'info'); return; }
     if (!res.ok) { Toast.show('下载失败', 'error'); return; }
     const blob = await res.blob();
@@ -2497,6 +2494,7 @@ async function grantDownload() {
   if (!await confirmDialog({ title: '开启临时下载', message: '开启后可下载文件，到期自动关闭。下载的文件会保留在本机，请及时清理。确定继续？', confirmText: '开启' })) return;
   try {
     const res = await API.post('/api/files/download-grant');
+    if (!res) return;  // 会话已失效并被登出
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '开启失败', 'error'); return; }
     const d = await res.json();
     Toast.show(`已开启临时下载（${d.minutes} 分钟）`, 'success');
@@ -2507,6 +2505,7 @@ async function grantDownload() {
 async function revokeDownload() {
   try {
     const res = await API.post('/api/files/download-revoke');
+    if (!res) return;  // 会话已失效并被登出
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
     Toast.show('已关闭临时下载', 'success');
     renderDownloadGrant(document.getElementById('download-grant-content'), false, '');
