@@ -143,7 +143,7 @@ function renderLogin() {
           <form id="admin-login-form">
             <div class="form-group"><label>管理员用户名</label><input type="text" id="login-user" class="form-input" autofocus></div>
             <div class="form-group"><label>密码</label><input type="password" id="login-pass" class="form-input"></div>
-            <button type="submit" class="btn btn-primary" class="btn-block">登录</button>
+            <button type="submit" class="btn btn-primary btn-block">登录</button>
           </form>
         </div>
       </main>
@@ -353,7 +353,7 @@ async function viewUserDetail(userId) {
         <div class="stat-card"><div class="stat-label">配额</div><div class="stat-value">${u.quota_mb > 0 ? u.quota_mb + '<span class="stat-unit"> MB</span>' : '无限'}</div></div>
         <div class="stat-card"><div class="stat-label">状态</div><div class="stat-value stat-value-sm">${u.status === 'active' ? '正常' : '已禁用'}</div></div>
       </div>
-      <div style="margin-bottom:8px" class="section-hint">
+      <div class="user-detail-meta">
        创建: ${u.created_at.split('.')[0]} | 最近登录: ${u.last_login ? u.last_login.split('.')[0] : '从未'} | 双因子: ${u.totp_enabled ? '已启用' : '未启用'} | 密保: ${u.has_security_question ? '已设置' : '未设置'}
      </div>
       <div class="user-detail-block">

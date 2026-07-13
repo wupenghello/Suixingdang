@@ -68,7 +68,7 @@
   transition: border-color .15s, background .15s;
 }
 .login-card .form-input::placeholder { color: var(--bone-3); }
-.login-card .form-input:focus { outline: none; border-color: var(--amber); background: var(--ink-2); box-shadow: 0 0 0 3px rgba(43,95,255,0.16); }
+.login-card .form-input:focus { outline: none; border-color: var(--amber); background: var(--ink-2); box-shadow: 0 0 0 3px var(--primary-ring); }
 .login-card .form-input.error, .login-card .form-input.error:focus { border-color: var(--danger); }
 .login-card .btn-primary {
   width: 100%; margin-top: 6px; padding: 11px; border: none; border-radius: var(--radius-sm);

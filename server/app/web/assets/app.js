@@ -784,8 +784,6 @@ function renderLanding() {
           <div class="sx-foot-links">
             <a href="/admin">管理后台</a>
             <a href="#" data-action="renderLogin">登录</a>
-            <a href="/privacy">隐私政策</a>
-            <a href="/terms">服务条款</a>
           </div>
           <span class="sx-foot-copy">© 2026 SXD</span>
         </div>
@@ -1372,7 +1370,7 @@ function renderFileList(items) {
     const emptyMsg = selectedGroup
       ? '<div class="empty-title">该分组暂无文件</div><div class="empty-desc">点击"上传"将文件加入此分组</div>'
       : isRoot
-        ? `${ICONS.groups}<div class="empty-title">还没有分组或文件</div><div class="empty-desc">点击「分组」创建分组，或直接「上传」文件</div>`
+        ? `${ICONS.groups}<div class="empty-title">还没有分组或文件</div><div class="empty-desc">点击分组图标创建分组，或直接「上传」文件</div>`
         : '<div class="empty-title">这个目录是空的</div><div class="empty-desc">拖拽文件到此或点击「上传」</div>';
     content.innerHTML = `<div class="file-table"><div class="empty-state">${emptyMsg}</div></div>`;
     updateBatchBar();
@@ -2009,6 +2007,8 @@ async function sendChatMessage() {
   input.value = ''; input.style.height = 'auto';
 
   const container = document.getElementById('chat-messages');
+  const welcome = container.querySelector('.chat-welcome');
+  if (welcome) welcome.remove();
   container.appendChild(messageElement(userMsg));
 
   const assistantMsg = { role: 'assistant', content: '', tool_calls: [] };

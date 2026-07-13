@@ -94,7 +94,7 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
 .stat-card {
   background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
-  padding: 20px; position: relative; overflow: hidden; transition: border-color .15s, transform .15s;
+  padding: 20px; position: relative; overflow: hidden; transition: border-color .15s, box-shadow .15s;
 }
 .stat-card:hover { border-color: var(--border-light); box-shadow: var(--shadow-xs); }
 .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 2px; height: 100%; background: var(--stat-accent, var(--seal)); opacity: 0.9; }
@@ -217,6 +217,8 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
 .llm-empty { text-align: center; padding: 40px; color: var(--text-muted); }
 .llm-empty p { font-size: 13px; }
 .user-detail-block { margin: 16px 0; padding: 16px; background: var(--bg); border-radius: var(--radius); border: 1px solid var(--border); }
+.user-detail-meta { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+.user-detail-form-group { margin: 0; }
 .user-detail-block-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .user-detail-block-head h3 { margin: 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .user-detail-h3 { margin: 20px 0 8px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }

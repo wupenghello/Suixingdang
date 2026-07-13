@@ -973,4 +973,3 @@ html { scroll-behavior: smooth; }
 /* ---- Settings 工具类（替代 inline style）---- */
 .setting-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .setting-row > .setting-row-text { margin: 0; flex: 1; min-width: 200px; }
-.setting-empty { margin-top: 0; }
