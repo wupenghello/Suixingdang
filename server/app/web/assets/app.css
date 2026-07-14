@@ -1036,13 +1036,94 @@ html { scroll-behavior: smooth; }
 .setting-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .setting-row > .setting-row-text { margin: 0; flex: 1; min-width: 200px; }
 
-/* ---- Note Editor (新建笔记) ---- */
-.note-modal { width: 620px; max-width: 92vw; }
-.note-modal .note-title-input { margin-bottom: 4px; }
-.note-modal .note-content-input {
-  margin-top: 4px; min-height: 280px; resize: vertical; line-height: 1.6;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 13px;
-}
+/* ---- Note Editor (full) ---- */
+.note-editor-modal { width: 960px; max-width: 96vw; max-height: 92vh; display: flex; flex-direction: column; }
+.note-editor-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.note-editor-top h3 { font-size: 17px; font-weight: 600; }
+.note-editor-top-actions { display: flex; gap: 6px; }
+.note-editor-top-actions .btn-sm { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.note-editor-top-actions .btn-sm svg { width: 15px; height: 15px; }
+.note-editor-modal .note-title-input { margin-bottom: 4px; }
+
+/* 工具栏 */
+.note-toolbar { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; padding: 6px 8px; background: var(--bg-sunken); border: 1px solid var(--border); border-bottom: none; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.tb-btn { min-width: 30px; height: 30px; padding: 0 6px; border: none; background: transparent; color: var(--text-secondary); border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-family: var(--font-sans); display: flex; align-items: center; justify-content: center; transition: background .12s, color .12s; }
+.tb-btn:hover { background: var(--bg-surface-hover); color: var(--text); }
+.tb-btn svg { width: 15px; height: 15px; }
+.tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 3px; flex-shrink: 0; }
+
+/* 分屏编辑/预览 */
+.note-editor-split { display: flex; border: 1px solid var(--border); border-radius: 0 0 var(--radius-sm) var(--radius-sm); overflow: hidden; min-height: 360px; flex: 1; }
+.note-editor-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.note-preview-pane { flex: 1; min-width: 0; border-left: 1px solid var(--border); overflow-y: auto; padding: 20px 24px; background: var(--bg-surface); }
+.note-content-input { flex: 1; width: 100%; border: none; outline: none; resize: none; padding: 16px 18px; font-family: var(--font-mono); font-size: 13.5px; line-height: 1.7; background: var(--bg-sunken); color: var(--text); }
+.note-content-input::placeholder { color: var(--text-muted); }
+.note-editor-split.mode-edit .note-preview-pane { display: none; }
+.note-editor-split.mode-preview .note-editor-pane { display: none; }
+.note-editor-split.mode-preview .note-preview-pane { border-left: none; }
+
+/* 编辑器底部 meta 区 */
+.note-editor-meta { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.note-tags-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.note-tags-row > svg { width: 15px; height: 15px; color: var(--text-muted); flex-shrink: 0; }
+.note-tags-label { font-size: 13px; color: var(--text-muted); flex-shrink: 0; }
+.note-tags-input { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; flex: 1; min-height: 32px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); }
+.note-tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; background: var(--primary-light); color: var(--primary); border-radius: var(--radius-sm); font-size: 12px; }
+.note-tag-remove { border: none; background: none; color: var(--primary); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; opacity: .6; }
+.note-tag-remove:hover { opacity: 1; }
+.note-tag-field { border: none; outline: none; background: transparent; font-size: 13px; min-width: 120px; flex: 1; font-family: var(--font-sans); color: var(--text); }
+.note-summary-row { display: flex; align-items: flex-start; gap: 6px; padding: 6px 10px; background: var(--primary-light); border-radius: var(--radius-sm); font-size: 13px; color: var(--text-secondary); }
+.note-summary-row > svg { width: 15px; height: 15px; color: var(--primary); flex-shrink: 0; margin-top: 1px; }
+.note-draft-hint { font-size: 12px; color: var(--text-muted); }
+.note-draft-hint a { color: var(--primary); }
+.modal-spacer { flex: 1; }
+.tag-editor-modal { width: 460px; max-width: 92vw; }
+
+/* ---- Markdown 渲染样式（笔记预览 + 编辑器预览）---- */
+.markdown-body { font-size: 14.5px; line-height: 1.75; color: var(--text); word-wrap: break-word; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { margin: 1.4em 0 .6em; font-weight: 600; line-height: 1.3; }
+.markdown-body h1 { font-size: 1.7em; padding-bottom: .3em; border-bottom: 1px solid var(--border); }
+.markdown-body h2 { font-size: 1.45em; padding-bottom: .3em; border-bottom: 1px solid var(--border); }
+.markdown-body h3 { font-size: 1.2em; }
+.markdown-body h4 { font-size: 1.05em; }
+.markdown-body p { margin: 0 0 .8em; }
+.markdown-body ul, .markdown-body ol { margin: 0 0 .8em; padding-left: 1.6em; }
+.markdown-body li { margin: .2em 0; }
+.markdown-body li > ul, .markdown-body li > ol { margin: .2em 0; }
+.markdown-body blockquote { margin: 0 0 .8em; padding: .4em 1em; border-left: 3px solid var(--primary); background: var(--primary-light); color: var(--text-secondary); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.markdown-body code { font-family: var(--font-mono); font-size: .88em; background: var(--bg-sunken); padding: .15em .35em; border-radius: 4px; }
+.markdown-body pre { margin: 0 0 .8em; padding: 14px 16px; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow-x: auto; }
+.markdown-body pre code { background: none; padding: 0; font-size: 13px; line-height: 1.6; }
+.markdown-body a { color: var(--primary); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body img { max-width: 100%; border-radius: var(--radius-sm); }
+.markdown-body table { width: 100%; border-collapse: collapse; margin: 0 0 .8em; font-size: 13.5px; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
+.markdown-body th { background: var(--bg-sunken); font-weight: 600; }
+.markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.4em 0; }
+.markdown-body input[type="checkbox"] { margin-right: 4px; }
+
+/* ---- Markdown 预览（笔记）---- */
+.preview-overlay--note .preview-body { align-items: flex-start; }
+.preview-note { max-width: 820px; width: 100%; margin: 0 auto; padding: 40px 48px; background: var(--bg-surface); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.preview-toc { position: fixed; top: 60px; right: 24px; width: 220px; max-height: 70vh; overflow-y: auto; padding: 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); z-index: 2100; }
+.preview-toc.is-hidden { display: none; }
+.preview-toc-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .04em; }
+.preview-toc-item { display: block; padding: 4px 8px; font-size: 13px; color: var(--text-secondary); text-decoration: none; border-radius: var(--radius-sm); cursor: pointer; }
+.preview-toc-item:hover { background: var(--bg-surface-hover); color: var(--text); }
+.preview-toc-item.toc-l2 { padding-left: 20px; font-size: 12.5px; }
+.preview-toc-item.toc-l3 { padding-left: 36px; font-size: 12px; color: var(--text-muted); }
+
+/* ---- 置顶/标签徽章 ---- */
+.badge-pin { background: rgba(217, 119, 6, 0.13); color: var(--warning); font-size: 11px; }
+.badge-tag { background: var(--bg-sunken); color: var(--text-muted); font-size: 11px; }
+.file-row.is-pinned, .file-card.is-pinned { background: rgba(217, 119, 6, 0.03); }
+.file-card-pin { position: absolute; top: 6px; right: 6px; width: 14px; height: 14px; color: var(--warning); }
+.file-card-pin svg { width: 14px; height: 14px; }
+.file-card { position: relative; }
+.breadcrumb-tag-filter { display: inline-flex; align-items: center; gap: 2px; padding: 2px 8px; background: var(--primary-light); color: var(--primary); border-radius: var(--radius-sm); font-size: 12px; }
+.breadcrumb-tag-filter a { color: var(--primary); text-decoration: none; font-size: 14px; }
+.breadcrumb-tag-filter a:hover { opacity: .7; }
 
 /* ---- 传输助手：发送状态指示（参考微信文件传输助手） ---- */
 .transfer-status {
@@ -1089,3 +1170,74 @@ html { scroll-behavior: smooth; }
 .dl-history-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
 .dl-history-time { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .dl-history-empty { font-size: 13px; color: var(--text-muted); padding: 8px 0; }
+
+/* ---- Sensitive data mask spans ---- */
+.sx-mask {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--bg-sunken);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1.4;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.sx-mask-text {
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+}
+.sx-mask.revealed {
+  background: var(--primary-light);
+}
+.sx-mask.revealed .sx-mask-text {
+  color: var(--text);
+}
+.sx-mask-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+  margin-left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  transition: color .12s, background .12s;
+  flex-shrink: 0;
+}
+.sx-mask-toggle:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+.sx-mask-toggle:active {
+  transform: scale(0.92);
+}
+.sx-mask-toggle:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.sx-mask-toggle svg {
+  width: 12px;
+  height: 12px;
+}
+/* Mask spans inside tool result <pre> blocks */
+.tool-result .sx-mask,
+.tool-args .sx-mask {
+  font-size: 11px;
+}
+.tool-result .sx-mask-toggle,
+.tool-args .sx-mask-toggle {
+  width: 14px;
+  height: 14px;
+}
+.tool-result .sx-mask-toggle svg,
+.tool-args .sx-mask-toggle svg {
+  width: 10px;
+  height: 10px;
+}

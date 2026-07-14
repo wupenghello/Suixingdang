@@ -54,6 +54,27 @@ def chat(req: ChatRequest, db: Session = Depends(get_db), user=Depends(get_curre
         raise HTTPException(500, "处理失败，请稍后重试")
 
 
+
+class UnmaskRequest(BaseModel):
+    mask_id: str
+
+
+@router.post("/unmask")
+def unmask(req: UnmaskRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Reveal a masked sensitive value.
+
+    The mask_id is deterministic (hash of server secret + user_id + value),
+    so only values belonging to the requesting user can be unmasked.
+    Rate-limited to prevent brute-forcing mask_ids.
+    """
+    _rate_limit(db, f"unmaskrl:{user.id}")
+    from ..core.mask import unmask as do_unmask
+    value = do_unmask(req.mask_id, user.id)
+    if value is None:
+        raise HTTPException(404, "无法找到对应的脱敏数据")
+    return {"value": value}
+
+
 @router.post("/stream")
 def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """SSE 流式对话端点。

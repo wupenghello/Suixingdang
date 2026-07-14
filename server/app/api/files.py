@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 import mimetypes
+import json
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FAFile, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -28,6 +29,28 @@ _UNSAFE_PREVIEW_TYPES = {
 class GroupRequest(BaseModel):
     name: str
 
+
+def _parse_tags(raw):
+    """安全解析 tags/ai_tags JSON 字符串为列表。"""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, list) else []
+    except Exception:
+        return []
+
+
+def _file_meta(f):
+    """从 File ORM 对象提取笔记增强字段（标签/置顶/摘要/AI 标签）。"""
+    return {
+        "tags": _parse_tags(f.tags),
+        "pinned": bool(f.pinned),
+        "summary": f.summary or "",
+        "ai_tags": _parse_tags(f.ai_tags),
+    }
 
 class NoteRequest(BaseModel):
     name: str
@@ -77,6 +100,7 @@ def list_files(
                 "guard_status": f.guard_status or "safe",
                 "file_id": f.id, "group_id": f.group_id or "",
                 "group_name": group_map.get(f.group_id, "") if f.group_id else "",
+                **_file_meta(f),
             })
         return {"directory": directory or "/", "group_id": group_id, "items": items}
 
@@ -92,16 +116,19 @@ def list_files(
                 item["file_id"] = f.id
                 item["group_id"] = f.group_id or ""
                 item["group_name"] = group_map.get(f.group_id, "") if f.group_id else ""
+                item.update(_file_meta(f))
             else:
                 item["guard_status"] = "safe"
                 item["file_id"] = None
                 item["group_id"] = ""
                 item["group_name"] = ""
+                item.update({"tags": [], "pinned": False, "summary": "", "ai_tags": []})
         else:
             item["guard_status"] = ""
             item["file_id"] = None
             item["group_id"] = ""
             item["group_name"] = ""
+            item.update({"tags": [], "pinned": False, "summary": "", "ai_tags": []})
     return {"directory": directory or "/", "items": items}
 
 
@@ -291,6 +318,200 @@ def create_note(
         "guard_status": f.guard_status, "guard_reason": f.guard_reason,
         "message": "笔记已保存",
     }
+
+
+@router.get("/note-content")
+def get_note_content(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """返回笔记（文本文件）原始内容，供编辑器加载。"""
+    f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
+    try:
+        p = storage.read_file(user.id, path)
+    except FileNotFoundError:
+        raise HTTPException(404, "文件不存在")
+    size = p.stat().st_size
+    if size > 5 * 1024 * 1024:
+        raise HTTPException(413, "文件过大，不支持在线编辑（超过 5MB）")
+    with open(p, "r", encoding="utf-8", errors="replace") as fh:
+        content = fh.read()
+    db.add(AccessLog(user_id=user.id, action="file_preview", detail=path))
+    db.commit()
+    result = {"content": content, "name": f.name if f else path, "path": path}
+    result.update(_file_meta(f) if f else {"tags": [], "pinned": False, "summary": "", "ai_tags": []})
+    return result
+
+
+class RenameRequest(BaseModel):
+    path: str
+    new_name: str
+
+
+@router.put("/rename")
+def rename_file(req: RenameRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """重命名文件/笔记（保持目录与扩展名逻辑不变）。"""
+    new_name = (req.new_name or "").strip().replace("\\", "/").split("/")[-1].strip()
+    if not new_name:
+        raise HTTPException(400, "新名称不能为空")
+    if new_name in {".", ".."} or "/" in new_name:
+        raise HTTPException(400, "名称不合法")
+    f = db.query(FileModel).filter_by(owner_id=user.id, path=req.path).first()
+    if not f:
+        raise HTTPException(404, "文件不存在")
+    old_path = f.path
+    parent = str(Path(req.path).parent) if str(Path(req.path).parent) != "." else ""
+    new_path = f"{parent}/{new_name}" if parent else new_name
+
+    # Guard 检查新路径
+    status, reason = guard.check_filename(new_path)
+    if status == "blocked":
+        raise HTTPException(403, f"Guard 拦截: {reason}")
+
+    # 同名冲突
+    if new_path != old_path and db.query(FileModel).filter_by(owner_id=user.id, path=new_path).first():
+        raise HTTPException(409, "同名文件已存在")
+
+    # 落盘移动：读旧写新再删旧（跨设备安全，且避开 os.rename 对存在目标的行为差异）
+    old_p = storage.read_file(user.id, old_path)
+    data = old_p.read_bytes()
+    storage.save_file(user.id, new_path, data, source=f.source or "manual")
+    storage.delete_file(user.id, old_path)
+    f.path = new_path
+    f.name = new_name
+    f.modified_at = datetime.utcnow()
+    db.commit()
+    db.refresh(f)
+    # 重建索引（路径变了）
+    try:
+        indexer.remove_from_index(user.id, old_path)
+        indexer.index_file(user.id, f.id, new_path)
+    except Exception:
+        pass
+    db.add(SyncEvent(user_id=user.id, file_name=f"{old_path} -> {new_path}", direction="rename", status="completed"))
+    db.add(AccessLog(user_id=user.id, action="file_rename", detail=f"{old_path} -> {new_path}"))
+    db.commit()
+    return {"path": new_path, "name": new_name, "message": "已重命名"}
+
+
+class TagsRequest(BaseModel):
+    path: str
+    tags: list
+
+
+@router.put("/tags")
+def set_tags(req: TagsRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """设置文件/笔记的标签（整体覆盖）。"""
+    f = db.query(FileModel).filter_by(owner_id=user.id, path=req.path).first()
+    if not f:
+        raise HTTPException(404, "文件不存在")
+    # 清洗：去重、去空白、限长、最多 20 个
+    seen = set()
+    cleaned = []
+    for t in req.tags:
+        t = str(t).strip()
+        if t and t not in seen and len(t) <= 30:
+            seen.add(t)
+            cleaned.append(t)
+        if len(cleaned) >= 20:
+            break
+    f.tags = json.dumps(cleaned, ensure_ascii=False)
+    db.commit()
+    return {"path": f.path, "tags": cleaned}
+
+
+@router.get("/all-tags")
+def all_tags(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """聚合当前用户所有标签及其计数，用于标签云。"""
+    rows = db.query(FileModel).filter(FileModel.owner_id == user.id).all()
+    counter = {}
+    for f in rows:
+        for t in _parse_tags(f.tags):
+            counter[t] = counter.get(t, 0) + 1
+    tags = [{"name": k, "count": v} for k, v in sorted(counter.items(), key=lambda x: (-x[1], x[0]))]
+    return {"tags": tags}
+
+
+class PinRequest(BaseModel):
+    path: str
+    pinned: bool
+
+
+@router.put("/pin")
+def toggle_pin(req: PinRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """置顶/取消置顶文件。"""
+    f = db.query(FileModel).filter_by(owner_id=user.id, path=req.path).first()
+    if not f:
+        raise HTTPException(404, "文件不存在")
+    f.pinned = bool(req.pinned)
+    db.commit()
+    db.add(AccessLog(user_id=user.id, action="file_pin" if req.pinned else "file_unpin", detail=f.path))
+    db.commit()
+    return {"path": f.path, "pinned": bool(f.pinned)}
+
+
+@router.post("/ai-enhance")
+def ai_enhance(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """对笔记内容调用 LLM 生成摘要与建议标签，结果落库并返回。"""
+    from ..core.llm_service import get_llm_config, AiDisabled, NoLlmConfigured
+    f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
+    if not f:
+        raise HTTPException(404, "文件不存在")
+    try:
+        text = indexer._extract_text(user.id, path)
+    except Exception:
+        text = ""
+    if not text:
+        raise HTTPException(400, "无法提取内容（空文件或不支持的格式）")
+    try:
+        cfg = get_llm_config(user.id)
+    except (AiDisabled, NoLlmConfigured) as e:
+        raise HTTPException(403, str(e))
+    from openai import OpenAI
+    client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
+    snippet = text[:8000]
+    prompt = (
+        "请阅读以下笔记内容，用中文输出：\n"
+        "1. 一句话摘要（不超过 120 字）\n"
+        "2. 3-5 个标签（每个标签 2-6 字，反映主题）\n"
+        "严格按 JSON 格式返回，不要 markdown 代码块："
+        '{"summary":"...","tags":["..."]}'
+        f"\n\n笔记内容：\n{snippet}"
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=cfg.model,
+            messages=[
+                {"role": "system", "content": "你是笔记整理助手，擅长提炼摘要和打标签。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=512,
+        )
+        raw = resp.choices[0].message.content or ""
+    except Exception as e:
+        raise HTTPException(502, f"AI 调用失败: {e}")
+    # 容错解析：LLM 可能包代码块或多余文字
+    summary = ""
+    ai_tags = []
+    try:
+        m = raw
+        if "```" in m:
+            m = m.split("```")[1] if m.count("```") >= 2 else m
+            m = m.strip("`")
+        # 尝试截取第一个 JSON 对象
+        start = m.find("{")
+        end = m.rfind("}")
+        if start >= 0 and end > start:
+            m = m[start:end + 1]
+        obj = json.loads(m)
+        summary = str(obj.get("summary", "")).strip()
+        ai_tags = [str(t).strip() for t in obj.get("tags", []) if str(t).strip()]
+    except Exception:
+        summary = raw.strip()[:200]
+    if summary:
+        f.summary = summary
+    if ai_tags:
+        f.ai_tags = json.dumps(ai_tags, ensure_ascii=False)
+    db.commit()
+    return {"summary": summary, "tags": ai_tags}
 
 
 @router.get("/download")
