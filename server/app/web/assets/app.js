@@ -2,46 +2,22 @@
 
 // ============ API 层 ============
 const API = {
-  // 访问令牌存 localStorage：多标签页共享同一会话令牌。
-  // 曾用 sessionStorage（关标签页即清），但与「同设备会话复用」冲突——新标签页因
-  // sessionStorage 隔离需重新登录，复用会轮转 refresh 把原标签页顶下线，故改回 localStorage。
-  _token: localStorage.getItem('access_token'),
-  _refresh: localStorage.getItem('refresh_token'),
-
-  setTokens(access, refresh) {
-    this._token = access;
-    this._refresh = refresh;
-    localStorage.setItem('access_token', access);
-    if (refresh) localStorage.setItem('refresh_token', refresh);
-  },
-  clearTokens() {
-    this._token = null;
-    this._refresh = null;
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-  },
+  // 会话令牌存 HttpOnly cookie（由服务端 set/clear，前端 JS 不可读），防 XSS 偷令牌。
+  // 同源 fetch/XHR 自动带 cookie，无需手动附加 Authorization 头。
   async request(url, options = {}) {
     const headers = { ...options.headers };
-    if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
     if (options.body && !(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
     let res = await fetch(url, { ...options, headers });
-    if (res.status === 401 && this._refresh) {
-      const refreshRes = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: this._refresh }),
-      });
+    // access 过期：用 refresh cookie 静默续期（服务端读 cookie 并 set 新 access cookie）
+    if (res.status === 401) {
+      const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
       if (refreshRes.ok) {
-        const tokens = await refreshRes.json();
-        this.setTokens(tokens.access_token, tokens.refresh_token);
-        headers['Authorization'] = `Bearer ${this._token}`;
         res = await fetch(url, { ...options, headers });
       } else {
-        this.clearTokens();
-        App.logout();
-        return;
+        App.logout();  // refresh 也失效：清 cookie 并回落地页（同步渲染）
+        return res;    // 返回 401（非 undefined），调用方 res.ok 检查不致 TypeError
       }
     }
     return res;
@@ -459,7 +435,6 @@ async function renderRegister() {
       });
       const data = await res.json();
       if (res.ok) {
-        API.setTokens(data.access_token, data.refresh_token);
         Toast.show('注册成功', 'success');
         App.init();
       } else {
@@ -859,7 +834,6 @@ function renderLogin() {
       });
       const data = await res.json();
       if (res.ok) {
-        API.setTokens(data.access_token, data.refresh_token);
         Toast.show('登录成功', 'success');
         App.init();
       } else {
@@ -1751,7 +1725,6 @@ async function handleFilesUpload(fileList) {
       const xhr = new XMLHttpRequest();
       const gidParam = selectedGroup ? `&group_id=${encodeURIComponent(selectedGroup)}` : ''
       xhr.open('POST', `/api/files/upload?directory=${encodeURIComponent(currentDir)}&source=manual${gidParam}`);
-      xhr.setRequestHeader('Authorization', `Bearer ${API._token}`);
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           const pct = Math.round((e.loaded / e.total) * 100);
@@ -2088,7 +2061,7 @@ async function sendChatMessage() {
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(API._token ? { 'Authorization': `Bearer ${API._token}` } : {}) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text }),
       signal: controller.signal,
     });
@@ -2322,7 +2295,6 @@ async function handleTransferFiles(fileList) {
       formData.append('file', file);
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/transfer/file');
-      xhr.setRequestHeader('Authorization', `Bearer ${API._token}`);
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           UploadManager.update(item.id, { progress: Math.round((e.loaded / e.total) * 100) });
@@ -2503,7 +2475,6 @@ async function renderSettings() {
         const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
         if (res.ok) {
           const d = await res.json();
-          if (d.access_token) API.setTokens(d.access_token, d.refresh_token);
           Toast.show('密码已修改', 'success');
           document.getElementById('old-pass').value = '';
           document.getElementById('new-pass').value = '';
@@ -2736,8 +2707,7 @@ async function revokeAllTokens() {
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
     const data = await res.json();
     Toast.show(data.message || '已吊销全部令牌', 'success');
-    API.clearTokens();
-    App.logout();  // 紧急下线：自己的 access 也已失效
+    App.logout();  // 紧急下线：清 cookie + 吊销，自己的 access 也已失效
   } catch { Toast.show('操作失败', 'error'); }
 }
 
@@ -2905,14 +2875,13 @@ const App = {
   currentView: 'transfer',
   currentUser: null,
   async init() {
-    if (!API._token) { renderLanding(); return; }
-    // 拉取当前账号信息，解决“不知是哪个账号”的痛点；失败则回到登录页
+    // 登录态由 cookie 决定：探测 /me，200 即已登录；失败（含静默刷新失败）回落地页
     try {
       const res = await API.get('/api/auth/me');
-      if (!res || !res.ok) { API.clearTokens(); renderLogin(); return; }
+      if (!res || !res.ok) return;  // refresh 失败时 App.logout 已渲染落地页
       this.currentUser = await res.json();
     } catch {
-      API.clearTokens(); renderLogin(); return;
+      renderLanding(); return;
     }
     this.renderLayout();
     this.navigate('transfer');
@@ -2957,7 +2926,13 @@ const App = {
     else if (view === 'transfer') renderTransfer();
     else if (view === 'settings') renderSettings();
   },
-  logout() { if (currentChatAbort) currentChatAbort.abort(); API.clearTokens(); this.currentView = 'transfer'; renderLanding(); }
+  logout() {
+    if (currentChatAbort) currentChatAbort.abort();
+    this.currentView = 'transfer';
+    renderLanding();
+    // 清服务端 cookie + 吊销会话：后台执行，不阻塞落地页渲染
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  }
 };
 
 // Expose for inline handlers

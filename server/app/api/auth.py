@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -42,21 +42,10 @@ class RegisterRequest(BaseModel):
     security_answer: str = ""
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    role: str = "user"
-
-
 class AdminLoginRequest(BaseModel):
     username: str
     password: str
     totp_code: str = ""
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
 
 
 class TOTPSetupResponse(BaseModel):
@@ -211,30 +200,76 @@ def _issue_session_tokens(db: Session, user: User, request: Request):
     return access, refresh
 
 
+# ---- Cookie 辅助（浏览器会话令牌：HttpOnly + Secure + SameSite=Lax）----
+# 令牌写入 HttpOnly cookie，前端 JS 不可读，从根上消除 XSS 偷令牌重放。
+# 设备令牌（守护进程）不经此路，仍走 Authorization 头。
+
+def _set_access_cookie(response: Response, access: str):
+    """把用户访问令牌写入 HttpOnly cookie（login 与 refresh 共用，避免属性漂移）。"""
+    response.set_cookie("access_token", access,
+                        httponly=True, secure=settings.cookie_secure,
+                        samesite=settings.COOKIE_SAMESITE, path="/")
+
+
+def _set_session_cookies(response: Response, access: str, refresh: str):
+    """把用户会话令牌对写入 HttpOnly cookie。"""
+    _set_access_cookie(response, access)
+    response.set_cookie("refresh_token", refresh,
+                        httponly=True, secure=settings.cookie_secure,
+                        samesite=settings.COOKIE_SAMESITE, path="/")
+
+
+def _set_admin_cookie(response: Response, access: str):
+    """把管理员访问令牌写入 HttpOnly cookie。"""
+    response.set_cookie("admin_access", access,
+                        httponly=True, secure=settings.cookie_secure,
+                        samesite=settings.COOKIE_SAMESITE, path="/")
+
+
+def _credential_raw(request: Request, credentials, cookie_name: str) -> Optional[str]:
+    """取原始令牌串：优先 HttpOnly cookie，回退 Authorization 头（设备令牌 / 兼容）。"""
+    return request.cookies.get(cookie_name) or (credentials.credentials if credentials else None)
+
+
+def _clear_session_cookies(response: Response):
+    for name in ("access_token", "refresh_token"):
+        response.delete_cookie(name, path="/")
+
+
+def _clear_admin_cookie(response: Response):
+    response.delete_cookie("admin_access", path="/")
+
+
+def _resolve_access_jwt(raw: str, db: Session, request: Request) -> User:
+    """解析浏览器会话 access JWT：校验类型/角色/用户存在性/密码版本，并记录 sid。"""
+    payload = decode_token(raw)
+    if not payload or payload.get("type") != "access":
+        raise HTTPException(401, "无效或过期的令牌")
+    if payload.get("role") != "user":
+        raise HTTPException(403, "此接口需要普通用户权限")
+    user = db.query(User).filter_by(id=payload.get("sub")).first()
+    if not user:
+        raise HTTPException(401, "用户不存在")
+    # 密码版本校验：改/重置密码后旧 access 立即失效
+    if payload.get("password_version") != user.password_version:
+        raise HTTPException(401, "登录已失效，请重新登录")
+    # 当前会话标识存入 request.state，供临时下载等 session 级授权接口使用
+    request.state.access_sid = payload.get("sid")
+    return user
+
+
 def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Security(security_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    if not credentials:
+    # 优先 HttpOnly cookie（浏览器会话），回退 Authorization 头（设备令牌 / 兼容旧前端）
+    raw = _credential_raw(request, credentials, "access_token")
+    if not raw:
         raise HTTPException(401, "未提供认证信息")
-    raw = credentials.credentials
-    user = None
     # JWT 形如 header.payload.signature（含两个 "."）；否则按 opaque 设备令牌解析
     if raw.count(".") == 2:
-        payload = decode_token(raw)
-        if not payload or payload.get("type") != "access":
-            raise HTTPException(401, "无效或过期的令牌")
-        if payload.get("role") != "user":
-            raise HTTPException(403, "此接口需要普通用户权限")
-        user = db.query(User).filter_by(id=payload.get("sub")).first()
-        if not user:
-            raise HTTPException(401, "用户不存在")
-        # 密码版本校验：改/重置密码后旧 access 立即失效
-        if payload.get("password_version") != user.password_version:
-            raise HTTPException(401, "登录已失效，请重新登录")
-        # 当前会话标识存入 request.state，供临时下载等 session 级授权接口使用
-        request.state.access_sid = payload.get("sid")
+        user = _resolve_access_jwt(raw, db, request)
     else:
         user = _resolve_device_token(raw, db)
         if not user:
@@ -278,12 +313,15 @@ def get_current_device_user(
 
 
 def get_current_admin(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Security(security_scheme),
     db: Session = Depends(get_db),
 ) -> Admin:
-    if not credentials:
+    # 优先读 HttpOnly cookie；回退 Authorization 头（兼容旧前端 / API 客户端）
+    raw = _credential_raw(request, credentials, "admin_access")
+    if not raw:
         raise HTTPException(401, "未提供管理员认证信息")
-    payload = decode_token(credentials.credentials)
+    payload = decode_token(raw)
     if not payload or payload.get("type") != "access":
         raise HTTPException(401, "无效或过期的令牌")
     if payload.get("role") != "admin":
@@ -364,8 +402,8 @@ def _verify_security_answer(answer: str, stored: str) -> bool:
 
 # ---- 用户登录 ----
 
-@router.post("/login", response_model=TokenResponse)
-def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
+@router.post("/login")
+def login(req: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     ip = _client_ip(request)
     key = _limiter_key("login", req.username, ip)
     locked = login_limiter_check(db, key)
@@ -393,13 +431,14 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     _log(db, user.id, "login_success", "", request)
     access, refresh = _issue_session_tokens(db, user, request)
     db.commit()
-    return TokenResponse(access_token=access, refresh_token=refresh, role="user")
+    _set_session_cookies(response, access, refresh)
+    return {"role": "user"}
 
 
 # ---- 用户注册 ----
 
-@router.post("/register", response_model=TokenResponse)
-def register(req: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+@router.post("/register")
+def register(req: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     # 检查注册开关：DB 设置优先于环境变量
     db_flag = get_setting(db, "allow_register", "")
     if db_flag:
@@ -440,7 +479,8 @@ def register(req: RegisterRequest, request: Request, db: Session = Depends(get_d
     _log(db, user.id, "register", "", request)
     access, refresh = _issue_session_tokens(db, user, request)
     db.commit()
-    return TokenResponse(access_token=access, refresh_token=refresh, role="user")
+    _set_session_cookies(response, access, refresh)
+    return {"role": "user"}
 
 
 # ---- 忘记密码 ----
@@ -502,54 +542,86 @@ def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Sessio
 
 # ---- 刷新令牌 ----
 
-@router.post("/refresh", response_model=TokenResponse)
-def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
-    payload = decode_token(req.refresh_token)
-    if not payload or payload.get("type") != "refresh":
+@router.post("/refresh")
+def refresh_token(request: Request, response: Response, db: Session = Depends(get_db)):
+    # refresh 从 HttpOnly cookie 读取（前端 JS 不可读）；不接受 body，
+    # 否则 refresh 须由 JS 暴露，违背 HttpOnly 防 XSS 偷令牌的初衷。
+    # 仅处理用户会话 refresh--管理员登录不再签发 refresh（401 即重登）。
+    refresh = request.cookies.get("refresh_token")
+    if not refresh:
+        raise HTTPException(401, "未提供刷新令牌")
+    payload = decode_token(refresh)
+    if not payload or payload.get("type") != "refresh" or payload.get("role") != "user":
         raise HTTPException(401, "无效的刷新令牌")
-    role = payload.get("role", "user")
-    if role == "user":
-        user = db.query(User).filter_by(id=payload.get("sub")).first()
-        if not user:
-            raise HTTPException(401, "用户不存在")
-        if user.status == "disabled":
-            raise HTTPException(403, "账户已被禁用")
-        # 密码版本校验：改/重置密码后旧 refresh 立即失效
-        if payload.get("password_version") != user.password_version:
-            raise HTTPException(401, "登录已失效，请重新登录")
-        # 会话令牌吊销校验：refresh 必须在 access_tokens 表中且未吊销
-        refresh_hash = hashlib.sha256(req.refresh_token.encode()).hexdigest()
-        session_token = db.query(AccessToken).filter_by(
-            token_hash=refresh_hash, kind="session").first()
-        if not session_token or session_token.revoked:
-            raise HTTPException(401, "登录已失效，请重新登录")
-        # 节流更新最近活跃时间（与设备令牌一致）
-        now = datetime.utcnow()
-        if not session_token.last_used_at or (now - session_token.last_used_at).total_seconds() > 60:
-            session_token.last_used_at = now
-            db.commit()
-    elif role == "admin":
-        admin = db.query(Admin).filter_by(id=payload.get("sub")).first()
-        if not admin:
-            raise HTTPException(401, "管理员不存在")
-    token_data = {
-        "sub": payload.get("sub"),
-        "username": payload.get("username"),
-        "role": role,
-    }
-    if role == "user":
-        token_data["password_version"] = user.password_version
-        token_data["sid"] = session_token.id
-    access = create_access_token(token_data)
+    user = db.query(User).filter_by(id=payload.get("sub")).first()
+    if not user:
+        raise HTTPException(401, "用户不存在")
+    if user.status == "disabled":
+        raise HTTPException(403, "账户已被禁用")
+    # 密码版本校验：改/重置密码后旧 refresh 立即失效
+    if payload.get("password_version") != user.password_version:
+        raise HTTPException(401, "登录已失效，请重新登录")
+    # 会话令牌吊销校验：refresh 必须在 access_tokens 表中且未吊销
+    refresh_hash = hashlib.sha256(refresh.encode()).hexdigest()
+    session_token = db.query(AccessToken).filter_by(
+        token_hash=refresh_hash, kind="session").first()
+    if not session_token or session_token.revoked:
+        raise HTTPException(401, "登录已失效，请重新登录")
+    # 节流更新最近活跃时间（与设备令牌一致）
+    now = datetime.utcnow()
+    if not session_token.last_used_at or (now - session_token.last_used_at).total_seconds() > 60:
+        session_token.last_used_at = now
+        db.commit()
+    access = create_access_token({
+        "sub": user.id, "username": user.username, "role": "user",
+        "password_version": user.password_version, "sid": session_token.id,
+    })
     # 不轮转 refresh：复用原 refresh（仍绑定会话行，可吊销、随密码失效），
     # 避免「先改库再返回响应」带来的并发竞态与重试失败。
-    return TokenResponse(access_token=access, refresh_token=req.refresh_token, role=role)
+    _set_access_cookie(response, access)
+    return {"role": "user"}
+
+
+# ---- 退出登录 ----
+
+@router.post("/logout")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    """退出登录：清用户会话 cookie，并尽力吊销当前会话行。
+
+    不依赖 get_current_user--紧急吊销/改密后 access 已失效，仍需能清 cookie。
+    优先用 refresh cookie 的 hash 查会话行吊销（refresh 有效期 1 天，远长于 access
+    的 60min，access 过期时仍能定位会话）；refresh 不可用时回退 access JWT 的 sid。
+    """
+    revoked = False
+    refresh = request.cookies.get("refresh_token")
+    if refresh:
+        refresh_hash = hashlib.sha256(refresh.encode()).hexdigest()
+        sess = db.query(AccessToken).filter_by(
+            token_hash=refresh_hash, kind="session").first()
+        if sess and not sess.revoked:
+            sess.revoked = True
+            revoked = True
+            db.commit()
+    if not revoked:
+        # 回退：refresh 不可用时按 access JWT 的 sid 吊销（access 仍有效的情况）
+        access = request.cookies.get("access_token")
+        if access:
+            payload = decode_token(access)
+            if payload and payload.get("type") == "access":
+                sid = payload.get("sid")
+                if sid:
+                    s = db.query(AccessToken).filter_by(id=sid, kind="session").first()
+                    if s and not s.revoked:
+                        s.revoked = True
+                        db.commit()
+    _clear_session_cookies(response)
+    return {"message": "已退出"}
 
 
 # ---- 管理员登录（独立入口）----
 
-@router.post("/admin/login", response_model=TokenResponse)
-def admin_login(req: AdminLoginRequest, request: Request, db: Session = Depends(get_db)):
+@router.post("/admin/login")
+def admin_login(req: AdminLoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     ip = _client_ip(request)
     key = _limiter_key("adminlogin", req.username, ip)
     locked = login_limiter_check(db, key)
@@ -568,12 +640,16 @@ def admin_login(req: AdminLoginRequest, request: Request, db: Session = Depends(
 
     login_limiter_reset(db, key)
     token_data = {"sub": admin.id, "username": admin.username, "role": "admin"}
+    _set_admin_cookie(response, create_access_token(token_data))
     _log(db, None, "admin_login_success", "", request)
-    return TokenResponse(
-        access_token=create_access_token(token_data),
-        refresh_token=create_refresh_token(token_data),
-        role="admin",
-    )
+    return {"role": "admin"}
+
+
+@router.post("/admin/logout")
+def admin_logout(response: Response):
+    """管理员退出：清 admin_access cookie。管理员令牌不入库，无需吊销会话行。"""
+    _clear_admin_cookie(response)
+    return {"message": "已退出"}
 
 
 # ---- 注册状态查询（公开）----
@@ -678,7 +754,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/change-password")
-def change_password(req: ChangePasswordRequest, request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def change_password(req: ChangePasswordRequest, request: Request, response: Response, db: Session = Depends(get_db), user=Depends(get_current_user)):
     if not verify_password(req.old_password, user.password_hash):
         raise HTTPException(400, "原密码错误")
     pwd_err = validate_password(req.new_password, user.username)
@@ -689,7 +765,8 @@ def change_password(req: ChangePasswordRequest, request: Request, db: Session = 
     # 为调用者签发新会话令牌，避免改密码后立即被踢下线
     access, refresh = _issue_session_tokens(db, user, request)
     db.commit()
-    return {"message": "密码已修改", "access_token": access, "refresh_token": refresh}
+    _set_session_cookies(response, access, refresh)
+    return {"message": "密码已修改"}
 
 
 # ---- 用户信息 ----

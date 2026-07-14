@@ -5,6 +5,8 @@
 """
 import io
 
+from auth_helpers import login
+
 
 def _h(token):
     return {"Authorization": f"Bearer {token}"}
@@ -16,10 +18,8 @@ def test_upload_download_delete_roundtrip(client, make_user):
         username="smoke-user", password="Smoke12345pass")
 
     # 2. 登录端点单独验证（make_user 走的是 register，不经过 login）
-    r = client.post("/api/auth/login", json={
-        "username": username, "password": "Smoke12345pass"})
-    assert r.status_code == 200, r.text
-    headers = _h(r.json()["access_token"])
+    token, _refresh = login(client, username, "Smoke12345pass")
+    headers = _h(token)
 
     # 3. 上传一个文件
     up = client.post("/api/files/upload", headers=headers,

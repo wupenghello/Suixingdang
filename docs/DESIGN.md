@@ -299,7 +299,7 @@ SQLite，共 12 张表（`db/models.py`）。按职责分组：
 
 ### 8.1 认证 `/api/auth`
 
-登录（返回 JWT access + refresh）、刷新令牌、注册（受 `ALLOW_REGISTER` 开关控制）、TOTP 双因子 setup/verify、密码重置（密保问题）。
+登录 / 注册 / 改密（签发 HttpOnly cookie 中的 access+refresh，响应体不返回令牌）、刷新令牌（读 refresh cookie）、登出（清 cookie + 吊销会话）、TOTP 双因子 setup/verify、密码重置（密保问题）。
 
 ### 8.2 文件 `/api/files`
 

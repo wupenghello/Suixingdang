@@ -1,20 +1,18 @@
 // 随行档 - 管理员后台 SPA (v3)
 
 const API = {
-  // 管理员令牌存 localStorage：与用户端一致，多标签页共享
-  _token: localStorage.getItem('admin_token'),
-  set(token) { this._token = token; localStorage.setItem('admin_token', token); },
-  clear() { this._token = null; localStorage.removeItem('admin_token'); },
+  // 管理员令牌存 HttpOnly cookie（与用户端一致），前端 JS 不可读，防 XSS 偷令牌。
+  // 同源 fetch 自动带 cookie，无需手动附加 Authorization 头。
   async req(url, opts = {}) {
     const headers = { ...opts.headers };
-    if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
     if (opts.body) headers['Content-Type'] = 'application/json';
     const res = await fetch(url, { ...opts, headers });
-    // token 失效/过期：清掉本地令牌并回到登录页，避免显示误导性的"加载失败"
-    if (res.status === 401 && this._token) {
-      this.clear();
-      Toast.show('登录已失效，请重新登录', 'warning', 2000);
+    // cookie 失效/过期：清 cookie 并回登录页，避免显示误导性的"加载失败"
+    if (res.status === 401) {
+      // 会话失效：清 cookie 并回登录页；不在此 toast，由调用方按 res.ok 自行提示，避免重复 toast
+      try { await fetch('/api/auth/admin/logout', { method: 'POST' }); } catch {}
       setTimeout(() => location.reload(), 800);
+      return res;
     }
     return res;
   },
@@ -159,7 +157,7 @@ function renderLogin() {
         body: JSON.stringify({ username: u, password: p }),
       });
       const data = await res.json();
-      if (res.ok) { API.set(data.access_token); Toast.show('登录成功', 'success'); init(); }
+      if (res.ok) { Toast.show('登录成功', 'success'); init(); }
       else { Toast.show(data.detail || '登录失败', 'error'); }
     } catch { Toast.show('网络错误', 'error'); }
   });
@@ -226,7 +224,7 @@ function renderLayout() {
   document.querySelectorAll('.admin-nav-item[data-view]').forEach(el => {
     el.addEventListener('click', () => navigate(el.dataset.view));
   });
-  document.getElementById('btn-logout').addEventListener('click', () => { API.clear(); location.reload(); });
+  document.getElementById('btn-logout').addEventListener('click', () => { fetch('/api/auth/admin/logout', { method: 'POST' }).finally(() => location.reload()); });
 }
 
 function navigate(view) {
@@ -974,8 +972,12 @@ window.goGroupsPage = goGroupsPage;
 window.goLogsPage = goLogsPage;
 
 // ============ Init ============
-function init() {
-  if (!API._token) { renderLogin(); return; }
+async function init() {
+  // 登录态由 cookie 决定：探测 /api/admin/me，失败回登录页（用裸 fetch，避免 401 触发 reload 循环）
+  try {
+    const res = await fetch('/api/admin/me');
+    if (!res.ok) { renderLogin(); return; }
+  } catch { renderLogin(); return; }
   renderLayout();
   navigate('dashboard');
 }
