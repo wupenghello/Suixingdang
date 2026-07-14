@@ -137,7 +137,8 @@ def test_revoked_session_rows_cleaned_on_relogin(client):
     # 吊销当前会话行（仍留在表中为已吊销状态）
     sid = [t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"][0]["id"]
     client.delete(f"/api/auth/tokens/{sid}", headers=h)
-    assert len([t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"]) == 1
+    # 吊销后 access 立即失效（即时吊销），旧会话行仍留在表中（revoked=True）
+    assert _me(client, access).status_code == 401
     # 重新登录：清理已吊销行 + 新建 1 个活跃会话，总数仍为 1（不累积）
     a2, _ = _login(client, username, "Old1234pass")
     tokens = client.get("/api/auth/tokens", headers={"Authorization": f"Bearer {a2}"}).json()
@@ -165,7 +166,7 @@ def test_same_device_session_reuse_within_window(client):
     access_a, refresh_a, username = _reg(client, password="Old1234pass")
     ha = {"Authorization": f"Bearer {access_a}"}
     # A 开启临时下载授权
-    assert client.post("/api/files/download-grant", headers=ha).status_code == 200
+    assert client.post("/api/files/download-grant", headers=ha, json={"password": "Old1234pass", "minutes": 0}).status_code == 200
     sessions_before = [t for t in client.get("/api/auth/tokens", headers=ha).json() if t["kind"] == "session"]
     assert len(sessions_before) == 1
     # 同设备再次登录：应复用同一会话行（不新增）
@@ -209,7 +210,7 @@ def test_download_grant_then_revoke(client):
     """开启临时下载后可下载；手动关闭后 403。"""
     access, _refresh, _ = _reg(client)
     h = _upload(client, access)
-    g = client.post("/api/files/download-grant", headers=h)
+    g = client.post("/api/files/download-grant", headers=h, json={"password": "Test1234pass", "minutes": 0})
     assert g.status_code == 200 and g.json()["granted"] is True
     assert client.get("/api/files/download-status", headers=h).json()["granted"] is True
     d = client.get("/api/files/download", headers=h, params={"path": "a.txt"})
@@ -228,7 +229,7 @@ def test_download_grant_isolated_per_session(client):
     access_b, _rb = _login(client, username, "Old1234pass", headers={"User-Agent": "device-B/1.0 (Macintosh)"})
     ha = {"Authorization": f"Bearer {access_a}"}
     hb = {"Authorization": f"Bearer {access_b}"}
-    assert client.post("/api/files/download-grant", headers=ha).status_code == 200
+    assert client.post("/api/files/download-grant", headers=ha, json={"password": "Old1234pass", "minutes": 0}).status_code == 200
     assert client.get("/api/files/download-status", headers=ha).json()["granted"] is True
     # B 的会话未受影响
     assert client.get("/api/files/download-status", headers=hb).json()["granted"] is False
@@ -260,16 +261,13 @@ def test_sync_download_rejects_browser_jwt(client):
 
 
 def test_revoked_session_cannot_grant_or_download(client):
-    """单令牌吊销后，该会话不能开启临时下载也不能下载（get_current_session 过滤 revoked）。"""
+    """单令牌吊销后立即生效：access JWT 立即失效（消除 60 分钟僵尸窗口）。"""
     access, _refresh, _ = _reg(client)
     h = _upload(client, access)
     sid = [t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"][0]["id"]
     client.delete(f"/api/auth/tokens/{sid}", headers=h)
-    # access JWT 仍有效（单吊销不 bump password_version）
-    assert _me(client, access).status_code == 200
-    # 但会话已吊销：grant 401、download 403
-    assert client.post("/api/files/download-grant", headers=h).status_code == 401
-    assert client.get("/api/files/download", headers=h, params={"path": "a.txt"}).status_code == 403
+    # 即时吊销：access JWT 因会话行 revoked 立即失效，所有接口返回 401
+    assert _me(client, access).status_code == 401
 
 
 def test_preview_unsafe_type_rejected(client):
@@ -280,3 +278,94 @@ def test_preview_unsafe_type_rejected(client):
                      files={"file": ("page.html", io.BytesIO(b"<script>x</script>"), "text/html")})
     assert up.status_code == 200, up.text
     assert client.get("/api/files/preview", headers=h, params={"path": "page.html"}).status_code == 415
+
+
+# ---- 新增：会话 IP/地域、当前会话标记、退出其他设备、并发上限、即时吊销 ----
+
+def test_tokens_return_ip_and_is_current(client):
+    """令牌列表回传 ip 与 is_current 字段；当前会话被标记。"""
+    access, _refresh, _ = _reg(client)
+    h = {"Authorization": f"Bearer {access}"}
+    tokens = client.get("/api/auth/tokens", headers=h).json()
+    sessions = [t for t in tokens if t["kind"] == "session"]
+    assert len(sessions) == 1
+    assert "ip" in sessions[0]
+    assert "geo" in sessions[0]
+    assert sessions[0]["is_current"] is True
+
+
+def test_revoke_others_keeps_current(client):
+    """退出其他设备：吊销除当前会话外的全部令牌，当前会话仍可用。"""
+    access_a, _ra, username = _reg(client, password="Old1234pass")
+    ha = {"Authorization": f"Bearer {access_a}"}
+    # 用不同 UA 模拟另一台设备登录
+    access_b, _rb = _login(client, username, "Old1234pass", headers={"User-Agent": "device-B/1.0"})
+    # A 创建一个设备令牌
+    client.post("/api/auth/tokens?label=daemon&expires_days=0", headers=ha)
+    # 从 A 的会话退出其他设备
+    r = client.delete("/api/auth/tokens-others", headers=ha)
+    assert r.status_code == 200, r.text
+    assert r.json()["count"] >= 2  # B 的会话 + 设备令牌
+    # A 的当前会话仍可用
+    assert _me(client, access_a).status_code == 200
+    # B 的会话已失效
+    assert _me(client, access_b).status_code == 401
+
+
+def test_concurrent_session_limit_evicts_oldest(client):
+    """超过并发会话上限时自动吊销最早的活跃会话。"""
+    from app.db.models import get_db, set_setting, SessionLocal
+    db = SessionLocal()
+    try:
+        set_setting(db, "max_concurrent_sessions", "1")  # 只允许 1 个活跃会话
+    finally:
+        db.close()
+    access_a, _ra, username = _reg(client, password="Old1234pass")
+    ha = {"Authorization": f"Bearer {access_a}"}
+    # 第二台设备（不同 UA）→ 超过上限 1，A 被挤掉
+    access_b, _rb = _login(client, username, "Old1234pass", headers={"User-Agent": "dev-B"})
+    assert _me(client, access_a).status_code == 401
+    assert _me(client, access_b).status_code == 200
+    # 第三台设备 → B 被挤掉
+    access_c, _rc = _login(client, username, "Old1234pass", headers={"User-Agent": "dev-C"})
+    assert _me(client, access_b).status_code == 401
+    assert _me(client, access_c).status_code == 200
+    # 恢复默认（清理测试副作用）
+    db = SessionLocal()
+    try:
+        set_setting(db, "max_concurrent_sessions", "")
+    finally:
+        db.close()
+
+
+def test_single_revoke_immediate_no_zombie_window(client):
+    """单条吊销浏览器会话后，access JWT 立即失效（无 60 分钟僵尸窗口）。"""
+    access, _refresh, _ = _reg(client)
+    h = {"Authorization": f"Bearer {access}"}
+    sid = [t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"][0]["id"]
+    client.delete(f"/api/auth/tokens/{sid}", headers=h)
+    # access 应立即 401，而非等到自然过期
+    assert _me(client, access).status_code == 401
+
+
+def test_new_device_login_logged(client):
+    """从未见过的设备(UA)登录留痕 login_new_device；同设备再次登录不重复记录。"""
+    from app.db.models import SessionLocal, AccessLog
+    access, _refresh, username = _reg(client, password="Old1234pass")
+    uid = _me(client, access).json()["id"]
+    # 用全新 UA 登录 = 新设备，应留痕
+    _login(client, username, "Old1234pass", headers={"User-Agent": "brand-new-device/1.0"})
+    db = SessionLocal()
+    try:
+        logs = db.query(AccessLog).filter_by(user_id=uid, action="login_new_device").count()
+        assert logs == 1  # 新设备登录留痕一次
+    finally:
+        db.close()
+    # 同设备再次登录（相同 UA）→ 复用会话，不应新增 login_new_device
+    _login(client, username, "Old1234pass", headers={"User-Agent": "brand-new-device/1.0"})
+    db = SessionLocal()
+    try:
+        logs2 = db.query(AccessLog).filter_by(user_id=uid, action="login_new_device").count()
+        assert logs2 == logs  # 未新增
+    finally:
+        db.close()

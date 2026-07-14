@@ -27,7 +27,7 @@ def test_upload_download_delete_roundtrip(client, make_user):
     assert up.status_code == 200, up.text
 
     # 4. 下载回来，内容必须一致（浏览器端下载需先开启临时下载窗口）
-    assert client.post("/api/files/download-grant", headers=headers).status_code == 200
+    assert client.post("/api/files/download-grant", headers=headers, json={"password": "Smoke12345pass", "minutes": 0}).status_code == 200
     down = client.get("/api/files/download", headers=headers,
                       params={"path": "hello.txt"})
     assert down.status_code == 200, down.text

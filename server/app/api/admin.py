@@ -7,7 +7,7 @@ from sqlalchemy import func, or_
 from pydantic import BaseModel
 
 from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, LlmProvider, get_db, get_setting, set_setting
-from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password
+from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password, verify_password
 from ..core import storage
 from ..config import settings
 from .auth import get_current_admin, _log, _bump_password_version
@@ -47,11 +47,30 @@ class CreateTokenRequest(BaseModel):
     expires_days: int = 0
 
 
+class ChangeAdminPasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
 # ---- 管理员信息 ----
 
 @router.get("/me")
 def admin_info(admin=Depends(get_current_admin)):
     return {"id": admin.id, "username": admin.username, "role": "admin"}
+
+
+@router.put("/me/password")
+def change_admin_password(req: ChangeAdminPasswordRequest, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    if not verify_password(req.old_password, admin.password_hash):
+        _log(db, None, "admin_password_change_failed", "原密码错误", request)
+        raise HTTPException(400, "原密码错误")
+    pwd_err = validate_password(req.new_password, admin.username)
+    if pwd_err:
+        raise HTTPException(400, pwd_err)
+    admin.password_hash = hash_password(req.new_password)
+    db.commit()
+    _log(db, None, "admin_password_change", "", request)
+    return {"message": "密码已更新"}
 
 
 # ---- 用户管理 ----
@@ -200,12 +219,20 @@ def list_user_tokens(user_id: str, db: Session = Depends(get_db), admin=Depends(
     if not user:
         raise HTTPException(404, "用户不存在")
     tokens = db.query(AccessToken).filter_by(user_id=user_id).order_by(AccessToken.created_at.desc()).all()
-    return [{
-        "id": t.id, "kind": t.kind or "device", "label": t.label, "revoked": t.revoked,
-        "expires_at": str(t.expires_at) if t.expires_at else "",
-        "last_used_at": str(t.last_used_at) if t.last_used_at else "",
-        "created_at": str(t.created_at),
-    } for t in tokens]
+    now = datetime.utcnow()
+    result = []
+    for t in tokens:
+        item = {
+            "id": t.id, "kind": t.kind or "device", "label": t.label, "revoked": t.revoked,
+            "ip": t.ip or "", "geo": t.geo or "",
+            "expires_at": str(t.expires_at) if t.expires_at else "",
+            "last_used_at": str(t.last_used_at) if t.last_used_at else "",
+            "created_at": str(t.created_at),
+        }
+        if t.kind == "session":
+            item["download_granted"] = bool(t.download_granted_until and t.download_granted_until > now)
+        result.append(item)
+    return result
 
 
 @router.post("/users/{user_id}/tokens")

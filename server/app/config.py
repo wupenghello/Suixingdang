@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     DOWNLOAD_GRANT_MINUTES: int = 5     # 浏览器临时下载授权窗口（分钟），默认 5
     SESSION_REUSE_HOURS: int = 5        # 同一设备(IP+UA)会话复用窗口（小时）：窗口内重复登录复用既有会话，不新增会话行
 
+    MAX_CONCURRENT_SESSIONS: int = 5       # 单用户活跃浏览器会话上限；超出自动吊销最早的。0=不限制
+    SESSION_IDLE_TIMEOUT_MINUTES: int = 0  # 会话空闲超时（分钟）；超过无活动自动失效。0=不限制
+    GEOIP_DB_PATH: str = ""                # MaxMind GeoLite2-City.mmdb 路径；留空则不做地域解析
+
     # Cookie（浏览器会话令牌）：HttpOnly + Secure + SameSite=Lax，前端 JS 不可读，防 XSS 偷令牌。
     # 设备令牌（守护进程）仍走 Authorization 头，不受影响。
     COOKIE_SAMESITE: str = "lax"        # lax / strict / none（none 须配合 Secure=True）
