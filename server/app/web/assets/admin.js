@@ -1,6 +1,7 @@
 // 随行档 - 管理员后台 SPA (v3)
 
 const API = {
+  // 管理员令牌存 localStorage：与用户端一致，多标签页共享
   _token: localStorage.getItem('admin_token'),
   set(token) { this._token = token; localStorage.setItem('admin_token', token); },
   clear() { this._token = null; localStorage.removeItem('admin_token'); },

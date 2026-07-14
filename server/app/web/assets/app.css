@@ -994,3 +994,31 @@ html { scroll-behavior: smooth; }
 /* ---- Settings 工具类（替代 inline style）---- */
 .setting-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .setting-row > .setting-row-text { margin: 0; flex: 1; min-width: 200px; }
+
+/* ---- Note Editor (新建笔记) ---- */
+.note-modal { width: 620px; max-width: 92vw; }
+.note-modal .note-title-input { margin-bottom: 4px; }
+.note-modal .note-content-input {
+  margin-top: 4px; min-height: 280px; resize: vertical; line-height: 1.6;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 13px;
+}
+
+/* ---- 传输助手：发送状态指示（参考微信文件传输助手） ---- */
+.transfer-status {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; align-self: center; width: 18px; height: 18px;
+}
+.transfer-status.sending {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border); border-top-color: var(--text-muted);
+  border-radius: 50%; animation: transfer-spin 0.8s linear infinite;
+}
+.transfer-status.failed {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--danger); color: #fff; cursor: pointer;
+  font-size: 13px; font-weight: 700; line-height: 1;
+  transition: transform .12s;
+}
+.transfer-status.failed::before { content: '!'; }
+.transfer-status.failed:hover { transform: scale(1.12); }
+@keyframes transfer-spin { to { transform: rotate(360deg); } }

@@ -135,6 +135,16 @@ def _session_label(request: Request) -> str:
     return f"{browser}·{os_name}" if os_name else browser
 
 
+def _device_fingerprint(request: Request) -> str:
+    """同设备指纹：sha256(ip|user-agent)。
+
+    用于会话复用去重--同一 IP + 同一浏览器（同一设备）在一定窗口内重复登录
+    复用既有会话行，而非每次登录都新增一条。"""
+    ua = request.headers.get("user-agent", "") if request else ""
+    ip = _client_ip(request) if request else ""
+    return hashlib.sha256(f"{ip}|{ua}".encode()).hexdigest()
+
+
 def _bump_password_version(db: Session, user: User):
     """密码版本号 +1（使所有旧 access/refresh JWT 立即失效），并吊销已存在的浏览器
     会话行，避免它们在令牌列表里继续显示为「有效」。用于改/重置密码场景。"""
@@ -149,6 +159,9 @@ def _bump_password_version(db: Session, user: User):
 def _issue_session_tokens(db: Session, user: User, request: Request):
     """签发浏览器会话令牌对，写入 kind=session 行（可吊销），返回 (access, refresh)。
 
+    会话复用去重：同一设备（IP+UA 指纹）在 SESSION_REUSE_HOURS 窗口内重复登录时，
+    以第一次登录的会话为准--复用既有会话行（同一 sid），仅轮转 refresh 凭据，
+    不新增会话行、不重置该会话的临时下载授权等状态。窗口外或换设备才新建会话。
     顺带清理该用户已过期或已吊销的旧会话行，避免 access_tokens 表无界增长；
     保留其他设备的活跃会话。access JWT 带 sid（会话行 id），供临时下载等
     session 级授权接口定位当前会话。"""
@@ -160,11 +173,35 @@ def _issue_session_tokens(db: Session, user: User, request: Request):
     ).delete(synchronize_session=False)
     base_data = {"sub": user.id, "username": user.username, "role": "user",
                  "password_version": user.password_version}
-    # 先签 refresh（不含 sid）建 session 行，flush 拿 id 后再签含 sid 的 access
+    fingerprint = _device_fingerprint(request)
+    reuse_window = now - timedelta(hours=settings.SESSION_REUSE_HOURS)
+    # 查找可复用的同设备会话：未吊销、未过期、5 小时内创建
+    reusable = db.query(AccessToken).filter(
+        AccessToken.user_id == user.id,
+        AccessToken.kind == "session",
+        AccessToken.revoked.is_(False),
+        AccessToken.device_fingerprint == fingerprint,
+        AccessToken.created_at >= reuse_window,
+    ).order_by(AccessToken.created_at.desc()).first()
+    if reusable:
+        # 复用既有会话行：轮转 refresh（刷新 token_hash），签发绑定同 sid 的 access；
+        # 保留下载授权等会话状态（不重置），刷新设备标签与活跃时间。
+        # 同步续期 expires_at，使其与新签发 refresh JWT 的有效期一致——否则会话行会
+        # 先于 refresh JWT 过期，被下次登录的清理逻辑删除，导致 refresh 仍有效却 401 静默下线。
+        refresh = create_refresh_token(base_data)
+        reusable.token_hash = hashlib.sha256(refresh.encode()).hexdigest()
+        reusable.label = _session_label(request)
+        reusable.last_used_at = now
+        reusable.expires_at = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        db.flush()
+        access = create_access_token({**base_data, "sid": reusable.id})
+        return access, refresh
+    # 新建设备会话：先签 refresh（不含 sid）建 session 行，flush 拿 id 后再签含 sid 的 access
     refresh = create_refresh_token(base_data)
     session = AccessToken(
         user_id=user.id, kind="session", label=_session_label(request),
         token_hash=hashlib.sha256(refresh.encode()).hexdigest(),
+        device_fingerprint=fingerprint,
         expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         last_used_at=now,
     )
