@@ -28,6 +28,13 @@ class GroupRequest(BaseModel):
     name: str
 
 
+class NoteRequest(BaseModel):
+    name: str
+    content: str
+    directory: str = ""
+    group_id: str = ""
+
+
 def _check_quota(db: Session, user: User, file_size: int):
     if user.quota_mb <= 0:
         return
@@ -178,6 +185,110 @@ async def upload_file(
         "id": f.id, "path": f.path, "name": f.name, "size": f.size,
         "guard_status": f.guard_status, "guard_reason": f.guard_reason,
         "message": "上传成功",
+    }
+
+
+@router.post("/note")
+def create_note(
+    req: NoteRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """以笔记形式创建文件（写入文本内容落盘为 .md 文件），不必上传。
+
+    与上传走同一入库流程：配额、Guard（文件名 + 内容）、去重、索引、同步事件。
+    """
+    # 校验分组归属
+    if req.group_id:
+        grp = db.query(FileGroup).filter_by(id=req.group_id, owner_id=user.id).first()
+        if not grp:
+            raise HTTPException(404, "分组不存在")
+
+    # 笔记文件名：仅取文件名部分（禁止穿越），无扩展名则补 .md
+    raw_name = (req.name or "").strip().replace("\\", "/").split("/")[-1].strip()
+    if not raw_name:
+        raw_name = "未命名笔记"
+    if "." not in raw_name or raw_name.rsplit(".", 1)[-1].lower() not in {
+        "md", "txt", "markdown", "rst",
+    }:
+        raw_name = raw_name + ".md"
+    rel_path = f"{req.directory}/{raw_name}" if req.directory else raw_name
+
+    # Guard - 文件名
+    status, reason = guard.check_filename(rel_path)
+    if status == "blocked":
+        raise HTTPException(403, f"Guard 拦截: {reason}")
+
+    content = req.content or ""
+    if not content.strip():
+        raise HTTPException(400, "内容不能为空")
+    content_bytes = content.encode("utf-8")
+    if len(content_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(400, "笔记内容不能超过 5MB")
+
+    # 配额预检：笔记字节数已知，直接按真实大小预估，避免写盘后才超配额
+    _check_quota(db, user, len(content_bytes))
+
+    meta = storage.save_file(user.id, rel_path, content_bytes, source="note")
+
+    # 配额精确检查
+    try:
+        _check_quota(db, user, meta["size"])
+    except HTTPException:
+        storage.delete_file(user.id, rel_path)
+        raise
+
+    # 自动去重
+    dup = db.query(FileModel).filter(
+        FileModel.owner_id == user.id,
+        FileModel.content_hash == meta["content_hash"],
+        FileModel.path != meta["path"],
+    ).first()
+    if dup:
+        storage.delete_file(user.id, rel_path)
+        raise HTTPException(409, f"文件内容已存在（重复）: {dup.path}")
+
+    # Guard - 内容
+    c_status, c_reason = guard.check_content(user.id, rel_path, direction="upload")
+    if c_status == "blocked":
+        storage.delete_file(user.id, rel_path)
+        raise HTTPException(403, f"Guard 拦截: {c_reason}")
+
+    final_status = c_status if c_status != "safe" else status
+    final_reason = c_reason if c_reason else reason
+    existing = db.query(FileModel).filter_by(owner_id=user.id, path=meta["path"]).first()
+    if existing:
+        existing.size = meta["size"]
+        existing.content_hash = meta["content_hash"]
+        existing.modified_at = datetime.utcnow()
+        existing.guard_status = final_status
+        existing.guard_reason = final_reason
+        existing.group_id = req.group_id or None
+        f = existing
+    else:
+        f = FileModel(
+            owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
+            content_hash=meta["content_hash"], mime_type=meta["mime_type"],
+            source="note", guard_status=final_status, guard_reason=final_reason,
+            group_id=req.group_id or None,
+        )
+        db.add(f)
+    db.commit()
+    db.refresh(f)
+
+    try:
+        indexer.index_file(user.id, f.id, rel_path)
+    except Exception:
+        pass
+
+    db.add(SyncEvent(user_id=user.id, file_id=f.id, file_name=rel_path, direction="upload", status="completed"))
+    db.add(AccessLog(user_id=user.id, action="file_note", detail=rel_path))
+    db.commit()
+
+    return {
+        "id": f.id, "path": f.path, "name": f.name, "size": f.size,
+        "guard_status": f.guard_status, "guard_reason": f.guard_reason,
+        "message": "笔记已保存",
     }
 
 

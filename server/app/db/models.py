@@ -139,6 +139,7 @@ class AccessToken(Base):
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     kind = Column(String, default="device")           # device=守护进程等外部令牌 / session=浏览器登录会话
     label = Column(String, default="")
+    device_fingerprint = Column(String, default="", index=True)  # 同设备指纹(sha256(ip|ua))，用于会话复用去重
     token_hash = Column(String, unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=True)
     revoked = Column(Boolean, default=False)
@@ -419,6 +420,15 @@ def _migrate_columns():
     if "download_granted_until" not in tcols:
         try:
             cursor.execute('ALTER TABLE access_tokens ADD COLUMN download_granted_until DATETIME')
+        except Exception:
+            pass
+    if "device_fingerprint" not in tcols:
+        try:
+            cursor.execute('ALTER TABLE access_tokens ADD COLUMN device_fingerprint TEXT DEFAULT ""')
+            try:
+                cursor.execute('CREATE INDEX IF NOT EXISTS ix_access_tokens_device_fingerprint ON access_tokens (device_fingerprint)')
+            except Exception:
+                pass
         except Exception:
             pass
 

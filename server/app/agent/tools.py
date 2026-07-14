@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-from ..db.models import File, SyncEvent, AccessToken, SessionLocal
+from ..db.models import File, SyncEvent, AccessToken, TransferMessage, SessionLocal
 from ..core import storage, indexer, guard
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,60 @@ def _call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1024, user
         max_tokens=max_tokens,
     )
     return resp.choices[0].message.content or ""
+
+
+# ============ 传输助手：列出近期消息（文本便签 + 已入库文件） ============
+
+def list_transfer_messages(user_id: str, limit: int = 20) -> str:
+    """列出文件传输助手中最近的消息（文本便签与文件统一时间线）。
+
+    用于回答「传输助手里有什么」「我最近发了什么笔记/文件」类问题；
+    与 search_files / qa 的语义检索互补——后者需要关键词，本工具按时间倒序列出。
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(TransferMessage)
+            .filter_by(user_id=user_id)
+            .order_by(TransferMessage.created_at.desc())
+            .limit(min(max(limit, 1), 100))
+            .all()
+        )
+        # 一次性预取所有文件消息关联的 File，避免循环内逐条查询（N+1）
+        file_ids = [m.file_id for m in rows if m.type == "file" and m.file_id]
+        file_map = (
+            {f.id: f for f in db.query(File).filter(File.id.in_(file_ids)).all()}
+            if file_ids else {}
+        )
+        items = []
+        for m in reversed(rows):
+            if m.type == "text":
+                items.append({
+                    "type": "text",
+                    "message_id": m.id,
+                    "content": _short(m.content or "", 500),
+                    "created_at": str(m.created_at),
+                })
+            elif m.type == "file" and m.file_id:
+                f = file_map.get(m.file_id)
+                if f:
+                    items.append({
+                        "type": "file",
+                        "message_id": m.id,
+                        "file_id": f.id,
+                        "name": f.name,
+                        "path": f.path,
+                        "size": f.size,
+                        "guard_status": f.guard_status or "safe",
+                        "created_at": str(m.created_at),
+                    })
+        return json.dumps({
+            "count": len(items),
+            "messages": items,
+            "message": f"传输助手最近 {len(items)} 条记录" if items else "传输助手中暂无记录",
+        }, ensure_ascii=False)
+    finally:
+        db.close()
 
 
 # ============ 基础文件工具 ============
@@ -379,6 +433,7 @@ def get_storage_stats(user_id: str) -> str:
 # ============ 注册表 ============
 
 TOOL_FUNCTIONS = {
+    "list_transfer_messages": list_transfer_messages,
     "search_files": search_files,
     "list_files": list_files,
     "get_file_info": get_file_info,
@@ -395,6 +450,7 @@ TOOL_FUNCTIONS = {
 }
 
 TOOL_SCHEMAS = [
+    {"type": "function", "function": {"name": "list_transfer_messages", "description": "列出文件传输助手中最近的消息（文本便签与文件，按时间倒序），用于查看传输助手里存了什么", "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "default": 20, "description": "返回条数，最多 100"}}, "required": []}}},
     {"type": "function", "function": {"name": "search_files", "description": "语义搜索文件和文字便签，返回匹配结果及内容片段", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "default": 10}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "list_files", "description": "列出目录文件", "parameters": {"type": "object", "properties": {"directory": {"type": "string"}}}}},
     {"type": "function", "function": {"name": "get_file_info", "description": "获取文件详情", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},

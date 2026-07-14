@@ -24,8 +24,8 @@ def _reg(client, username=None, password="Test1234pass"):
     return j["access_token"], j["refresh_token"], username
 
 
-def _login(client, username, password):
-    r = client.post("/api/auth/login", json={"username": username, "password": password})
+def _login(client, username, password, headers=None):
+    r = client.post("/api/auth/login", json={"username": username, "password": password}, headers=headers)
     assert r.status_code == 200, r.text
     j = r.json()
     return j["access_token"], j["refresh_token"]
@@ -172,6 +172,38 @@ def test_admin_list_user_tokens_has_kind(client):
     assert "kind" in tokens[0]
 
 
+
+def test_same_device_session_reuse_within_window(client):
+    """同设备(IP+UA)在复用窗口内重复登录：复用既有会话行，不新增、不重置下载授权。"""
+    from app.config import settings
+    access_a, refresh_a, username = _reg(client, password="Old1234pass")
+    ha = {"Authorization": f"Bearer {access_a}"}
+    # A 开启临时下载授权
+    assert client.post("/api/files/download-grant", headers=ha).status_code == 200
+    sessions_before = [t for t in client.get("/api/auth/tokens", headers=ha).json() if t["kind"] == "session"]
+    assert len(sessions_before) == 1
+    # 同设备再次登录：应复用同一会话行（不新增）
+    access_b, refresh_b = _login(client, username, "Old1234pass")
+    hb = {"Authorization": f"Bearer {access_b}"}
+    sessions_after = [t for t in client.get("/api/auth/tokens", headers=hb).json() if t["kind"] == "session"]
+    assert len(sessions_after) == 1, "同设备重复登录不应新增会话行"
+    # 复用后下载授权仍保留（未被重置）
+    assert client.get("/api/files/download-status", headers=hb).json()["granted"] is True
+    # 旧 refresh 因轮转而失效，新 refresh 可用
+    assert client.post("/api/auth/refresh", json={"refresh_token": refresh_a}).status_code == 401
+    assert client.post("/api/auth/refresh", json={"refresh_token": refresh_b}).status_code == 200
+
+
+def test_different_device_creates_new_session(client):
+    """不同设备(不同 UA)登录：创建独立会话，互不影响。"""
+    access_a, _ra, username = _reg(client, password="Old1234pass")
+    ha = {"Authorization": f"Bearer {access_a}"}
+    access_b, _rb = _login(client, username, "Old1234pass", headers={"User-Agent": "device-B/1.0 (Macintosh)"})
+    hb = {"Authorization": f"Bearer {access_b}"}
+    sessions = [t for t in client.get("/api/auth/tokens", headers=ha).json() if t["kind"] == "session"]
+    assert len(sessions) == 2, "不同设备应各有一条会话"
+
+
 def _upload(client, access, name="a.txt", content=b"abc"):
     h = {"Authorization": f"Bearer {access}"}
     r = client.post("/api/files/upload", headers=h,
@@ -202,9 +234,12 @@ def test_download_grant_then_revoke(client):
 
 
 def test_download_grant_isolated_per_session(client):
-    """临时下载授权精确到会话：A 开启不影响 B（多设备场景）。"""
+    """临时下载授权精确到会话：A 开启不影响 B（多设备场景）。
+
+    注意：同设备(IP+UA)登录会复用会话，因此这里 B 必须用不同 User-Agent
+    模拟另一台设备，才能得到独立会话以验证隔离性。"""
     access_a, _ra, username = _reg(client, password="Old1234pass")
-    access_b, _rb = _login(client, username, "Old1234pass")
+    access_b, _rb = _login(client, username, "Old1234pass", headers={"User-Agent": "device-B/1.0 (Macintosh)"})
     ha = {"Authorization": f"Bearer {access_a}"}
     hb = {"Authorization": f"Bearer {access_b}"}
     assert client.post("/api/files/download-grant", headers=ha).status_code == 200

@@ -2,6 +2,9 @@
 
 // ============ API 层 ============
 const API = {
+  // 访问令牌存 localStorage：多标签页共享同一会话令牌。
+  // 曾用 sessionStorage（关标签页即清），但与「同设备会话复用」冲突——新标签页因
+  // sessionStorage 隔离需重新登录，复用会轮转 refresh 把原标签页顶下线，故改回 localStorage。
   _token: localStorage.getItem('access_token'),
   _refresh: localStorage.getItem('refresh_token'),
 
@@ -154,6 +157,7 @@ const ICONS = {
   folder: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>',
   groups: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/><path d="M3 6h18v2H3z" opacity="0"/><path d="M2 5h6V3H2v2zm0 6h6V9H2v2zm0 6h6v-2H2v2zm14-12v2h6V5h-6z"/></svg>',
   add: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>',
+  note: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
   file: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
   fileCode: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>',
   fileText: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
@@ -895,6 +899,7 @@ async function renderFiles() {
       <div class="files-search search-box">${ICONS.search}<input type="text" id="search-input" placeholder="搜索文件名、类型…" value="${escapeHtml(searchQuery)}"></div>
       <div class="files-controls">
         <button class="btn btn-primary" id="btn-upload">${ICONS.upload}<span>上传</span></button>
+        <button class="btn btn-secondary" id="btn-note">${ICONS.note}<span>新建笔记</span></button>
         <span class="files-divider"></span>
         <button class="btn btn-secondary btn-icon-only" id="btn-view" title="切换视图">${fileView === 'grid' ? LIST_ICON : GRID_ICON}</button>
         <button class="btn btn-secondary btn-icon-only" id="btn-sort" title="排序">${SORT_ICON}</button>
@@ -914,6 +919,7 @@ async function renderFiles() {
   document.getElementById('btn-refresh').addEventListener('click', () => { Toast.show('刷新中', 'info', 1000); loadFiles(); });
   document.getElementById('btn-groups').addEventListener('click', showGroupManager);
   document.getElementById('btn-upload').addEventListener('click', () => document.getElementById('file-input').click());
+  document.getElementById('btn-note').addEventListener('click', showNoteEditor);
   document.getElementById('file-input').addEventListener('change', (e) => { if (e.target.files.length) handleFilesUpload(e.target.files); e.target.value = ''; });
   document.getElementById('btn-sort').addEventListener('click', (e) => showSortMenu(e));
   document.getElementById('btn-view').addEventListener('click', () => {
@@ -937,7 +943,60 @@ async function renderFiles() {
   loadFiles();
 }
 
+
+function showNoteEditor() {
+  const { modal, close } = openModal({ width: 620, onDismiss: () => close() });
+  modal.classList.add('note-modal');
+  modal.innerHTML = `
+    <h3>新建笔记</h3>
+    <input type="text" class="form-input note-title-input" placeholder="笔记标题（可选，默认「未命名笔记」）" maxlength="80">
+    <div class="input-error-msg" id="note-error"></div>
+    <textarea class="form-input note-content-input" placeholder="支持 Markdown 语法，回车换行……" rows="14"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="btn-note-cancel">取消</button>
+      <button class="btn btn-primary" id="btn-note-save">保存</button>
+    </div>`;
+  const titleEl = modal.querySelector('.note-title-input');
+  const contentEl = modal.querySelector('.note-content-input');
+  const errEl = modal.querySelector('#note-error');
+  const saveBtn = modal.querySelector('#btn-note-save');
+  let saving = false;
+  const finish = () => close();
+  async function save() {
+    if (saving) return;
+    const content = contentEl.value;
+    if (!content.trim()) { errEl.textContent = '内容不能为空'; return; }
+    errEl.textContent = '';
+    saving = true;
+    saveBtn.disabled = true;
+    saveBtn.textContent = '保存中…';
+    try {
+      // directory / group_id 走 POST body（后端用 NoteRequest body model 接收，非 query param）
+      const res = await API.post('/api/files/note', {
+        name: titleEl.value.trim(),
+        content,
+        directory: currentDir || '',
+        group_id: selectedGroup || '',
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); errEl.textContent = d.detail || '保存失败'; return; }
+      const data = await res.json();
+      Toast.show(data.guard_status === 'warning' ? '笔记已保存（Guard 提醒：可能含敏感内容）' : '笔记已保存', 'success');
+      finish();
+      loadFiles();
+    } catch (err) {
+      errEl.textContent = '保存失败: ' + (err.message || '未知错误');
+    } finally { saving = false; saveBtn.disabled = false; saveBtn.textContent = '保存'; }
+  }
+  modal.querySelector('#btn-note-cancel').addEventListener('click', finish);
+  saveBtn.addEventListener('click', save);
+  contentEl.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save(); }
+  });
+  titleEl.focus();
+}
+
 // ============ Modal primitive ============
+
 // 统一弹窗生命周期：创建遮罩/弹窗、点击遮罩与 ESC 撤销、幂等 close、移除 keydown 监听。
 // opts.width 设置 .modal 宽度；opts.onDismiss 在用户以遮罩点击/ESC 撤销时触发一次（用于 resolve 取消值）。
 // 返回 { overlay, modal, close }；close 幂等，调用方填充 modal 内容并绑定按钮（按钮内自行 resolve 后调 close）。
@@ -2093,7 +2152,6 @@ async function sendChatMessage() {
 
 // ============ Transfer Assistant (文件传输助手) ============
 let transferMessages = [];
-let transferSending = false;
 
 async function renderTransfer() {
   document.getElementById('main-content').innerHTML = `
@@ -2131,7 +2189,9 @@ async function loadTransferMessages() {
   try {
     const res = await API.get('/api/transfer/messages?limit=200');
     const data = await res.json();
-    transferMessages = data.messages || [];
+    // 保留仍在发送中的乐观消息（避免刷新/切换页面时丢失），追加到服务端列表末尾
+    const inflight = transferMessages.filter(m => m._status === 'sending');
+    transferMessages = [...(data.messages || []), ...inflight];
   } catch { transferMessages = []; }
   renderTransferMessages();
 }
@@ -2152,11 +2212,19 @@ function renderTransferMessages() {
     const time = formatDateTime(msg.created_at);
     const delBtn = `<button class="transfer-del" title="删除" data-action="delete-msg" data-id="${escapeHtml(msg.id)}">${ICONS.trash}</button>`;
     if (msg.type === 'text') {
+      // 状态指示：发送中(转圈) / 失败(红色感叹号,可点重试) / 成功(无)
+      let statusIcon = '';
+      if (msg._status === 'sending') {
+        statusIcon = `<span class="transfer-status sending" title="发送中"></span>`;
+      } else if (msg._status === 'failed') {
+        statusIcon = `<span class="transfer-status failed" data-action="retry-msg" data-id="${escapeHtml(msg.id)}" title="发送失败：${escapeHtml(msg._error || '点击重试')}"></span>`;
+      }
       return `<div class="transfer-msg">
         <div class="transfer-msg-body">
           <div class="transfer-text-bubble">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
           <span class="transfer-time">${time}</span>
         </div>
+        ${statusIcon}
         ${delBtn}
       </div>`;
     }
@@ -2189,6 +2257,7 @@ function renderTransferMessages() {
       const a = el.dataset.action;
       if (a === 'download') { e.stopPropagation(); downloadFile(el.dataset.path); }
       else if (a === 'delete-msg') { e.stopPropagation(); deleteTransferMessage(el.dataset.id); }
+      else if (a === 'retry-msg') { e.stopPropagation(); retryTransferMessage(el.dataset.id); }
       else if (a === 'preview-transfer') previewTransferFile(el.dataset.path, el.dataset.name);
     });
   });
@@ -2196,23 +2265,52 @@ function renderTransferMessages() {
 }
 
 async function sendTransferText() {
-  if (transferSending) return;
   const input = document.getElementById('transfer-input');
   const text = input.value.trim();
   if (!text) return;
-  transferSending = true;
-  const btn = document.getElementById('btn-transfer-send');
-  btn.disabled = true;
+  // 乐观渲染：回车后立即显示在内容框中，不等接口成功（参考微信文件传输助手）
+  const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  transferMessages.push({ id: tempId, type: 'text', content: text, created_at: new Date().toISOString(), _status: 'sending' });
+  input.value = ''; input.style.height = 'auto';
+  renderTransferMessages();
+  await _sendTransferTextOnce(tempId, text);
+}
+
+async function _sendTransferTextOnce(tempId, text) {
   try {
     const res = await API.post('/api/transfer/text', { content: text });
-    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '发送失败', 'error'); return; }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); _markTransferFailed(tempId, d.detail || '发送失败'); return; }
     const msg = await res.json();
-    transferMessages.push(msg);
-    input.value = ''; input.style.height = 'auto';
+    const idx = transferMessages.findIndex(m => m.id === tempId);
+    if (msg && msg.id !== tempId && transferMessages.some(m => m.id === msg.id)) {
+      // 服务端消息已在列表中（刷新时已拉取）：仅移除乐观临时项，避免重复
+      if (idx >= 0) transferMessages.splice(idx, 1);
+    } else if (idx >= 0) {
+      transferMessages[idx] = msg;  // 用服务端真实消息替换乐观消息
+    } else {
+      transferMessages.push(msg);  // 临时项已不在（被删/被刷新覆盖），补回服务端消息
+    }
     renderTransferMessages();
   } catch (err) {
-    Toast.show('发送失败: ' + err.message, 'error');
-  } finally { transferSending = false; btn.disabled = false; }
+    _markTransferFailed(tempId, err.message || '发送失败');
+  }
+}
+
+function _markTransferFailed(tempId, reason) {
+  const idx = transferMessages.findIndex(m => m.id === tempId);
+  if (idx < 0) return;
+  transferMessages[idx]._status = 'failed';
+  transferMessages[idx]._error = reason;
+  renderTransferMessages();
+}
+
+async function retryTransferMessage(tempId) {
+  const msg = transferMessages.find(m => m.id === tempId);
+  if (!msg || msg._status !== 'failed') return;
+  msg._status = 'sending';
+  delete msg._error;
+  renderTransferMessages();
+  await _sendTransferTextOnce(tempId, msg.content);
 }
 
 async function handleTransferFiles(fileList) {
@@ -2252,6 +2350,13 @@ async function handleTransferFiles(fileList) {
 
 async function deleteTransferMessage(id) {
   if (!await confirmDialog({ title: '删除记录', message: '确定删除这条记录？', confirmText: '删除', danger: true })) return;
+  // 尚未落库的乐观/失败消息（_status 非空）：仅本地移除，不调删除接口
+  const local = transferMessages.find(m => m.id === id);
+  if (local && local._status) {
+    transferMessages = transferMessages.filter(m => m.id !== id);
+    renderTransferMessages();
+    return;
+  }
   try {
     const res = await API.del(`/api/transfer/${id}`);
     if (res.ok) {
