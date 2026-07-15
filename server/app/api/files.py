@@ -321,9 +321,9 @@ def create_note(
 
 
 @router.get("/note-content")
-def get_note_content(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def get_note_content(path: str = Query(None), file_id: str = Query(None), db: Session = Depends(get_db), user=Depends(get_current_user)):
     """返回笔记（文本文件）原始内容，供编辑器加载。"""
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
+    path, f = _resolve_file_path(db, user.id, path, file_id)
     try:
         p = storage.read_file(user.id, path)
     except FileNotFoundError:
@@ -514,10 +514,26 @@ def ai_enhance(path: str = Query(...), db: Session = Depends(get_db), user=Depen
     return {"summary": summary, "tags": ai_tags}
 
 
+
+def _resolve_file_path(db: Session, user_id: str, path: str = None, file_id: str = None) -> tuple[str, FileModel]:
+    """Resolve a file reference to (path, FileModel). Accepts file_id (preferred,
+    opaque UUID) or path (legacy). Used by preview/download endpoints so the
+    real path never needs to be sent from the browser."""
+    if file_id:
+        f = db.query(FileModel).filter_by(owner_id=user_id, id=file_id).first()
+        if not f:
+            raise HTTPException(404, "文件不存在")
+        return f.path, f
+    if path:
+        f = db.query(FileModel).filter_by(owner_id=user_id, path=path).first()
+        return path, f
+    raise HTTPException(400, "需要提供 path 或 file_id")
+
+
 @router.get("/download")
-def download_file(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
-    # 浏览器端下载需开启临时下载窗口；守护进程走 /api/sync/download 不受此限
-    # 浏览器端下载需开启临时下载窗口或单次授权；守护进程走 /api/sync/download 不受此限
+def download_file(path: str = Query(None), file_id: str = Query(None), db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
+    # Resolve file_id -> path (opaque UUID reference; real path never sent from browser)
+    path, f = _resolve_file_path(db, user.id, path, file_id)
     now = datetime.utcnow()
     window_granted = _download_granted(session, now)
     single_granted = bool(session and session.single_download_path and session.single_download_path == path)
@@ -569,7 +585,8 @@ def grant_download(req: DownloadGrantRequest, request: Request, db: Session = De
 
 class SingleDownloadRequest(BaseModel):
     password: str
-    path: str
+    path: str = ""
+    file_id: str = ""
 
 
 @router.post("/download-grant-single")
@@ -580,12 +597,21 @@ def grant_single_download(req: SingleDownloadRequest, request: Request, db: Sess
     if not verify_password(req.password, user.password_hash):
         _log(db, user.id, "download_grant_failed", "密码验证失败（单次下载）", request)
         raise HTTPException(403, "密码错误")
+    # Resolve file_id -> path (opaque UUID; real path need not come from browser)
+    real_path = req.path
+    if not real_path and req.file_id:
+        f_rec = db.query(FileModel).filter_by(owner_id=user.id, id=req.file_id).first()
+        if not f_rec:
+            raise HTTPException(404, "文件不存在")
+        real_path = f_rec.path
+    if not real_path:
+        raise HTTPException(400, "需要提供 path 或 file_id")
     # 校验文件归属
-    if not db.query(FileModel).filter_by(owner_id=user.id, path=req.path).first():
+    if not db.query(FileModel).filter_by(owner_id=user.id, path=real_path).first():
         raise HTTPException(404, "文件不存在")
-    session.single_download_path = req.path
-    _log(db, user.id, "download_grant_single", f"授权单次下载 {req.path}", request)
-    return {"granted": True, "path": req.path}
+    session.single_download_path = real_path
+    _log(db, user.id, "download_grant_single", f"授权单次下载 {real_path}", request)
+    return {"granted": True, "path": real_path}
 
 
 @router.post("/download-revoke")
@@ -631,13 +657,13 @@ def download_history(db: Session = Depends(get_db), user=Depends(get_current_use
 
 
 @router.get("/preview")
-def preview_file(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def preview_file(path: str = Query(None), file_id: str = Query(None), db: Session = Depends(get_db), user=Depends(get_current_user)):
     """以 inline 方式返回文件，供前端预览（图片/视频/音频/PDF 等）。
 
     HTML/SVG/XML 等可执行类型不支持浏览器预览（避免存储型 XSS，也避免预览触发
     attachment 下载绕过临时下载限制）；请在守护进程设备查看。
     """
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
+    path, f = _resolve_file_path(db, user.id, path, file_id)
     try:
         p = storage.read_file(user.id, path)
     except FileNotFoundError:
@@ -651,8 +677,9 @@ def preview_file(path: str = Query(...), db: Session = Depends(get_db), user=Dep
 
 
 @router.get("/preview-text")
-def preview_text(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def preview_text(path: str = Query(None), file_id: str = Query(None), db: Session = Depends(get_db), user=Depends(get_current_user)):
     """返回文本文件内容（限制 1MB），供前端预览代码/文本。"""
+    path, _f = _resolve_file_path(db, user.id, path, file_id)
     try:
         p = storage.read_file(user.id, path)
     except FileNotFoundError:

@@ -169,6 +169,21 @@ const ICONS = {
  lock: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm2-9H8V6a2 2 0 0 1 4 0v2z"/></svg>',
   user: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  tbBold: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>',
+  tbItalic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>',
+  tbStrike: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/></svg>',
+  tbH1: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M17 12l3-2v8"/></svg>',
+  tbH2: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1"/></svg>',
+  tbH3: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2"/><path d="M9 18h12"/></svg>',
+  tbUL: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>',
+  tbOL: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 16H4v-1l2-1H4"/></svg>',
+  tbQuote: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 5-2 5-5V9H3v5h3"/><path d="M13 21c3 0 5-2 5-5V9h-5v5h3"/></svg>',
+  tbCode: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+  tbLink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  tbHr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="20" y2="12"/><circle cx="4" cy="12" r="0.8" fill="currentColor" stroke="none"/><circle cx="20" cy="12" r="0.8" fill="currentColor" stroke="none"/></svg>',
+  tbTable: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
+  tbTask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"/><path d="M3.5 7l2 2 3.5-3.5" stroke-width="2.5"/><rect x="3" y="13" width="8" height="8" rx="1"/><line x1="15" y1="5" x2="21" y2="5"/><line x1="15" y1="11" x2="21" y2="11"/><line x1="15" y1="17" x2="21" y2="17"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
 };
 
 // 文件页控件图标
@@ -251,6 +266,30 @@ function _enhanceMarkdownDom(div) {
       try { window.hljs.highlightElement(block); } catch {}
     });
   }
+ // 代码块：添加语言标签 + 复制按钮
+ div.querySelectorAll('pre').forEach(pre => {
+   if (pre.querySelector('.code-copy-btn')) return;
+   const code = pre.querySelector('code');
+   const lang = code ? (code.className.match(/language-(\w+)/) || [])[1] : '';
+   const wrapper = document.createElement('div');
+   wrapper.className = 'code-block-header';
+   if (lang) { const label = document.createElement('span'); label.className = 'code-lang-label'; label.textContent = lang; wrapper.appendChild(label); }
+   const btn = document.createElement('button');
+   btn.className = 'code-copy-btn';
+   btn.innerHTML = ICONS.copy;
+   btn.title = '复制代码';
+   btn.addEventListener('click', () => {
+     const text = (code ? code.textContent : pre.textContent) || '';
+     navigator.clipboard.writeText(text).then(() => {
+       btn.innerHTML = ICONS.tbCheck;
+       btn.classList.add('is-copied');
+       setTimeout(() => { btn.innerHTML = ICONS.copy; btn.classList.remove('is-copied'); }, 2000);
+     }).catch(() => {});
+   });
+   wrapper.appendChild(btn);
+   pre.style.position = 'relative';
+   pre.prepend(wrapper);
+ });
   // 标题加 id（用于 TOC 跳转），去重处理
   const slugCount = {};
   div.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(h => {
@@ -977,8 +1016,9 @@ function showNoteEditor() { openNoteEditor(); }
 // 笔记编辑器：支持新建 / 编辑、Markdown 工具栏、分屏实时预览、草稿自动保存、图片粘贴拖拽、标签、AI 整理、置顶
 async function openNoteEditor(opts = {}) {
   const editPath = opts.path || '';
+  const editFileId = opts.fileId || '';
   const editName = opts.name || '';
-  const isEdit = !!editPath;
+  const isEdit = !!(editPath || editFileId);
   const draftKey = 'sxd_draft_note_' + (editPath || 'new');
   const { modal, close } = openModal({ width: 960, onDismiss: () => close() });
   modal.classList.add('note-editor-modal');
@@ -993,29 +1033,37 @@ async function openNoteEditor(opts = {}) {
     <input type="text" class="form-input note-title-input" placeholder="笔记标题（可选，默认「未命名笔记」）" maxlength="80" value="${escapeHtml(editName.replace(/\.(md|markdown|mdown|mkd)$/i, ''))}">
     <div class="input-error-msg" id="note-error"></div>
     <div class="note-toolbar" id="note-toolbar">
-      <button class="tb-btn" data-md="bold" title="加粗 (Ctrl+B)"><b>B</b></button>
-      <button class="tb-btn" data-md="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
-      <button class="tb-btn" data-md="strike" title="删除线"><s>S</s></button>
+      <button class="tb-btn" data-md="bold" title="加粗 (Ctrl+B)">${ICONS.tbBold}</button>
+      <button class="tb-btn" data-md="italic" title="斜体 (Ctrl+I)">${ICONS.tbItalic}</button>
+      <button class="tb-btn" data-md="strike" title="删除线">${ICONS.tbStrike}</button>
       <span class="tb-sep"></span>
-      <button class="tb-btn" data-md="h1" title="一级标题">H1</button>
-      <button class="tb-btn" data-md="h2" title="二级标题">H2</button>
-      <button class="tb-btn" data-md="h3" title="三级标题">H3</button>
+      <button class="tb-btn" data-md="h1" title="一级标题">${ICONS.tbH1}</button>
+      <button class="tb-btn" data-md="h2" title="二级标题">${ICONS.tbH2}</button>
+      <button class="tb-btn" data-md="h3" title="三级标题">${ICONS.tbH3}</button>
       <span class="tb-sep"></span>
-      <button class="tb-btn" data-md="ul" title="无序列表">•</button>
-      <button class="tb-btn" data-md="ol" title="有序列表">1.</button>
-      <button class="tb-btn" data-md="quote" title="引用">❝</button>
-      <button class="tb-btn" data-md="code" title="行内代码">&lt;/&gt;</button>
+      <button class="tb-btn" data-md="ul" title="无序列表">${ICONS.tbUL}</button>
+      <button class="tb-btn" data-md="ol" title="有序列表">${ICONS.tbOL}</button>
+      <button class="tb-btn" data-md="quote" title="引用">${ICONS.tbQuote}</button>
+      <button class="tb-btn" data-md="code" title="行内代码">${ICONS.tbCode}</button>
       <button class="tb-btn" data-md="codeblock" title="代码块">${ICONS.fileCode}</button>
       <span class="tb-sep"></span>
-      <button class="tb-btn" data-md="link" title="链接">${ICONS.key}</button>
+      <button class="tb-btn" data-md="link" title="链接">${ICONS.tbLink}</button>
       <button class="tb-btn" data-md="image" title="图片">${ICONS.fileImage}</button>
-      <button class="tb-btn" data-md="hr" title="分割线">―</button>
-      <button class="tb-btn" data-md="table" title="表格">▦</button>
-      <button class="tb-btn" data-md="task" title="任务列表">☑</button>
+      <button class="tb-btn" data-md="hr" title="分割线">${ICONS.tbHr}</button>
+      <button class="tb-btn" data-md="table" title="表格">${ICONS.tbTable}</button>
+      <button class="tb-btn" data-md="task" title="任务列表">${ICONS.tbTask}</button>
     </div>
     <div class="note-editor-split" id="note-split">
       <div class="note-editor-pane">
-        <textarea class="note-content-input" id="note-textarea" placeholder="支持 Markdown 语法，回车换行……&#10;可拖拽或粘贴图片自动上传" spellcheck="false"></textarea>
+        <textarea class="note-content-input" id="note-textarea" placeholder="支持 Markdown 语法，回车换行…&#10;可拖拽或粘贴图片自动上传" spellcheck="false"></textarea>
+        <div class="note-status-bar" id="note-status-bar">
+          <span class="nsb-item" id="nsb-words">0 字</span>
+          <span class="nsb-item" id="nsb-chars">0 字符</span>
+          <span class="nsb-item" id="nsb-reading">约 1 分钟</span>
+          <span class="nsb-spacer"></span>
+          <span class="nsb-mode" id="nsb-mode"></span>
+          <span class="nsb-draft" id="nsb-draft"></span>
+        </div>
       </div>
       <div class="note-preview-pane" id="note-preview-pane">
         <article class="markdown-body" id="note-preview"></article>
@@ -1050,24 +1098,49 @@ async function openNoteEditor(opts = {}) {
   const pinBtn = modal.querySelector('#btn-note-pin');
   const summaryRow = modal.querySelector('#note-summary-row');
   const summaryText = modal.querySelector('#note-summary-text');
-  const draftHint = modal.querySelector('#note-draft-hint');
+ const draftHint = modal.querySelector('#note-draft-hint');
 
-  let saving = false;
-  let viewMode = loadPref('noteViewMode', 'split');
+  const nsbWords = modal.querySelector('#nsb-words');
+  const nsbChars = modal.querySelector('#nsb-chars');
+  const nsbReading = modal.querySelector('#nsb-reading');
+  const nsbMode = modal.querySelector('#nsb-mode');
+  const nsbDraft = modal.querySelector('#nsb-draft');
+
+ let saving = false;
+ let viewMode = loadPref('noteViewMode', 'split');
   let noteTags = [];
   let notePinned = false;
   let draftTimer = null;
-  let previewTimer = null;
-  let lastSavedPath = '';
+ let previewTimer = null;
+ let lastSavedPath = '';
 
-  // ---- 视图模式：编辑 / 分屏 / 预览 ----
-  function applyViewMode() {
-    splitEl.classList.remove('mode-edit', 'mode-split', 'mode-preview');
-    splitEl.classList.add('mode-' + viewMode);
-    const labels = { edit: '仅编辑', split: '分屏', preview: '仅预览' };
-    viewBtn.querySelector('span').textContent = labels[viewMode];
-    if (viewMode !== 'edit') updatePreview();
+  // ---- 底部状态栏：字数 / 字符 / 阅读时间 / 模式 ----
+  function countWords(text) {
+    if (!text) return 0;
+    const cjk = (text.match(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
+    const en = (text.replace(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g, ' ').match(/[a-zA-Z0-9]+/g) || []).length;
+    return cjk + en;
   }
+  function updateStatusBar() {
+    const text = ta.value;
+    const words = countWords(text);
+    const chars = text.length;
+    const minutes = Math.max(1, Math.round(words / 300));
+    if (nsbWords) nsbWords.textContent = words + ' 字';
+    if (nsbChars) nsbChars.textContent = chars + ' 字符';
+    if (nsbReading) nsbReading.textContent = '约 ' + minutes + ' 分钟';
+  }
+
+ // ---- 视图模式：编辑 / 分屏 / 预览 ----
+ function applyViewMode() {
+   splitEl.classList.remove('mode-edit', 'mode-split', 'mode-preview');
+   splitEl.classList.add('mode-' + viewMode);
+   const labels = { edit: '仅编辑', split: '分屏', preview: '仅预览' };
+   viewBtn.querySelector('span').textContent = labels[viewMode];
+    if (nsbMode) nsbMode.textContent = labels[viewMode];
+   if (viewMode !== 'edit') updatePreview();
+    updateStatusBar();
+ }
   viewBtn.addEventListener('click', () => {
     viewMode = viewMode === 'edit' ? 'split' : viewMode === 'split' ? 'preview' : 'edit';
     savePref('noteViewMode', viewMode);
@@ -1171,13 +1244,45 @@ async function openNoteEditor(opts = {}) {
     const r = renderNoteMarkdown(ta.value);
     previewEl.innerHTML = r.html;
   }
-  ta.addEventListener('input', () => {
-    clearTimeout(previewTimer);
-    previewTimer = setTimeout(updatePreview, 200);
-    scheduleDraft();
-  });
+ ta.addEventListener('input', () => {
+   clearTimeout(previewTimer);
+   previewTimer = setTimeout(updatePreview, 200);
+   updateStatusBar();
+   scheduleDraft();
+ });
 
-  // ---- 草稿自动保存 ----
+  // ---- 工具栏激活态：根据光标位置检测当前 Markdown 格式上下文 ----
+  function updateToolbarActiveStates() {
+    const pos = ta.selectionStart;
+    const before = ta.value.slice(0, pos);
+    const after = ta.value.slice(pos);
+    const lineStart = before.lastIndexOf('\n') + 1;
+    const line = ta.value.slice(lineStart, pos) + after.slice(0, after.indexOf('\n') >= 0 ? after.indexOf('\n') : undefined);
+
+    function isActive(md) {
+      switch (md) {
+        case 'bold': return /\*\*[^*]+\*\*$/.test(before.slice(before.lastIndexOf(' '))) || /\*\*\S/.test(after.slice(0, 2));
+        case 'italic': return /(^|[^*])\*[^*]+\*$/.test(before.slice(Math.max(0, before.length - 30)));
+        case 'strike': return /~~[^~]+~~$/.test(before.slice(Math.max(0, before.length - 30)));
+        case 'h1': return /^#\s/.test(line);
+        case 'h2': return /^##\s/.test(line);
+        case 'h3': return /^###\s/.test(line);
+        case 'ul': return /^[-*+]\s/.test(line);
+        case 'ol': return /^\d+\.\s/.test(line);
+        case 'quote': return /^>\s/.test(line);
+        case 'task': return /^[-*+]\s\[[ x]\]\s/.test(line);
+        default: return false;
+      }
+    }
+    modal.querySelectorAll('#note-toolbar [data-md]').forEach(btn => {
+      btn.classList.toggle('is-active', isActive(btn.dataset.md));
+    });
+  }
+  ta.addEventListener('keyup', updateToolbarActiveStates);
+  ta.addEventListener('click', updateToolbarActiveStates);
+  ta.addEventListener('focus', updateToolbarActiveStates);
+
+ // ---- 草稿自动保存 ----
   function scheduleDraft() {
     clearTimeout(draftTimer);
     draftTimer = setTimeout(saveDraft, 1500);
@@ -1186,9 +1291,10 @@ async function openNoteEditor(opts = {}) {
     if (!ta.value.trim() && !titleEl.value.trim()) { localStorage.removeItem(draftKey); draftHint.textContent = ''; return; }
     try {
       localStorage.setItem(draftKey, JSON.stringify({ title: titleEl.value, content: ta.value, tags: noteTags, pinned: notePinned, ts: Date.now() }));
-      draftHint.textContent = '草稿已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    } catch {}
-  }
+     draftHint.textContent = '草稿已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+     if (nsbDraft) nsbDraft.textContent = '已保存草稿';
+   } catch {}
+ }
   function loadDraft() {
     try { const raw = localStorage.getItem(draftKey); return raw ? JSON.parse(raw) : null; } catch { return null; }
   }
@@ -1310,7 +1416,10 @@ async function openNoteEditor(opts = {}) {
 
   async function loadRemote() {
     try {
-      const res = await API.get('/api/files/note-content?path=' + encodeURIComponent(editPath));
+      const noteQuery = editFileId
+        ? 'file_id=' + encodeURIComponent(editFileId)
+        : 'path=' + encodeURIComponent(editPath);
+      const res = await API.get('/api/files/note-content?' + noteQuery);
       if (!res.ok) { errEl.textContent = '加载笔记失败'; return; }
       const data = await res.json();
       ta.value = data.content || '';
@@ -2159,8 +2268,11 @@ async function handleFilesUpload(fileList) {
 }
 
 // ============ File Preview ============
-async function previewFile(path, name) {
-  const fileName = name || path.split('/').pop();
+async function previewFile(path, name, opts = {}) {
+  const fileName = name || (path ? path.split('/').pop() : 'file');
+  const fid = (opts && opts.fileId) || '';
+  // Build query param: prefer opaque file_id over raw path
+  const fileRef = fid ? `file_id=${encodeURIComponent(fid)}` : `path=${encodeURIComponent(path)}`;
   const previewType = getPreviewType(fileName);
   const isMarkdown = /\.(md|markdown|mdown|mkd)$/i.test(fileName);
   if (!previewType && !isMarkdown) {
@@ -2192,9 +2304,13 @@ async function previewFile(path, name) {
   const closePreview = () => { overlay.remove(); document.body.style.overflow = ''; };
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closePreview(); });
   document.getElementById('btn-preview-close').addEventListener('click', closePreview);
-  document.getElementById('btn-preview-download').addEventListener('click', () => downloadFile(path));
+  document.getElementById('btn-preview-download').addEventListener('click', () => downloadFile(path, { fileId: fid, fileName }));
   const editBtn = document.getElementById('btn-preview-edit');
-  if (editBtn) editBtn.addEventListener('click', () => { closePreview(); openNoteEditor({ path, name: fileName }); });
+  if (editBtn) editBtn.addEventListener('click', () => {
+    closePreview();
+    // Note editor loads content via file_id (or path fallback); no real path needed in DOM
+    openNoteEditor({ path: path || '', fileId: fid, name: fileName });
+  });
   const tocBtn = document.getElementById('btn-preview-toc');
   if (tocBtn) tocBtn.addEventListener('click', () => {
     const toc = document.getElementById('preview-toc');
@@ -2207,7 +2323,7 @@ async function previewFile(path, name) {
 
   try {
     if (isNote) {
-      const res = await API.get(`/api/files/preview-text?path=${encodeURIComponent(path)}`);
+      const res = await API.get(`/api/files/preview-text?${fileRef}`);
       if (!res.ok) { body.innerHTML = '<div class="preview-error">加载失败</div>'; return; }
       const data = await res.json();
       const { html, toc } = renderNoteMarkdown(data.content);
@@ -2220,7 +2336,7 @@ async function previewFile(path, name) {
         a.addEventListener('click', (e) => { e.preventDefault(); const el = body.querySelector('#' + CSS.escape(a.getAttribute('href').slice(1))); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
       });
     } else if (previewType === 'text') {
-      const res = await API.get(`/api/files/preview-text?path=${encodeURIComponent(path)}`);
+      const res = await API.get(`/api/files/preview-text?${fileRef}`);
       if (!res.ok) { body.innerHTML = '<div class="preview-error">加载失败</div>'; return; }
       const data = await res.json();
       const lines = data.content.split('\n');
@@ -2233,7 +2349,7 @@ async function previewFile(path, name) {
         ${data.truncated ? '<div class="preview-truncated">文件过大，仅显示前 1MB 内容，请下载查看完整文件</div>' : ''}`;
       body.querySelector('.preview-text-code').textContent = data.content;
     } else {
-      const res = await API.get(`/api/files/preview?path=${encodeURIComponent(path)}`);
+      const res = await API.get(`/api/files/preview?${fileRef}`);
       if (!res.ok) { body.innerHTML = '<div class="preview-error">加载失败</div>'; return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -2261,13 +2377,19 @@ async function previewFile(path, name) {
   };
 }
 
-async function downloadFile(path) {
+async function downloadFile(path, opts = {}) {
+  // opts.fileId: opaque UUID reference (preferred — real path never in DOM)
+  // opts.fileName: display name for the download (falls back to path basename)
+  const fid = opts.fileId || '';
+  const dlName = opts.fileName || (path ? path.split('/').pop() : 'download');
+  // Build query param: use file_id when available, otherwise fall back to path
+  const dlQuery = fid ? `file_id=${encodeURIComponent(fid)}` : `path=${encodeURIComponent(path)}`;
   try {
-    const res = await API.get(`/api/files/download?path=${encodeURIComponent(path)}`);
+    const res = await API.get(`/api/files/download?${dlQuery}`);
     if (!res) return;  // 会话已失效并被登出（API.request 返回 undefined）
     if (res.status === 403) {
       // 就地弹出密码验证，验证通过后直接下载（不跳设置页）
-      const auth = await requestDownloadAuth({ filePath: path, defaultMode: 'single' });
+      const auth = await requestDownloadAuth({ filePath: path, fileId: fid, defaultMode: 'single' });
       if (!auth) return;  // 用户取消
       if (auth.mode === 'window') {
         Toast.show(`已开启临时下载（${auth.minutes} 分钟）`, 'success');
@@ -2275,12 +2397,12 @@ async function downloadFile(path) {
         loadDownloadGrant();
       }
       // 重试下载（单次授权或窗口授权都已就绪）
-      const res2 = await API.get(`/api/files/download?path=${encodeURIComponent(path)}`);
+      const res2 = await API.get(`/api/files/download?${dlQuery}`);
       if (!res2 || !res2.ok) { Toast.show('下载失败', 'error'); return; }
       const blob2 = await res2.blob();
       const url2 = URL.createObjectURL(blob2);
       const a2 = document.createElement('a');
-      a2.href = url2; a2.download = path.split('/').pop(); a2.click();
+      a2.href = url2; a2.download = dlName; a2.click();
       URL.revokeObjectURL(url2);
       if (auth.mode === 'single') loadDownloadGrant();
       return;
@@ -2289,7 +2411,7 @@ async function downloadFile(path) {
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = path.split('/').pop(); a.click();
+    a.href = url; a.download = dlName; a.click();
     URL.revokeObjectURL(url);
   } catch (err) { Toast.show('下载出错: ' + err.message, 'error'); }
 }
@@ -2397,6 +2519,34 @@ const MASK_TOKEN_RE = /\[\[M:([a-f0-9]{16}):([^\]]*)\]\]/g;
 const _maskValueCache = new Map();
 const _revealedMasks = new Set();
 const MASK_AUTO_HIDE_MS = 30000;
+
+// Client-side PII patterns (mirror server-side _PII_PATTERNS in mask.py).
+// Used for optimistic transfer messages: the text is shown immediately before
+// the server returns the properly tokenized (eye-toggleable) masked version.
+// The client-side mask has NO reveal button (no mask_id to unmask with yet);
+// it's replaced by the server version within ~200ms once the POST returns.
+const _CLIENT_PII_PATTERNS = [
+  /(?<!\d)\d{17}[\dXx](?!\d)/g,            // ID card (18 digits)
+  /(?<!\d)1[3-9]\d{9}(?!\d)/g,             // phone (11 digits, 1[3-9])
+  /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,  // email
+  /AKIA[0-9A-Z]{16}/g,                        // AWS key
+  /sk-[a-zA-Z0-9]{20,}/g,                     // API key (sk- format)
+  /gh[pousr]_[a-zA-Z0-9]{36}/g,               // GitHub token
+  /glpat-[a-zA-Z0-9_-]{20}/g,                  // GitLab token
+];
+
+function _clientMaskPII(text) {
+  if (!text) return text;
+  let result = text;
+  for (const re of _CLIENT_PII_PATTERNS) {
+    result = result.replace(re, (m) => {
+      const show = Math.min(5, Math.max(1, m.length - 1));
+      const dots = Math.min(m.length - show, 6);
+      return m.slice(0, show) + '*'.repeat(dots);
+    });
+  }
+  return result;
+}
 
 let _maskGlobalListenersBound = false;
 function _bindMaskGlobalListeners() {
@@ -2832,11 +2982,11 @@ async function renderTransfer() {
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const a = el.dataset.action;
-    if (a === 'download') { e.stopPropagation(); downloadFile(el.dataset.path); }
+    if (a === 'download') { e.stopPropagation(); downloadFile(el.dataset.path, { fileId: el.dataset.fileId, fileName: el.dataset.name }); }
     else if (a === 'delete-msg') { e.stopPropagation(); deleteTransferMessage(el.dataset.id); }
     else if (a === 'retry-msg') { e.stopPropagation(); retryTransferMessage(el.dataset.id); }
-    else if (a === 'preview-transfer') previewTransferFile(el.dataset.path, el.dataset.name);
-    else if (a === 'preview-video') previewVideo(el.dataset.path, el.dataset.name);
+    else if (a === 'preview-transfer') previewTransferFile(el.dataset.path, el.dataset.name, { fileId: el.dataset.fileId });
+    else if (a === 'preview-video') previewVideo(el.dataset.path, el.dataset.name, { fileId: el.dataset.fileId });
   });
   document.getElementById('btn-transfer-send').addEventListener('click', sendTransferText);
   document.getElementById('btn-transfer-refresh').addEventListener('click', loadTransferMessages);
@@ -2901,16 +3051,21 @@ function transferMessageInnerHTML(msg) {
   const guardBadge = f.guard_status === 'warning'
     ? `<span class="transfer-file-guard warning">敏感提醒</span>` : '';
   // 图片/视频/音频直接内联显示（参考微信传输助手）；svg 后端拒绝预览(415)、pdf/文本仍走文件卡片
+  // 全部用 file_id（UUID）引用文件，真实路径永不出现在 DOM / 网络请求中
   const pType = getPreviewType(f.name);
   const isSvg = f.name.toLowerCase().endsWith('.svg');
-  const previewUrl = `/api/files/preview?path=${encodeURIComponent(f.path)}`;
-  const mediaActions = `<div class="transfer-media-actions"><button class="transfer-media-dl" title="下载" data-action="download" data-path="${escapeHtml(f.path)}">${ICONS.download}</button>${delBtn}</div>`;
+  const fid = f.file_id || '';
+  const previewUrl = fid
+    ? `/api/files/preview?file_id=${encodeURIComponent(fid)}`
+    : `/api/files/preview?path=${encodeURIComponent(f.path || '')}`;
+  const dlAttrs = fid ? `data-file-id="${escapeHtml(fid)}"` : `data-path="${escapeHtml(f.path || '')}"`;
+  const mediaActions = `<div class="transfer-media-actions"><button class="transfer-media-dl" title="下载" data-action="download" ${dlAttrs}>${ICONS.download}</button>${delBtn}</div>`;
   if ((pType === 'image' && !isSvg) || pType === 'video' || pType === 'audio') {
     let media = '';
     if (pType === 'image') {
-      media = `<img class="transfer-media-img" src="${previewUrl}" alt="${escapeHtml(f.name)}" loading="lazy" data-action="preview-transfer" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">`;
+      media = `<img class="transfer-media-img" src="${previewUrl}" alt="${escapeHtml(f.name)}" loading="lazy" data-action="preview-transfer" ${dlAttrs} data-name="${escapeHtml(f.name)}">`;
     } else if (pType === 'video') {
-      media = `<div class="transfer-media-video" data-action="preview-video" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">
+      media = `<div class="transfer-media-video" data-action="preview-video" ${dlAttrs} data-name="${escapeHtml(f.name)}">
         <video class="transfer-media-video-thumb" src="${previewUrl}#t=0.1" muted preload="metadata" playsinline></video>
         <span class="transfer-media-play">${ICONS.play}</span>
       </div>`;
@@ -2926,7 +3081,7 @@ function transferMessageInnerHTML(msg) {
   }
   const fi = getFileIcon(f.name, false);
   return `<div class="transfer-msg-body">
-      <div class="transfer-file-card" data-action="preview-transfer" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">
+      <div class="transfer-file-card" data-action="preview-transfer" ${dlAttrs} data-name="${escapeHtml(f.name)}">
         <div class="transfer-file-icon ${fi.cls}">${fi.icon}</div>
         <div class="transfer-file-info">
           <div class="transfer-file-name">${escapeHtml(f.name)}</div>
@@ -2935,7 +3090,7 @@ function transferMessageInnerHTML(msg) {
             <span class="transfer-saved">✓ 已存入文件库</span>
           </div>
         </div>
-        <button class="transfer-file-dl" title="下载" data-action="download" data-path="${escapeHtml(f.path)}">${ICONS.download}</button>
+        <button class="transfer-file-dl" title="下载" data-action="download" ${dlAttrs}>${ICONS.download}</button>
       </div>
       <span class="transfer-time">${time}</span>
       ${guardBadge}
@@ -2958,6 +3113,7 @@ function createTransferNode(msg, animate) {
   node.dataset.key = transferMsgKey(msg);
   node.dataset.sig = transferMsgSignature(msg);
   node.innerHTML = transferMessageInnerHTML(msg);
+  enhanceMaskedContent(node); // 传输助手消息脱敏（便签文字 + 敏感文件名）
   if (animate) node.classList.add('is-new');
   return node;
 }
@@ -2969,6 +3125,7 @@ function patchTransferNode(node, msg) {
   if (node.dataset.sig === sig) return;
   node.dataset.sig = sig;
   node.innerHTML = transferMessageInnerHTML(msg);
+  enhanceMaskedContent(node);
 }
 
 // 增量协调：按 key 对账，保留未变节点（媒体不重解码），只动真正变化的条目
@@ -3024,8 +3181,9 @@ async function sendTransferText() {
   const text = input.value.trim();
   if (!text) return;
   // 乐观渲染：回车后立即显示在内容框中，不等接口成功（参考微信文件传输助手）
+  // 客户端脱敏：乐观消息先做 PII 遮罩（无 reveal 按钮），服务端返回后替换为可 reveal 的版本
   const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-  transferMessages.push({ id: tempId, _cid: tempId, type: 'text', content: text, created_at: new Date().toISOString(), _status: 'sending' });
+  transferMessages.push({ id: tempId, _cid: tempId, type: 'text', content: _clientMaskPII(text), _raw: text, created_at: new Date().toISOString(), _status: 'sending' });
   input.value = ''; input.style.height = 'auto';
   renderTransferMessages();
   await _sendTransferTextOnce(tempId, text);
@@ -3065,7 +3223,8 @@ async function retryTransferMessage(tempId) {
   msg._status = 'sending';
   delete msg._error;
   renderTransferMessages();
-  await _sendTransferTextOnce(tempId, msg.content);
+  // Retry sends the original (unmasked) text to the server; display stays client-masked.
+  await _sendTransferTextOnce(tempId, msg._raw || msg.content);
 }
 
 async function handleTransferFiles(fileList) {
@@ -3121,14 +3280,18 @@ async function deleteTransferMessage(id) {
   } catch (err) { Toast.show('删除出错: ' + err.message, 'error'); }
 }
 
-function previewTransferFile(path, name) {
-  previewFile(path, name);
+function previewTransferFile(path, name, opts = {}) {
+  previewFile(path, name, opts);
 }
 
 // 视频弹窗播放：消息流里点缩略图后，在固定覆盖层用直接 src 流式播放（支持 range seek）。
 // 不用 blob：避免整文件下载到内存；也避免内联 video 全屏退出时触发消息列表 reflow 卡顿。
-function previewVideo(path, name) {
-  const fileName = name || path.split('/').pop();
+function previewVideo(path, name, opts = {}) {
+  const fileName = name || (path ? path.split('/').pop() : 'video');
+  const fid = opts.fileId || '';
+  const previewSrc = fid
+    ? `/api/files/preview?file_id=${encodeURIComponent(fid)}`
+    : `/api/files/preview?path=${encodeURIComponent(path)}`;
   const overlay = document.createElement('div');
   overlay.className = 'preview-overlay preview-video-overlay';
   overlay.innerHTML = `
@@ -3140,14 +3303,14 @@ function previewVideo(path, name) {
       </div>
     </div>
     <div class="preview-body">
-      <video class="preview-video" src="/api/files/preview?path=${encodeURIComponent(path)}" controls autoplay playsinline></video>
+      <video class="preview-video" src="${previewSrc}" controls autoplay playsinline></video>
     </div>`;
   document.body.appendChild(overlay);
   document.body.style.overflow = 'hidden';
   const close = () => { overlay.remove(); document.body.style.overflow = ''; };
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   overlay.querySelector('#btn-video-close').addEventListener('click', close);
-  overlay.querySelector('#btn-video-download').addEventListener('click', () => downloadFile(path));
+  overlay.querySelector('#btn-video-download').addEventListener('click', () => downloadFile(path, { fileId: fid, fileName }));
   const esc = (e) => {
     if (e.key !== 'Escape') return;
     if (document.fullscreenElement) return;  // 全屏时 esc 仅退出全屏，不关弹窗
@@ -3618,12 +3781,14 @@ function downloadAuthDialog({ filePath = null, defaultMode = 'single' } = {}) {
 }
 
 // 下载授权请求处理：验证密码 → 选择授权模式 → 调用对应 API
-async function requestDownloadAuth({ filePath = null, defaultMode = 'single' } = {}) {
+async function requestDownloadAuth({ filePath = null, fileId = null, defaultMode = 'single' } = {}) {
   const choice = await downloadAuthDialog({ filePath, defaultMode });
   if (!choice) return null;
   try {
-    if (choice.mode === 'single' && filePath) {
-      const res = await API.post('/api/files/download-grant-single', { password: choice.password, path: filePath });
+    if (choice.mode === 'single' && (filePath || fileId)) {
+      const body = { password: choice.password };
+      if (fileId) body.file_id = fileId; else body.path = filePath;
+      const res = await API.post('/api/files/download-grant-single', body);
       if (!res) return null;
       if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '验证失败', 'error'); return null; }
       return { ok: true, mode: 'single' };

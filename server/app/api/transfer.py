@@ -12,6 +12,8 @@ from ..db.models import (
 from ..core import storage, indexer, guard
 from .auth import get_current_user
 
+from ..core import mask as M
+
 router = APIRouter(prefix="/api/transfer", tags=["transfer"])
 
 
@@ -38,12 +40,13 @@ def _serialize(db: Session, msg: TransferMessage) -> dict:
     if msg.type == "file" and msg.file_id:
         f = db.query(FileModel).filter_by(id=msg.file_id).first()
         if f:
-            item["file"] = {
-                "name": f.name,
-                "path": f.path,
-                "size": f.size,
-                "guard_status": f.guard_status or "safe",
-                "mime_type": f.mime_type or "",
+           item["file"] = {
+               "name": f.name,
+               "path": f.path,
+                "file_id": f.id,
+               "size": f.size,
+               "guard_status": f.guard_status or "safe",
+               "mime_type": f.mime_type or "",
             }
         else:
             item["file"] = None
@@ -68,7 +71,8 @@ def send_text(req: TextRequest, db: Session = Depends(get_db), user=Depends(get_
         indexer.index_text(user.id, msg.id, text)
     except Exception:
         pass
-    return _serialize(db, msg)
+    serialized = _serialize(db, msg)
+    return M.mask_transfer_messages([serialized], user.id)[0]
 
 
 @router.post("/file")
@@ -148,7 +152,7 @@ async def send_file(
 
     result = _serialize(db, msg)
     result["guard_warning"] = final_status == "warning"
-    return result
+    return M.mask_transfer_messages([result], user.id)[0]
 
 
 @router.get("/messages")
@@ -161,6 +165,7 @@ def list_messages(limit: int = Query(100), db: Session = Depends(get_db), user=D
         .all()
     )
     items = [_serialize(db, m) for m in reversed(rows)]
+    items = M.mask_transfer_messages(items, user.id)
     return {"messages": items}
 
 

@@ -404,3 +404,36 @@ def mask_history_messages(messages: list[dict], user_id: str) -> list[dict]:
         result.append(msg_copy)
     ms.flush()
     return result
+def mask_transfer_messages(messages: list[dict], user_id: str) -> list[dict]:
+    """Mask sensitive data in transfer assistant messages for frontend display.
+
+    Text notes may contain pasted PII (phone numbers, ID cards, API keys).
+    File names may be sensitive (身份证_扫描件.jpg, 银行流水.pdf) or contain PII.
+    Real file paths are stripped so they never reach the browser (DevTools-safe);
+    the frontend references files via file_id (a UUID) for all operations.
+    """
+    ms = MaskSession(user_id)
+    result = []
+    for msg in messages:
+        msg_copy = dict(msg)
+        msg_type = msg_copy.get("type")
+        if msg_type == "text":
+            content = msg_copy.get("content", "")
+            msg_copy["content"] = ms.mask_text(content)
+        elif msg_type == "file":
+            f = msg_copy.get("file")
+            if f and isinstance(f, dict):
+                f = dict(f)  # shallow copy so we don't mutate the original
+                name = f.get("name", "")
+                if name:
+                    if is_sensitive_filename(name):
+                        f["name"] = ms._mask_file(name)
+                    elif _has_pii(name):
+                        f["name"] = ms.mask_text(name)
+                # Strip raw file path: frontend uses file_id (UUID) for all
+                # preview/download ops. Keeping real path would leak filename.
+                f.pop("path", None)
+                msg_copy["file"] = f
+        result.append(msg_copy)
+    ms.flush()
+    return result
