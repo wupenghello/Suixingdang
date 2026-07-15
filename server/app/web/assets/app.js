@@ -2,46 +2,22 @@
 
 // ============ API 层 ============
 const API = {
-  // 访问令牌存 localStorage：多标签页共享同一会话令牌。
-  // 曾用 sessionStorage（关标签页即清），但与「同设备会话复用」冲突——新标签页因
-  // sessionStorage 隔离需重新登录，复用会轮转 refresh 把原标签页顶下线，故改回 localStorage。
-  _token: localStorage.getItem('access_token'),
-  _refresh: localStorage.getItem('refresh_token'),
-
-  setTokens(access, refresh) {
-    this._token = access;
-    this._refresh = refresh;
-    localStorage.setItem('access_token', access);
-    if (refresh) localStorage.setItem('refresh_token', refresh);
-  },
-  clearTokens() {
-    this._token = null;
-    this._refresh = null;
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-  },
+  // 会话令牌存 HttpOnly cookie（由服务端 set/clear，前端 JS 不可读），防 XSS 偷令牌。
+  // 同源 fetch/XHR 自动带 cookie，无需手动附加 Authorization 头。
   async request(url, options = {}) {
     const headers = { ...options.headers };
-    if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
     if (options.body && !(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
     let res = await fetch(url, { ...options, headers });
-    if (res.status === 401 && this._refresh) {
-      const refreshRes = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: this._refresh }),
-      });
+    // access 过期：用 refresh cookie 静默续期（服务端读 cookie 并 set 新 access cookie）
+    if (res.status === 401) {
+      const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
       if (refreshRes.ok) {
-        const tokens = await refreshRes.json();
-        this.setTokens(tokens.access_token, tokens.refresh_token);
-        headers['Authorization'] = `Bearer ${this._token}`;
         res = await fetch(url, { ...options, headers });
       } else {
-        this.clearTokens();
-        App.logout();
-        return;
+        App.logout();  // refresh 也失效：清 cookie 并回落地页（同步渲染）
+        return res;    // 返回 401（非 undefined），调用方 res.ok 检查不致 TypeError
       }
     }
     return res;
@@ -184,6 +160,7 @@ const ICONS = {
  key: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10A6 6 0 1 0 7 18a6 6 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 15a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>',
  lock: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm2-9H8V6a2 2 0 0 1 4 0v2z"/></svg>',
   user: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
 };
 
 // 文件页控件图标
@@ -459,7 +436,6 @@ async function renderRegister() {
       });
       const data = await res.json();
       if (res.ok) {
-        API.setTokens(data.access_token, data.refresh_token);
         Toast.show('注册成功', 'success');
         App.init();
       } else {
@@ -721,7 +697,7 @@ function renderLanding() {
             <div class="sx-list-row"><div class="sx-list-ico">${ic.lock}</div><div><h3>落盘 · AES 加密</h3><p>文件、SQLite 数据库、Chroma 向量索引一体化 AES 加密。可选挂 LUKS/dm-crypt 加密卷，磁盘被偷也读不出内容。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.key}</div><div><h3>令牌 · 可远程吊销</h3><p>会话和设备令牌皆可单条或一键吊销，旧凭证立即失效。改密码后旧会话同步失效。离职换机，一个按钮切断全部。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.twofa}</div><div><h3>登录 · TOTP 双因子</h3><p>支持 TOTP 验证器（Google Authenticator 等），密码泄露也进不来。登录限流防爆破。</p></div></div>
-            <div class="sx-list-row"><div class="sx-list-ico">${ic.trace}</div><div><h3>本地 · 默认不落盘</h3><p>浏览器端默认禁止下载，预览走 no-store。需要时开 5 分钟临时下载窗口，到期自动关。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.trace}</div><div><h3>本地 · 默认不落盘</h3><p>浏览器端默认禁止下载，预览走 no-store。需要时验证密码后下载，可选单次或时间窗口。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.audit}</div><div><h3>审计 · 全量留痕</h3><p>登录、上传、删除、令牌操作全程记录。管理员后台可查，谁在什么时候干了什么一目了然。</p></div></div>
           </div>
         </div>
@@ -859,7 +835,6 @@ function renderLogin() {
       });
       const data = await res.json();
       if (res.ok) {
-        API.setTokens(data.access_token, data.refresh_token);
         Toast.show('登录成功', 'success');
         App.init();
       } else {
@@ -1751,7 +1726,6 @@ async function handleFilesUpload(fileList) {
       const xhr = new XMLHttpRequest();
       const gidParam = selectedGroup ? `&group_id=${encodeURIComponent(selectedGroup)}` : ''
       xhr.open('POST', `/api/files/upload?directory=${encodeURIComponent(currentDir)}&source=manual${gidParam}`);
-      xhr.setRequestHeader('Authorization', `Bearer ${API._token}`);
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           const pct = Math.round((e.loaded / e.total) * 100);
@@ -1788,7 +1762,7 @@ async function previewFile(path, name) {
   const fileName = name || path.split('/').pop();
   const previewType = getPreviewType(fileName);
   if (!previewType) {
-    Toast.show('此类型不支持浏览器预览，请在守护进程设备查看，或到设置页开启临时下载', 'info');
+    Toast.show('此类型不支持浏览器预览，请在守护进程设备查看', 'info');
     return;
   }
 
@@ -1865,7 +1839,26 @@ async function downloadFile(path) {
   try {
     const res = await API.get(`/api/files/download?path=${encodeURIComponent(path)}`);
     if (!res) return;  // 会话已失效并被登出（API.request 返回 undefined）
-    if (res.status === 403) { Toast.show('未开启临时下载，请到设置页开启', 'info'); return; }
+    if (res.status === 403) {
+      // 就地弹出密码验证，验证通过后直接下载（不跳设置页）
+      const auth = await requestDownloadAuth({ filePath: path, defaultMode: 'single' });
+      if (!auth) return;  // 用户取消
+      if (auth.mode === 'window') {
+        Toast.show(`已开启临时下载（${auth.minutes} 分钟）`, 'success');
+        showDownloadBanner(auth.until);
+        loadDownloadGrant();
+      }
+      // 重试下载（单次授权或窗口授权都已就绪）
+      const res2 = await API.get(`/api/files/download?path=${encodeURIComponent(path)}`);
+      if (!res2 || !res2.ok) { Toast.show('下载失败', 'error'); return; }
+      const blob2 = await res2.blob();
+      const url2 = URL.createObjectURL(blob2);
+      const a2 = document.createElement('a');
+      a2.href = url2; a2.download = path.split('/').pop(); a2.click();
+      URL.revokeObjectURL(url2);
+      if (auth.mode === 'single') loadDownloadGrant();
+      return;
+    }
     if (!res.ok) { Toast.show('下载失败', 'error'); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -1892,8 +1885,11 @@ let chatMessages = [];
 let chatSending = false;
 let currentChatAbort = null;
 
-function scrollChat(container) {
-  if (container) container.scrollTop = container.scrollHeight;
+function scrollChat(container, stick = false) {
+  if (!container) return;
+  // stick：仅在已靠近底部时才跟随滚动，避免向上浏览/删除时把视图拽到底
+  if (stick && container.scrollHeight - container.scrollTop - container.clientHeight > 120) return;
+  container.scrollTop = container.scrollHeight;
 }
 
 // 工具调用参数脱敏（去掉 user_id 等内部字段）并格式化展示
@@ -2088,7 +2084,7 @@ async function sendChatMessage() {
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(API._token ? { 'Authorization': `Bearer ${API._token}` } : {}) },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text }),
       signal: controller.signal,
     });
@@ -2152,6 +2148,13 @@ async function sendChatMessage() {
 
 // ============ Transfer Assistant (文件传输助手) ============
 let transferMessages = [];
+let transferHydrated = false; // 每次进视图首次同步时不播进场动画，避免整列一起动
+// 离场兜底移除时长（ms）——需与 app.css 中 .transfer-msg.is-leaving 的 transition 时长（.18s）保持同步
+const TRANSFER_LEAVE_MS = 220;
+
+// 增量协调用的稳定 key：乐观消息用 _cid（= tempId），服务端消息用 id；
+// 透传 _cid 让「临时节点 → 真实节点」原地变形，而不是删一个再插一个
+function transferMsgKey(msg) { return msg._cid || String(msg.id); }
 
 async function renderTransfer() {
   document.getElementById('main-content').innerHTML = `
@@ -2161,7 +2164,7 @@ async function renderTransfer() {
       <button class="btn btn-secondary btn-icon-only" id="btn-transfer-refresh" title="刷新">${ICONS.refresh}</button>
     </div>
     <div class="chat-container transfer-container">
-      <div class="chat-messages transfer-messages" id="transfer-messages"></div>
+      <div class="chat-messages transfer-messages" id="transfer-messages">${transferLoadingHTML()}</div>
       <div class="chat-input-area transfer-input-area">
         <input type="file" id="transfer-file-input" multiple hidden>
         <div class="chat-input-wrapper transfer-input-wrapper">
@@ -2171,7 +2174,19 @@ async function renderTransfer() {
         </div>
       </div>
     </div>`;
+  transferHydrated = false; // 每次进视图首屏不播进场动画
   await loadTransferMessages();
+  // 消息列表操作统一走容器级委托（节点存活后逐元素绑定会重复触发）；每次进视图容器都是新建，不会跨导航堆叠
+  document.getElementById('transfer-messages').addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    const a = el.dataset.action;
+    if (a === 'download') { e.stopPropagation(); downloadFile(el.dataset.path); }
+    else if (a === 'delete-msg') { e.stopPropagation(); deleteTransferMessage(el.dataset.id); }
+    else if (a === 'retry-msg') { e.stopPropagation(); retryTransferMessage(el.dataset.id); }
+    else if (a === 'preview-transfer') previewTransferFile(el.dataset.path, el.dataset.name);
+    else if (a === 'preview-video') previewVideo(el.dataset.path, el.dataset.name);
+  });
   document.getElementById('btn-transfer-send').addEventListener('click', sendTransferText);
   document.getElementById('btn-transfer-refresh').addEventListener('click', loadTransferMessages);
   document.getElementById('btn-transfer-attach').addEventListener('click', () => document.getElementById('transfer-file-input').click());
@@ -2185,17 +2200,127 @@ async function renderTransfer() {
   input.focus();
 }
 
+// 传输助手加载占位：首次进入视图拉取消息期间避免列表区空白
+function transferLoadingHTML() {
+  return `<div class="transfer-loading">
+    <div class="transfer-loading-spinner"></div>
+    <p class="transfer-loading-text">加载中…</p>
+  </div>`;
+}
+
 async function loadTransferMessages() {
   try {
     const res = await API.get('/api/transfer/messages?limit=200');
     const data = await res.json();
     // 保留仍在发送中的乐观消息（避免刷新/切换页面时丢失），追加到服务端列表末尾
     const inflight = transferMessages.filter(m => m._status === 'sending');
-    transferMessages = [...(data.messages || []), ...inflight];
+    // 透传 _cid：服务端消息不带 _cid，按 id 匹配回本地已确认消息的 _cid，保持 key 连续，
+    // 否则刷新时已确认消息会「孤儿淡出 + 重建滑入」闪一下
+    const cidById = new Map();
+    for (const m of transferMessages) if (m._cid && m.id) cidById.set(String(m.id), m._cid);
+    transferMessages = [
+      ...(data.messages || []).map(m => cidById.has(String(m.id)) ? { ...m, _cid: cidById.get(String(m.id)) } : m),
+      ...inflight,
+    ];
   } catch { transferMessages = []; }
   renderTransferMessages();
 }
 
+// 单条消息的内层 HTML（不含 .transfer-msg 外壳）——从旧的全量模板里抽出，行为零变化
+function transferMessageInnerHTML(msg) {
+  const time = formatDateTime(msg.created_at);
+  const delBtn = `<button class="transfer-del" title="删除" data-action="delete-msg" data-id="${escapeHtml(msg.id)}">${ICONS.trash}</button>`;
+  if (msg.type === 'text') {
+    // 状态指示：发送中(转圈) / 失败(红色感叹号,可点重试) / 成功(无)
+    let statusIcon = '';
+    if (msg._status === 'sending') {
+      statusIcon = `<span class="transfer-status sending" title="发送中"></span>`;
+    } else if (msg._status === 'failed') {
+      statusIcon = `<span class="transfer-status failed" data-action="retry-msg" data-id="${escapeHtml(msg.id)}" title="发送失败：${escapeHtml(msg._error || '点击重试')}"></span>`;
+    }
+    return `<div class="transfer-msg-body">
+        <div class="transfer-text-bubble">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
+        <span class="transfer-time">${time}</span>
+      </div>
+      ${statusIcon}
+      ${delBtn}`;
+  }
+  const f = msg.file;
+  if (!f) return '';
+  const guardBadge = f.guard_status === 'warning'
+    ? `<span class="transfer-file-guard warning">敏感提醒</span>` : '';
+  // 图片/视频/音频直接内联显示（参考微信传输助手）；svg 后端拒绝预览(415)、pdf/文本仍走文件卡片
+  const pType = getPreviewType(f.name);
+  const isSvg = f.name.toLowerCase().endsWith('.svg');
+  const previewUrl = `/api/files/preview?path=${encodeURIComponent(f.path)}`;
+  const mediaActions = `<div class="transfer-media-actions"><button class="transfer-media-dl" title="下载" data-action="download" data-path="${escapeHtml(f.path)}">${ICONS.download}</button>${delBtn}</div>`;
+  if ((pType === 'image' && !isSvg) || pType === 'video' || pType === 'audio') {
+    let media = '';
+    if (pType === 'image') {
+      media = `<img class="transfer-media-img" src="${previewUrl}" alt="${escapeHtml(f.name)}" loading="lazy" data-action="preview-transfer" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">`;
+    } else if (pType === 'video') {
+      media = `<div class="transfer-media-video" data-action="preview-video" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">
+        <video class="transfer-media-video-thumb" src="${previewUrl}#t=0.1" muted preload="metadata" playsinline></video>
+        <span class="transfer-media-play">${ICONS.play}</span>
+      </div>`;
+    } else {
+      media = `<audio class="transfer-media-audio" src="${previewUrl}" controls preload="metadata"></audio>`;
+    }
+    return `<div class="transfer-msg-body">
+        <div class="transfer-media">${media}</div>
+        <span class="transfer-time">${time}</span>
+        ${guardBadge}
+      </div>
+      ${mediaActions}`;
+  }
+  const fi = getFileIcon(f.name, false);
+  return `<div class="transfer-msg-body">
+      <div class="transfer-file-card" data-action="preview-transfer" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">
+        <div class="transfer-file-icon ${fi.cls}">${fi.icon}</div>
+        <div class="transfer-file-info">
+          <div class="transfer-file-name">${escapeHtml(f.name)}</div>
+          <div class="transfer-file-meta">
+            <span>${formatSize(f.size)}</span>
+            <span class="transfer-saved">✓ 已存入文件库</span>
+          </div>
+        </div>
+        <button class="transfer-file-dl" title="下载" data-action="download" data-path="${escapeHtml(f.path)}">${ICONS.download}</button>
+      </div>
+      <span class="transfer-time">${time}</span>
+      ${guardBadge}
+    </div>
+    ${delBtn}`;
+}
+
+// 节点渲染签名：涵盖所有影响渲染的字段。仅当签名变化时才重建内层，
+// 因此媒体（img/video/audio）只在消息真正变化时才重新解码，常态无变化时零开销（也不丢弃任何字段）。
+function transferMsgSignature(msg) {
+  if (msg.type === 'text') return `t|${msg.id}|${msg._status || ''}`;
+  const f = msg.file || {};
+  return `f|${msg.id}|${msg.type}|${f.guard_status || ''}|${f.name || ''}|${f.size || ''}`;
+}
+
+// 新建一条消息节点；animate 时加 is-new 触发进场动画
+function createTransferNode(msg, animate) {
+  const node = document.createElement('div');
+  node.className = 'transfer-msg';
+  node.dataset.key = transferMsgKey(msg);
+  node.dataset.sig = transferMsgSignature(msg);
+  node.innerHTML = transferMessageInnerHTML(msg);
+  if (animate) node.classList.add('is-new');
+  return node;
+}
+
+// 原地修补已存在的节点：签名未变则跳过（媒体不重建、不重新解码）；变了才重排内层
+// （乐观→确认变形时 id 变化 → 签名变 → 重建，按钮上的 data-id 一并更新为真实 id）
+function patchTransferNode(node, msg) {
+  const sig = transferMsgSignature(msg);
+  if (node.dataset.sig === sig) return;
+  node.dataset.sig = sig;
+  node.innerHTML = transferMessageInnerHTML(msg);
+}
+
+// 增量协调：按 key 对账，保留未变节点（媒体不重解码），只动真正变化的条目
 function renderTransferMessages() {
   const container = document.getElementById('transfer-messages');
   if (!container) return;
@@ -2206,62 +2331,41 @@ function renderTransferMessages() {
         <p class="transfer-empty-title">文件传输助手</p>
         <p class="transfer-empty-desc">把文字或文件发给自己，文字随手记，文件自动存入文件库。</p>
       </div>`;
-    return;
+    return;  // 空列表不算首屏填充：保持 hydrated=false，待真正出现内容时首屏仍不动画并直接吸底
   }
-  container.innerHTML = transferMessages.map(msg => {
-    const time = formatDateTime(msg.created_at);
-    const delBtn = `<button class="transfer-del" title="删除" data-action="delete-msg" data-id="${escapeHtml(msg.id)}">${ICONS.trash}</button>`;
-    if (msg.type === 'text') {
-      // 状态指示：发送中(转圈) / 失败(红色感叹号,可点重试) / 成功(无)
-      let statusIcon = '';
-      if (msg._status === 'sending') {
-        statusIcon = `<span class="transfer-status sending" title="发送中"></span>`;
-      } else if (msg._status === 'failed') {
-        statusIcon = `<span class="transfer-status failed" data-action="retry-msg" data-id="${escapeHtml(msg.id)}" title="发送失败：${escapeHtml(msg._error || '点击重试')}"></span>`;
-      }
-      return `<div class="transfer-msg">
-        <div class="transfer-msg-body">
-          <div class="transfer-text-bubble">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
-          <span class="transfer-time">${time}</span>
-        </div>
-        ${statusIcon}
-        ${delBtn}
-      </div>`;
+  const firstPaint = !transferHydrated;  // 进视图首次填充：直接吸底 + 跳过进场动画
+  // 一遍扫完：清掉占位（loading / empty），同时收集可复用的 .transfer-msg（跳过无 key / 离场中的）
+  const existing = new Map();
+  Array.from(container.children).forEach(child => {
+    if (!child.classList || !child.classList.contains('transfer-msg')) child.remove();
+    else {
+      const k = child.dataset && child.dataset.key;
+      if (k && !child.dataset.leaving) existing.set(k, child);
     }
-    const f = msg.file;
-    if (!f) return '';
-    const fi = getFileIcon(f.name, false);
-    const guardBadge = f.guard_status === 'warning'
-      ? `<span class="transfer-file-guard warning">敏感提醒</span>` : '';
-    return `<div class="transfer-msg">
-      <div class="transfer-msg-body">
-        <div class="transfer-file-card" data-action="preview-transfer" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">
-          <div class="transfer-file-icon ${fi.cls}">${fi.icon}</div>
-          <div class="transfer-file-info">
-            <div class="transfer-file-name">${escapeHtml(f.name)}</div>
-            <div class="transfer-file-meta">
-              <span>${formatSize(f.size)}</span>
-              <span class="transfer-saved">✓ 已存入文件库</span>
-            </div>
-          </div>
-          <button class="transfer-file-dl" title="下载" data-action="download" data-path="${escapeHtml(f.path)}">${ICONS.download}</button>
-        </div>
-        <span class="transfer-time">${time}</span>
-        ${guardBadge}
-      </div>
-      ${delBtn}
-    </div>`;
-  }).join('');
-  container.querySelectorAll('[data-action]').forEach(el => {
-    el.addEventListener('click', (e) => {
-      const a = el.dataset.action;
-      if (a === 'download') { e.stopPropagation(); downloadFile(el.dataset.path); }
-      else if (a === 'delete-msg') { e.stopPropagation(); deleteTransferMessage(el.dataset.id); }
-      else if (a === 'retry-msg') { e.stopPropagation(); retryTransferMessage(el.dataset.id); }
-      else if (a === 'preview-transfer') previewTransferFile(el.dataset.path, el.dataset.name);
-    });
   });
-  container.scrollTop = container.scrollHeight;
+  // 按 transferMessages 顺序对账：命中即修补/正位，未命中即新建（仅非首屏才播进场）
+  let ref = container.firstChild;
+  const skipDead = () => { while (ref && (!ref.dataset || !ref.dataset.key || ref.dataset.leaving)) ref = ref.nextSibling; };
+  for (const msg of transferMessages) {
+    const k = transferMsgKey(msg);
+    let node = existing.get(k);
+    if (node) { existing.delete(k); patchTransferNode(node, msg); }
+    else { node = createTransferNode(msg, transferHydrated); }
+    skipDead();
+    if (node === ref) { ref = ref.nextSibling; }
+    else { container.insertBefore(node, ref); } // ref 为 null 时等价 appendChild
+  }
+  // existing 剩余即被删除的孤儿：淡出后移除
+  for (const node of existing.values()) {
+    node.dataset.key = '';        // 立即摘 key，防止后续 render 复用正在离场的节点
+    node.dataset.leaving = '1';
+    node.classList.add('is-leaving');
+    setTimeout(() => node.remove(), TRANSFER_LEAVE_MS);
+  }
+  // 首屏直接吸底（展示最新内容，恢复旧版「打开即看最新」的行为）；其后才走智能吸底
+  if (firstPaint) scrollChat(container);
+  else scrollChat(container, true);
+  transferHydrated = true;
 }
 
 async function sendTransferText() {
@@ -2270,7 +2374,7 @@ async function sendTransferText() {
   if (!text) return;
   // 乐观渲染：回车后立即显示在内容框中，不等接口成功（参考微信文件传输助手）
   const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-  transferMessages.push({ id: tempId, type: 'text', content: text, created_at: new Date().toISOString(), _status: 'sending' });
+  transferMessages.push({ id: tempId, _cid: tempId, type: 'text', content: text, created_at: new Date().toISOString(), _status: 'sending' });
   input.value = ''; input.style.height = 'auto';
   renderTransferMessages();
   await _sendTransferTextOnce(tempId, text);
@@ -2286,7 +2390,7 @@ async function _sendTransferTextOnce(tempId, text) {
       // 服务端消息已在列表中（刷新时已拉取）：仅移除乐观临时项，避免重复
       if (idx >= 0) transferMessages.splice(idx, 1);
     } else if (idx >= 0) {
-      transferMessages[idx] = msg;  // 用服务端真实消息替换乐观消息
+      transferMessages[idx] = { ...msg, _cid: transferMessages[idx]._cid };  // 透传 _cid：临时节点原地变形为真实消息（key 不变）
     } else {
       transferMessages.push(msg);  // 临时项已不在（被删/被刷新覆盖），补回服务端消息
     }
@@ -2322,7 +2426,6 @@ async function handleTransferFiles(fileList) {
       formData.append('file', file);
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/transfer/file');
-      xhr.setRequestHeader('Authorization', `Bearer ${API._token}`);
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           UploadManager.update(item.id, { progress: Math.round((e.loaded / e.total) * 100) });
@@ -2371,6 +2474,38 @@ function previewTransferFile(path, name) {
   previewFile(path, name);
 }
 
+// 视频弹窗播放：消息流里点缩略图后，在固定覆盖层用直接 src 流式播放（支持 range seek）。
+// 不用 blob：避免整文件下载到内存；也避免内联 video 全屏退出时触发消息列表 reflow 卡顿。
+function previewVideo(path, name) {
+  const fileName = name || path.split('/').pop();
+  const overlay = document.createElement('div');
+  overlay.className = 'preview-overlay preview-video-overlay';
+  overlay.innerHTML = `
+    <div class="preview-header">
+      <div class="preview-title" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+      <div class="preview-actions">
+        <button class="icon-btn" id="btn-video-download" title="下载">${ICONS.download}</button>
+        <button class="icon-btn" id="btn-video-close" title="关闭">${ICONS.close}</button>
+      </div>
+    </div>
+    <div class="preview-body">
+      <video class="preview-video" src="/api/files/preview?path=${encodeURIComponent(path)}" controls autoplay playsinline></video>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+  const close = () => { overlay.remove(); document.body.style.overflow = ''; };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('#btn-video-close').addEventListener('click', close);
+  overlay.querySelector('#btn-video-download').addEventListener('click', () => downloadFile(path));
+  const esc = (e) => {
+    if (e.key !== 'Escape') return;
+    if (document.fullscreenElement) return;  // 全屏时 esc 仅退出全屏，不关弹窗
+    close();
+    document.removeEventListener('keydown', esc);
+  };
+  document.addEventListener('keydown', esc);
+}
+
 // ============ Settings ============
 async function renderSettings() {
   const TAB_ICONS = {
@@ -2401,7 +2536,7 @@ async function renderSettings() {
     if (tab === 'general') {
       content.innerHTML = `
         <div class="settings-panel-title">存储与索引</div>
-        <div class="settings-panel-desc">查看存储用量、磁盘剩余空间，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
+        <div class="settings-panel-desc">查看存储用量与配额，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.database}</div>
@@ -2442,7 +2577,7 @@ async function renderSettings() {
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-warning">${ICONS.download}</div>
-            <div class="setting-head-text"><h3>临时下载</h3><p class="section-desc">浏览器端默认禁止下载（零痕迹）。需要时开启短期窗口，到期自动关闭。</p></div>
+            <div class="setting-head-text"><h3>临时下载</h3><p class="section-desc">浏览器端默认禁止下载（零痕迹）。下载需验证登录密码，可选单次授权或时间窗口。</p></div>
           </div>
           <div class="setting-body" id="download-grant-content">加载中...</div>
         </div>
@@ -2503,7 +2638,6 @@ async function renderSettings() {
         const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
         if (res.ok) {
           const d = await res.json();
-          if (d.access_token) API.setTokens(d.access_token, d.refresh_token);
           Toast.show('密码已修改', 'success');
           document.getElementById('old-pass').value = '';
           document.getElementById('new-pass').value = '';
@@ -2568,13 +2702,32 @@ async function loadStats() {
   try {
     const res = await API.get('/api/files/stats');
     const data = await res.json();
+    const used = Number(data.total_size_mb) || 0;
+    const quota = Number(data.quota_mb) || 0;
+    const limited = quota > 0;
+    const remaining = limited ? Math.max(quota - used, 0) : 0;
+    const pct = limited ? Math.min((used / quota) * 100, 100) : 0;
+    // 进度条配色：充足→绿，偏紧→橙，告急→红
+    let fill = 'success', remainCls = 'accent-success';
+    if (pct >= 90) { fill = 'danger'; remainCls = 'accent-danger'; }
+    else if (pct >= 70) { fill = 'warning'; remainCls = 'accent-warning'; }
+    const quotaText = limited ? `${quota}<span class="stat-unit"> MB</span>` : '不限';
+    const remainText = limited ? `${remaining}<span class="stat-unit"> MB</span>` : '不限';
+    const quotaBar = limited
+      ? `<div class="storage-usage">
+          <div class="storage-usage-head"><span>配额使用</span><span class="storage-usage-pct">${Math.round(pct)}%</span></div>
+          <div class="storage-usage-track"><div class="storage-usage-bar fill-${fill}" style="width:${pct}%"></div></div>
+          <div class="storage-usage-foot">${used} MB / ${quota} MB</div>
+        </div>`
+      : `<div class="storage-usage-note">当前账号未设置存储配额，用量无上限。</div>`;
     el.innerHTML = `
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-label">文件总数</div><div class="stat-value">${data.total_files}</div></div>
-        <div class="stat-card accent-success"><div class="stat-label">占用空间</div><div class="stat-value">${data.total_size_mb}<span class="stat-unit"> MB</span></div></div>
-        <div class="stat-card"><div class="stat-label">磁盘总量</div><div class="stat-value">${data.disk.total_gb}<span class="stat-unit"> GB</span></div></div>
-        <div class="stat-card accent-warning"><div class="stat-label">可用空间</div><div class="stat-value">${data.disk.free_gb}<span class="stat-unit"> GB</span></div></div>
+        <div class="stat-card accent-success"><div class="stat-label">已用空间</div><div class="stat-value">${used}<span class="stat-unit"> MB</span></div></div>
+        <div class="stat-card"><div class="stat-label">存储配额</div><div class="stat-value">${quotaText}</div></div>
+        <div class="stat-card ${limited ? remainCls : ''}"><div class="stat-label">剩余配额</div><div class="stat-value">${remainText}</div></div>
       </div>
+      ${quotaBar}
     `;
   } catch { renderErrorState(el, '统计加载失败', () => loadStats()); }
 }
@@ -2620,24 +2773,52 @@ async function loadTokens() {
   const hasActive = tokens.some(t => isTokenActive(t));
   if (revokeAllZone) revokeAllZone.style.display = hasActive ? '' : 'none';
 
+  const active = tokens.filter(isTokenActive);
+  const inactive = tokens.filter(t => !isTokenActive(t));
+  const showInactive = el.dataset.showInactive === '1';
+
   if (!tokens.length) {
-    el.innerHTML = '<p class="setting-empty">暂无设备令牌，点击右上角“创建令牌”添加。</p>';
+    el.innerHTML = '<p class="setting-empty">暂无设备令牌或会话，点击右上角"创建令牌"添加。</p>';
     return;
   }
-  el.innerHTML = tokens.map(t => `
-    <div class="token-row">
+  const otherActive = active.filter(t => !t.is_current);
+  const exitOthersBtn = otherActive.length
+    ? `<button class="btn btn-secondary btn-sm" data-action="revokeOtherTokens">${ICONS.logout}<span>退出其他设备</span></button>`
+    : '';
+  const inactiveToggle = inactive.length
+    ? `<button class="btn btn-ghost btn-sm" id="tk-toggle-inactive">${showInactive ? '收起已失效' : `显示已失效（${inactive.length}）`}</button>`
+    : '';
+  const headerBar = (exitOthersBtn || inactiveToggle)
+    ? `<div class="token-toolbar">${exitOthersBtn}${inactiveToggle}</div>` : '';
+
+  const renderRow = (t) => {
+    const location = t.ip ? `<span class="dot-sep">·</span><span>${escapeHtml(t.geo ? t.geo + ' ' : '')}${escapeHtml(t.ip)}</span>` : '';
+    const downloadBadge = t.kind === 'session' && t.download_granted
+      ? '<span class="badge badge-warning">下载已授权</span>' : '';
+    const currentBadge = t.is_current ? '<span class="badge badge-current">本机</span>' : '';
+    return `
+    <div class="token-row ${t.is_current ? 'token-row-current' : ''}">
       <div class="token-info">
-        <div class="token-label">${escapeHtml(t.label) || '未命名设备'} ${tokenKindBadge(t)} ${tokenStatusBadge(t)}</div>
+        <div class="token-label">${escapeHtml(t.label) || '未命名设备'} ${currentBadge} ${tokenKindBadge(t)} ${tokenStatusBadge(t)} ${downloadBadge}</div>
         <div class="token-meta-row">
           <span>创建 ${formatDateTime(t.created_at)}</span>
+          ${location}
           <span class="dot-sep">·</span>
           <span>最近活跃 <span class="${t.last_used_at ? '' : 'token-never'}">${t.last_used_at ? formatDateTime(t.last_used_at) : '从未'}</span></span>
           <span class="dot-sep">·</span>
           <span>过期 ${tokenExpiryText(t)}</span>
         </div>
       </div>
-      ${isTokenActive(t) ? `<button class="btn btn-danger btn-sm" data-action="revokeToken" data-token-id="${escapeHtml(t.id)}">吊销</button>` : ''}
-    </div>`).join('');
+      ${isTokenActive(t) ? `<button class="btn btn-danger btn-sm" data-action="revokeToken" data-token-id="${escapeHtml(t.id)}" data-is-current="${t.is_current ? '1' : ''}">吊销</button>` : ''}
+    </div>`;
+  };
+  el.innerHTML = headerBar + active.map(renderRow).join('')
+    + (showInactive && inactive.length ? inactive.map(renderRow).join('') : '');
+  const toggleBtn = el.querySelector('#tk-toggle-inactive');
+  if (toggleBtn) toggleBtn.addEventListener('click', () => {
+    el.dataset.showInactive = showInactive ? '0' : '1';
+    loadTokens();
+  });
 }
 
 async function createToken() {
@@ -2736,8 +2917,7 @@ async function revokeAllTokens() {
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
     const data = await res.json();
     Toast.show(data.message || '已吊销全部令牌', 'success');
-    API.clearTokens();
-    App.logout();  // 紧急下线：自己的 access 也已失效
+    App.logout();  // 紧急下线：清 cookie + 吊销，自己的 access 也已失效
   } catch { Toast.show('操作失败', 'error'); }
 }
 
@@ -2745,7 +2925,112 @@ async function revokeAllTokens() {
 let _downloadGrantTimer = null;
 
 async function loadDownloadGrant() {
-  const el = document.getElementById('download-grant-content');
+// 下载授权弹窗：密码验证 + 授权模式选择
+function downloadAuthDialog({ filePath = null, defaultMode = 'single' } = {}) {
+  return new Promise((resolve) => {
+    const isSingle = !!filePath;
+    const { modal, close } = openModal({ width: 440, onDismiss: () => resolve(null) });
+    modal.innerHTML = `
+      <h3>验证身份</h3>
+      <p class="confirm-message">下载文件需要验证登录密码，确认是你本人操作。</p>
+      <div class="form-group" style="margin-top:16px">
+        <input type="password" id="dl-auth-password" class="form-input" placeholder="输入登录密码" autocomplete="current-password">
+      </div>
+      <div class="dl-auth-options">
+        ${isSingle ? `<label class="dl-auth-option"><input type="radio" name="dl-mode" value="single" ${defaultMode==='single'?'checked':''}><span>仅下载此文件</span><small>下载后自动失效，最安全</small></label>` : ''}
+        <label class="dl-auth-option"><input type="radio" name="dl-mode" value="5" ${defaultMode==='window'&&!isSingle?'checked':''}><span>5 分钟窗口</span><small>批量下载，到期自动关闭</small></label>
+        <label class="dl-auth-option"><input type="radio" name="dl-mode" value="15" ${!isSingle&&defaultMode!=='window'?'checked':''}><span>15 分钟窗口</span><small>大量文件迁移</small></label>
+        <label class="dl-auth-option"><input type="radio" name="dl-mode" value="30"><span>30 分钟窗口</span><small>大批量操作</small></label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary">取消</button>
+        <button class="btn btn-primary" id="dl-auth-confirm">验证并继续</button>
+      </div>`;
+    const passwordInput = modal.querySelector('#dl-auth-password');
+    const cancelBtn = modal.querySelector('.btn-secondary');
+    const okBtn = modal.querySelector('#dl-auth-confirm');
+    cancelBtn.textContent = '取消';
+    okBtn.textContent = '验证并继续';
+    const submit = async () => {
+      const pwd = passwordInput.value;
+      if (!pwd) { Toast.show('请输入密码', 'error'); passwordInput.focus(); return; }
+      const selected = modal.querySelector('input[name="dl-mode"]:checked');
+      const mode = selected ? selected.value : 'single';
+      okBtn.disabled = true; okBtn.textContent = '验证中...';
+      resolve({ password: pwd, mode, filePath });
+      close();
+    };
+    cancelBtn.addEventListener('click', () => { resolve(null); close(); });
+    okBtn.addEventListener('click', submit);
+    passwordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+    setTimeout(() => passwordInput.focus(), 0);
+  });
+}
+
+// 下载授权请求处理：验证密码 → 选择授权模式 → 调用对应 API
+async function requestDownloadAuth({ filePath = null, defaultMode = 'single' } = {}) {
+  const choice = await downloadAuthDialog({ filePath, defaultMode });
+  if (!choice) return null;
+  try {
+    if (choice.mode === 'single' && filePath) {
+      const res = await API.post('/api/files/download-grant-single', { password: choice.password, path: filePath });
+      if (!res) return null;
+      if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '验证失败', 'error'); return null; }
+      return { ok: true, mode: 'single' };
+    } else {
+      const minutes = parseInt(choice.mode);
+      const res = await API.post('/api/files/download-grant', { password: choice.password, minutes });
+      if (!res) return null;
+      if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '验证失败', 'error'); return null; }
+      const d = await res.json();
+      return { ok: true, mode: 'window', until: d.until, minutes: d.minutes };
+    }
+  } catch { Toast.show('网络错误', 'error'); return null; }
+}
+
+// 下载授权激活时的顶栏横幅
+let _downloadBannerTimer = null;
+
+function showDownloadBanner(until) {
+  hideDownloadBanner();
+  let banner = document.getElementById('download-active-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'download-active-banner';
+    banner.className = 'download-active-banner';
+    document.querySelector('.app-layout')?.prepend(banner);
+  }
+  banner.innerHTML = `<span class="dl-banner-icon">${ICONS.download}</span><span class="dl-banner-text">临时下载已开启 · 剩余 <strong id="dl-banner-countdown">--:--</strong></span><button class="dl-banner-close">立即关闭</button>`;
+  banner.style.display = 'flex';
+  banner.querySelector('.dl-banner-close').addEventListener('click', revokeDownload);
+  const tick = () => {
+    const remain = Math.max(0, Math.floor((parseServerTs(until) - Date.now()) / 1000));
+    const cd = document.getElementById('dl-banner-countdown');
+    if (cd) cd.textContent = `${String(Math.floor(remain/60)).padStart(2,'0')}:${String(remain%60).padStart(2,'0')}`;
+    if (remain <= 0) { hideDownloadBanner(); checkDownloadStatus(); }
+  };
+  tick();
+  _downloadBannerTimer = setInterval(tick, 1000);
+}
+
+function hideDownloadBanner() {
+  if (_downloadBannerTimer) { clearInterval(_downloadBannerTimer); _downloadBannerTimer = null; }
+  const banner = document.getElementById('download-active-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+// 检查下载状态，显示/隐藏横幅
+async function checkDownloadStatus() {
+  try {
+    const res = await API.get('/api/files/download-status');
+    if (!res || !res.ok) return;
+    const d = await res.json();
+    if (d.granted) showDownloadBanner(d.until);
+    else hideDownloadBanner();
+  } catch {}
+}
+
+const el = document.getElementById('download-grant-content');
   if (!el) return;
   let granted = false, until = '';
   try {
@@ -2755,12 +3040,32 @@ async function loadDownloadGrant() {
   renderDownloadGrant(el, granted, until);
 }
 
+// 加载本次下载窗口的下载记录
+async function loadDownloadHistory() {
+  const list = document.getElementById('dl-history-list');
+  if (!list) return;
+  try {
+    const res = await API.get('/api/files/download-history');
+    if (!res || !res.ok) return;
+    const d = await res.json();
+    if (!d.files || d.files.length === 0) {
+      list.innerHTML = '<p class="dl-history-empty">暂无下载记录</p>';
+      return;
+    }
+    list.innerHTML = d.files.map(f => {
+      const name = f.path.split('/').pop();
+      const time = new Date(parseServerTs(f.time)).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return `<div class="dl-history-item"><span class="dl-history-name" title="${escapeHtml(f.path)}">${escapeHtml(name)}</span><span class="dl-history-time">${time}</span></div>`;
+    }).join('');
+  } catch {}
+}
+
 function renderDownloadGrant(el, granted, until) {
   if (_downloadGrantTimer) { clearInterval(_downloadGrantTimer); _downloadGrantTimer = null; }
   if (!granted) {
     el.innerHTML = `
       <div class="setting-row">
-        <p class="section-desc setting-row-text">未开启。下载的文件会保留在本机，请及时清理。</p>
+        <p class="section-desc setting-row-text">未开启。点击文件下载时会要求验证密码，也可在此提前开启时间窗口。</p>
         <button class="btn btn-primary" id="btn-download-grant">${ICONS.download}<span>开启临时下载</span></button>
       </div>`;
     document.getElementById('btn-download-grant')?.addEventListener('click', grantDownload);
@@ -2770,29 +3075,32 @@ function renderDownloadGrant(el, granted, until) {
     <div class="setting-row">
       <p class="setting-row-text">下载已开启，剩余 <strong id="download-grant-countdown">--:--</strong></p>
       <button class="btn btn-secondary" id="btn-download-revoke"><span>立即关闭</span></button>
+    </div>
+    <div class="dl-history-section" id="dl-history-section">
+      <p class="dl-history-title">本次窗口已下载</p>
+      <div id="dl-history-list" class="dl-history-list"><p class="dl-history-empty">暂无下载记录</p></div>
     </div>`;
   document.getElementById('btn-download-revoke')?.addEventListener('click', revokeDownload);
+  loadDownloadHistory();
   const tick = () => {
     if (!document.getElementById('download-grant-countdown')) { clearInterval(_downloadGrantTimer); _downloadGrantTimer = null; return; }
     const remain = Math.max(0, Math.floor((parseServerTs(until) - Date.now()) / 1000));
     const cd = document.getElementById('download-grant-countdown');
     if (cd) cd.textContent = `${String(Math.floor(remain/60)).padStart(2,'0')}:${String(remain%60).padStart(2,'0')}`;
     if (remain <= 0) { clearInterval(_downloadGrantTimer); _downloadGrantTimer = null; loadDownloadGrant(); }
+    else if (remain % 10 === 0) loadDownloadHistory();
   };
   tick();
   _downloadGrantTimer = setInterval(tick, 1000);
 }
 
 async function grantDownload() {
-  if (!await confirmDialog({ title: '开启临时下载', message: '开启后可下载文件，到期自动关闭。下载的文件会保留在本机，请及时清理。确定继续？', confirmText: '开启' })) return;
-  try {
-    const res = await API.post('/api/files/download-grant');
-    if (!res) return;  // 会话已失效并被登出
-    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '开启失败', 'error'); return; }
-    const d = await res.json();
-    Toast.show(`已开启临时下载（${d.minutes} 分钟）`, 'success');
-    renderDownloadGrant(document.getElementById('download-grant-content'), true, d.until);
-  } catch { Toast.show('开启失败', 'error'); }
+  // 设置页开启窗口：弹密码验证 + 选择窗口时长（无指定文件，默认 15 分钟）
+  const auth = await requestDownloadAuth({ filePath: null, defaultMode: 'window' });
+  if (!auth) return;  // 用户取消或验证失败
+  Toast.show(`已开启临时下载（${auth.minutes} 分钟）`, 'success');
+  showDownloadBanner(auth.until);
+  renderDownloadGrant(document.getElementById('download-grant-content'), true, auth.until);
 }
 
 async function revokeDownload() {
@@ -2802,13 +3110,29 @@ async function revokeDownload() {
     if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
     Toast.show('已关闭临时下载', 'success');
     renderDownloadGrant(document.getElementById('download-grant-content'), false, '');
+    hideDownloadBanner();
   } catch { Toast.show('操作失败', 'error'); }
 }
 
-async function revokeToken(id) {
-  if (!await confirmDialog({ title: '吊销令牌', message: '确定吊销此令牌？该设备将立即无法访问。', confirmText: '吊销', danger: true })) return;
-  try { await API.del(`/api/auth/tokens/${id}`); Toast.show('令牌已吊销', 'success'); loadTokens(); }
+async function revokeToken(id, isCurrent) {
+  const message = isCurrent
+    ? '这是你当前正在使用的会话，吊销后你将立即退出登录。确定要吊销当前会话吗？'
+    : '确定吊销此令牌？该设备将立即无法访问。';
+  if (!await confirmDialog({ title: isCurrent ? '吊销当前会话' : '吊销令牌', message, confirmText: '吊销', danger: true })) return;
+  try { await API.del(`/api/auth/tokens/${id}`); Toast.show('令牌已吊销', 'success'); isCurrent ? App.logout() : loadTokens(); }
   catch { Toast.show('操作失败', 'error'); }
+}
+
+async function revokeOtherTokens() {
+  if (!await confirmDialog({ title: '退出其他设备', message: '将吊销除当前会话外的全部令牌，其他设备会立即下线，你当前登录不受影响。确定继续？', confirmText: '退出其他设备', danger: true })) return;
+  try {
+    const res = await API.del('/api/auth/tokens-others');
+    if (!res) return;
+    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
+    const data = await res.json();
+    Toast.show(data.message || '已退出其他设备', 'success');
+    loadTokens();
+  } catch { Toast.show('操作失败', 'error'); }
 }
 
 async function loadTOTP() {
@@ -2905,21 +3229,21 @@ const App = {
   currentView: 'transfer',
   currentUser: null,
   async init() {
-    if (!API._token) { renderLanding(); return; }
-    // 拉取当前账号信息，解决“不知是哪个账号”的痛点；失败则回到登录页
+    // 登录态由 cookie 决定：探测 /me，200 即已登录；失败（含静默刷新失败）回落地页
     try {
       const res = await API.get('/api/auth/me');
-      if (!res || !res.ok) { API.clearTokens(); renderLogin(); return; }
+      if (!res || !res.ok) return;  // refresh 失败时 App.logout 已渲染落地页
       this.currentUser = await res.json();
     } catch {
-      API.clearTokens(); renderLogin(); return;
+      renderLanding(); return;
     }
-    this.renderLayout();
-    this.navigate('transfer');
-    setupDragDrop();
-    setupPaste();
-    document.addEventListener('click', closeContextMenu);
-  },
+   this.renderLayout();
+   this.navigate('transfer');
+   setupDragDrop();
+   setupPaste();
+   document.addEventListener('click', closeContextMenu);
+   checkDownloadStatus();
+ },
   renderLayout() {
     document.getElementById('app').innerHTML = `
       <div class="app-layout">
@@ -2957,7 +3281,13 @@ const App = {
     else if (view === 'transfer') renderTransfer();
     else if (view === 'settings') renderSettings();
   },
-  logout() { if (currentChatAbort) currentChatAbort.abort(); API.clearTokens(); this.currentView = 'transfer'; renderLanding(); }
+  logout() {
+    if (currentChatAbort) currentChatAbort.abort();
+    this.currentView = 'transfer';
+    renderLanding();
+    // 清服务端 cookie + 吊销会话：后台执行，不阻塞落地页渲染
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  }
 };
 
 // Expose for inline handlers
@@ -2965,6 +3295,7 @@ window.downloadFile = downloadFile;
 window.deleteFile = deleteFile;
 window.previewFile = previewFile;
 window.revokeToken = revokeToken;
+window.revokeOtherTokens = revokeOtherTokens;
 window.showFileMenu = showFileMenu;
 window.showGroupManager = showGroupManager;
 window.showGroupFolderMenu = showGroupFolderMenu;
@@ -2974,6 +3305,7 @@ window.deleteGroup = deleteGroup;
 window.UploadManager = UploadManager;
 window.deleteTransferMessage = deleteTransferMessage;
 window.previewTransferFile = previewTransferFile;
+window.previewVideo = previewVideo;
 window.renderLogin = renderLogin;
 
 // ============ 全局事件委托（CSP 禁用内联事件处理器与 javascript: URL） ============
@@ -2987,7 +3319,8 @@ document.getElementById('app').addEventListener('click', (e) => {
   if (action === 'renderRegister') return renderRegister();
   if (action === 'renderForgotPassword') return renderForgotPassword();
   if (action === 'renderLanding') return renderLanding();
-  if (action === 'revokeToken') return revokeToken(el.dataset.tokenId);
+ if (action === 'revokeToken') return revokeToken(el.dataset.tokenId);
+  if (action === 'revokeOtherTokens') return revokeOtherTokens();
 });
 
 App.init();

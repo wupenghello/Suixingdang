@@ -1,20 +1,18 @@
 // 随行档 - 管理员后台 SPA (v3)
 
 const API = {
-  // 管理员令牌存 localStorage：与用户端一致，多标签页共享
-  _token: localStorage.getItem('admin_token'),
-  set(token) { this._token = token; localStorage.setItem('admin_token', token); },
-  clear() { this._token = null; localStorage.removeItem('admin_token'); },
+  // 管理员令牌存 HttpOnly cookie（与用户端一致），前端 JS 不可读，防 XSS 偷令牌。
+  // 同源 fetch 自动带 cookie，无需手动附加 Authorization 头。
   async req(url, opts = {}) {
     const headers = { ...opts.headers };
-    if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
     if (opts.body) headers['Content-Type'] = 'application/json';
     const res = await fetch(url, { ...opts, headers });
-    // token 失效/过期：清掉本地令牌并回到登录页，避免显示误导性的"加载失败"
-    if (res.status === 401 && this._token) {
-      this.clear();
-      Toast.show('登录已失效，请重新登录', 'warning', 2000);
+    // cookie 失效/过期：清 cookie 并回登录页，避免显示误导性的"加载失败"
+    if (res.status === 401) {
+      // 会话失效：清 cookie 并回登录页；不在此 toast，由调用方按 res.ok 自行提示，避免重复 toast
+      try { await fetch('/api/auth/admin/logout', { method: 'POST' }); } catch {}
       setTimeout(() => location.reload(), 800);
+      return res;
     }
     return res;
   },
@@ -72,7 +70,8 @@ const ICONS = {
   edit: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  back: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
+ back: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
+ account: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
  refresh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
  llm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4v1h1a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4h-1v1a4 4 0 0 1-4 4 4 4 0 0 1-4-4v-1H7a4 4 0 0 1-4-4v0a4 4 0 0 1 4-4h1V6a4 4 0 0 1 4-4z"/><circle cx="12" cy="11" r="2" fill="currentColor" stroke="none"/></svg>',
 };
@@ -159,7 +158,7 @@ function renderLogin() {
         body: JSON.stringify({ username: u, password: p }),
       });
       const data = await res.json();
-      if (res.ok) { API.set(data.access_token); Toast.show('登录成功', 'success'); init(); }
+      if (res.ok) { Toast.show('登录成功', 'success'); init(); }
       else { Toast.show(data.detail || '登录失败', 'error'); }
     } catch { Toast.show('网络错误', 'error'); }
   });
@@ -215,7 +214,8 @@ function renderLayout() {
          <div class="admin-nav-item" data-view="groups">${ICONS.groups} 分组管理</div>
           <div class="admin-nav-item" data-view="llm">${ICONS.llm} 大模型配置</div>
          <div class="admin-nav-item" data-view="settings">${ICONS.settings} 系统设置</div>
-          <div class="admin-nav-item" data-view="logs">${ICONS.log} 审计日志</div>
+         <div class="admin-nav-item" data-view="logs">${ICONS.log} 审计日志</div>
+          <div class="admin-nav-item" data-view="account">${ICONS.account} 账户</div>
         </div>
         <div style="padding:12px">
           <div class="admin-nav-item" id="btn-logout">${ICONS.logout} 退出登录</div>
@@ -226,7 +226,7 @@ function renderLayout() {
   document.querySelectorAll('.admin-nav-item[data-view]').forEach(el => {
     el.addEventListener('click', () => navigate(el.dataset.view));
   });
-  document.getElementById('btn-logout').addEventListener('click', () => { API.clear(); location.reload(); });
+  document.getElementById('btn-logout').addEventListener('click', () => { fetch('/api/auth/admin/logout', { method: 'POST' }).finally(() => location.reload()); });
 }
 
 function navigate(view) {
@@ -234,13 +234,14 @@ function navigate(view) {
   document.querySelectorAll('.admin-nav-item[data-view]').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
-  if (view === 'dashboard') renderDashboard();
-  else if (view === 'users') renderUsers();
-  else if (view === 'files') renderFiles();
-  else if (view === 'groups') renderGroups();
-  else if (view === 'llm') renderLlm();
-  else if (view === 'settings') renderSettings();
-  else if (view === 'logs') renderLogs();
+ if (view === 'dashboard') renderDashboard();
+ else if (view === 'users') renderUsers();
+ else if (view === 'files') renderFiles();
+ else if (view === 'groups') renderGroups();
+ else if (view === 'llm') renderLlm();
+ else if (view === 'settings') renderSettings();
+ else if (view === 'logs') renderLogs();
+ else if (view === 'account') renderAccount();
 }
 
 // ============ Dashboard ============
@@ -461,29 +462,31 @@ async function loadUserTokens(userId) {
       return;
     }
     const now = Date.now();
-    el.innerHTML = `
-      <table class="data-table">
-        <thead><tr><th>标签</th><th>类型</th><th>状态</th><th>创建时间</th><th>最后使用</th><th>过期时间</th><th>操作</th></tr></thead>
-        <tbody>
-          ${tokens.map(t => {
-            const expired = t.expires_at && new Date(t.expires_at).getTime() < now;
-            let badge;
-            if (t.revoked) badge = '<span class="badge badge-danger">已吊销</span>';
-            else if (expired) badge = '<span class="badge badge-danger">已过期</span>';
-            else badge = '<span class="badge badge-success">有效</span>';
-            const action = (t.revoked || expired) ? '-' : `<button class="btn btn-danger btn-icon" data-action="revokeUserToken" data-user-id="${userId}" data-token-id="${t.id}" title="吊销">${ICONS.trash}</button>`;
-            return `<tr>
-              <td>${esc(t.label) || '-'}</td>
-              <td>${t.kind === 'session' ? '浏览器会话' : '设备令牌'}</td>
-              <td>${badge}</td>
-              <td class="td-meta">${t.created_at ? t.created_at.split('.')[0] : '-'}</td>
-              <td class="td-meta">${t.last_used_at ? t.last_used_at.split('.')[0] : '从未'}</td>
-              <td class="td-meta">${t.expires_at ? t.expires_at.split('.')[0] : '永久'}</td>
-              <td>${action}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>`;
+   el.innerHTML = `
+     <table class="data-table">
+        <thead><tr><th>标签</th><th>类型</th><th>状态</th><th>来源 IP / 地域</th><th>创建时间</th><th>最后使用</th><th>过期时间</th><th>操作</th></tr></thead>
+       <tbody>
+         ${tokens.map(t => {
+           const expired = t.expires_at && new Date(t.expires_at).getTime() < now;
+           let badge;
+           if (t.revoked) badge = '<span class="badge badge-danger">已吊销</span>';
+           else if (expired) badge = '<span class="badge badge-danger">已过期</span>';
+            else badge = '<span class="badge badge-success">有效</span>' + (t.download_granted ? '<span class="badge badge-warning">下载中</span>' : '');
+            const location = t.ip ? `${esc(t.geo ? t.geo + ' ' : '')}${esc(t.ip)}` : '-';
+           const action = (t.revoked || expired) ? '-' : `<button class="btn btn-danger btn-icon" data-action="revokeUserToken" data-user-id="${userId}" data-token-id="${t.id}" title="吊销">${ICONS.trash}</button>`;
+           return `<tr>
+             <td>${esc(t.label) || '-'}</td>
+             <td>${t.kind === 'session' ? '浏览器会话' : '设备令牌'}</td>
+             <td>${badge}</td>
+              <td class="td-meta">${location}</td>
+             <td class="td-meta">${t.created_at ? t.created_at.split('.')[0] : '-'}</td>
+             <td class="td-meta">${t.last_used_at ? t.last_used_at.split('.')[0] : '从未'}</td>
+             <td class="td-meta">${t.expires_at ? t.expires_at.split('.')[0] : '永久'}</td>
+             <td>${action}</td>
+           </tr>`;
+         }).join('')}
+       </tbody>
+     </table>`;
   } catch { el.innerHTML = '<p class="empty-text">加载令牌失败</p>'; }
 }
 window.loadUserTokens = loadUserTokens;
@@ -921,6 +924,55 @@ async function renderSettings() {
   } catch { document.getElementById('settings-content').innerHTML = '<p>加载失败</p>'; }
 }
 
+// ============ Account ============
+async function renderAccount() {
+  document.getElementById('admin-main').innerHTML = `
+    <div class="admin-topbar"><h2>账户</h2></div>
+    <div id="account-content">加载中...</div>`;
+  try {
+    const res = await API.get('/api/admin/me');
+    const me = await res.json();
+    document.getElementById('account-content').innerHTML = `
+      <div class="settings-section" style="max-width:460px">
+        <h3>管理员信息</h3>
+        <table class="info-table">
+          <tr><td>用户名</td><td>${esc(me.username)}</td></tr>
+          <tr><td>角色</td><td>管理员</td></tr>
+        </table>
+      </div>
+      <div class="settings-section settings-group-gap" style="max-width:460px">
+        <h3>修改密码</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">修改密码后需用新密码重新登录。</p>
+        <div class="form-group"><label>原密码</label><input type="password" id="acc-old-pass" class="form-input" placeholder="请输入原密码"></div>
+        <div class="form-group"><label>新密码</label><input type="password" id="acc-new-pass" class="form-input" placeholder="8个字符以上"></div>
+        <div class="form-group"><label>确认新密码</label><input type="password" id="acc-confirm-pass" class="form-input" placeholder="再次输入新密码"></div>
+        <button class="btn btn-primary" id="btn-admin-change-pwd">修改密码</button>
+      </div>`;
+    document.getElementById('btn-admin-change-pwd').addEventListener('click', async () => {
+      const oldP = document.getElementById('acc-old-pass').value;
+      const newP = document.getElementById('acc-new-pass').value;
+      const confirmP = document.getElementById('acc-confirm-pass').value;
+      if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
+      if (newP !== confirmP) { Toast.show('两次输入的新密码不一致', 'error'); return; }
+      const btn = document.getElementById('btn-admin-change-pwd');
+      btn.disabled = true;
+      try {
+        const res = await API.put('/api/admin/me/password', { old_password: oldP, new_password: newP });
+        if (res.ok) {
+          Toast.show('密码已修改', 'success');
+          document.getElementById('acc-old-pass').value = '';
+          document.getElementById('acc-new-pass').value = '';
+          document.getElementById('acc-confirm-pass').value = '';
+        } else {
+          const d = await res.json();
+          Toast.show(d.detail || '修改失败', 'error');
+        }
+      } catch { Toast.show('网络错误', 'error'); }
+      finally { btn.disabled = false; }
+    });
+  } catch { document.getElementById('account-content').innerHTML = '<p>加载失败</p>'; }
+}
+
 // ============ Logs ============
 async function renderLogs() {
   document.getElementById('admin-main').innerHTML = `
@@ -974,8 +1026,12 @@ window.goGroupsPage = goGroupsPage;
 window.goLogsPage = goLogsPage;
 
 // ============ Init ============
-function init() {
-  if (!API._token) { renderLogin(); return; }
+async function init() {
+  // 登录态由 cookie 决定：探测 /api/admin/me，失败回登录页（用裸 fetch，避免 401 触发 reload 循环）
+  try {
+    const res = await fetch('/api/admin/me');
+    if (!res.ok) { renderLogin(); return; }
+  } catch { renderLogin(); return; }
   renderLayout();
   navigate('dashboard');
 }

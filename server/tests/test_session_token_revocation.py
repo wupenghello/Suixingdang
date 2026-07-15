@@ -1,5 +1,10 @@
 """浏览器会话令牌吊销 + 密码版本号 + refresh（不轮转）的端到端验证。
 
+令牌已迁移到 HttpOnly cookie：register/login/change-password 不再在响应体返回令牌，
+/refresh 从 refresh cookie 读取。测试用 _grab 从 TestClient cookie jar 取令牌后清空 jar，
+避免 cookie 优先级（get_current_user 先读 cookie）干扰多用户 Bearer 头场景；
+/refresh 用 _refresh 显式设 refresh cookie。
+
 覆盖安全改动的行为契约：
 - 浏览器登录会话进 access_tokens 表（kind=session），可在设置页吊销；
 - 改/重置密码 bump password_version，旧 access/refresh 立即失效；
@@ -8,64 +13,45 @@
 - 会话行有过期时间，再次登录时清理已死会话行。
 """
 import io
-import uuid
 
-
-def _reg(client, username=None, password="Test1234pass"):
-    username = username or f"u{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/auth/register", json={
-        "username": username,
-        "password": password,
-        "security_question": "q?",
-        "security_answer": "a",
-    })
-    assert r.status_code == 200, r.text
-    j = r.json()
-    return j["access_token"], j["refresh_token"], username
-
-
-def _login(client, username, password, headers=None):
-    r = client.post("/api/auth/login", json={"username": username, "password": password}, headers=headers)
-    assert r.status_code == 200, r.text
-    j = r.json()
-    return j["access_token"], j["refresh_token"]
+from auth_helpers import register as _reg, login as _login, do_refresh as _refresh, admin_login, grab as _grab
 
 
 def _me(client, access):
-    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {access}"})
-    return r
+    return client.get("/api/auth/me", headers={"Authorization": f"Bearer {access}"})
 
 
 def test_refresh_reusable_no_rotation(client):
-    """refresh 不轮转：返回原 refresh，可多次重复使用，无并发/重试孤儿问题。"""
+    """refresh 不轮转：原 refresh 可多次重复使用，无并发/重试孤儿问题。"""
     _access, refresh, _ = _reg(client)
-    r = client.post("/api/auth/refresh", json={"refresh_token": refresh})
+    r, new_access = _refresh(client, refresh)
     assert r.status_code == 200, r.text
-    # 返回的 refresh 仍可用
-    assert client.post("/api/auth/refresh", json={"refresh_token": r.json()["refresh_token"]}).status_code == 200
-    # 原 refresh 也仍可用（未作废）
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh}).status_code == 200
+    # refresh 不轮转：原 refresh 仍可重复使用
+    assert _refresh(client, refresh)[0].status_code == 200
+    assert _refresh(client, refresh)[0].status_code == 200
+    # 续期后的新 access 可用
+    assert _me(client, new_access).status_code == 200
 
 
 def test_change_password_invalidates_old_and_reissues_for_caller(client):
-    """改密码后旧 refresh/access 失效，但返回的新令牌可用（调用者续登）。"""
+    """改密码后旧 refresh/access 失效，但新签发令牌可用（调用者续登）。"""
     access, refresh, username = _reg(client, password="Old1234pass")
     h = {"Authorization": f"Bearer {access}"}
     r = client.post("/api/auth/change-password", headers=h, json={
         "old_password": "Old1234pass", "new_password": "New1234pass"})
     assert r.status_code == 200, r.text
-    new_tokens = r.json()
-    assert new_tokens["access_token"] and new_tokens["refresh_token"]
+    new_access, new_refresh = _grab(client)
+    assert new_access and new_refresh
     # 旧 refresh 失效
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh}).status_code == 401
+    assert _refresh(client, refresh)[0].status_code == 401
     # 旧 access 失效
     assert _me(client, access).status_code == 401
-    # 返回的新令牌可用
-    assert _me(client, new_tokens["access_token"]).status_code == 200
-    assert client.post("/api/auth/refresh", json={"refresh_token": new_tokens["refresh_token"]}).status_code == 200
+    # 新令牌可用
+    assert _me(client, new_access).status_code == 200
+    assert _refresh(client, new_refresh)[0].status_code == 200
     # 新密码登录正常
     _a2, refresh2 = _login(client, username, "New1234pass")
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh2}).status_code == 200
+    assert _refresh(client, refresh2)[0].status_code == 200
 
 
 def test_change_password_cleans_old_session_rows(client):
@@ -74,7 +60,9 @@ def test_change_password_cleans_old_session_rows(client):
     h = {"Authorization": f"Bearer {access}"}
     r = client.post("/api/auth/change-password", headers=h, json={
         "old_password": "Old1234pass", "new_password": "New1234pass"})
-    new_h = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    assert r.status_code == 200, r.text
+    new_access, _ = _grab(client)
+    new_h = {"Authorization": f"Bearer {new_access}"}
     tokens = client.get("/api/auth/tokens", headers=new_h).json()
     sessions = [t for t in tokens if t["kind"] == "session"]
     assert len(sessions) == 1  # 旧会话行已清理
@@ -90,7 +78,7 @@ def test_revoke_single_session_token(client):
     assert len(sessions) == 1
     assert sessions[0]["revoked"] is False
     assert client.delete(f"/api/auth/tokens/{sessions[0]['id']}", headers=h).status_code == 200
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh}).status_code == 401
+    assert _refresh(client, refresh)[0].status_code == 401
 
 
 def test_revoke_all_kills_access_and_refresh(client):
@@ -101,7 +89,7 @@ def test_revoke_all_kills_access_and_refresh(client):
     assert r.status_code == 200
     assert r.json()["count"] >= 1
     # refresh 失效
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh}).status_code == 401
+    assert _refresh(client, refresh)[0].status_code == 401
     # access 也立即失效（不留 60 分钟窗口）
     assert _me(client, access).status_code == 401
 
@@ -113,10 +101,10 @@ def test_device_token_survives_password_change(client):
     r = client.post("/api/auth/tokens?label=my-daemon&expires_days=0", headers=h)
     assert r.status_code == 200, r.text
     device_token = r.json()["token"]
-    dh = {"Authorization": f"Bearer {device_token}"}
     assert _me(client, device_token).status_code == 200
     client.post("/api/auth/change-password", headers=h, json={
         "old_password": "Old1234pass", "new_password": "New1234pass"})
+    client.cookies.clear()  # 清掉 change-password 设的会话 cookie，确保 _me 走设备令牌头
     # 设备令牌不受 password_version 影响
     assert _me(client, device_token).status_code == 200
 
@@ -127,9 +115,9 @@ def test_forgot_password_reset_invalidates_session(client):
     r = client.post("/api/auth/forgot-password/reset", json={
         "username": username, "answer": "a", "new_password": "Reset1234pass"})
     assert r.status_code == 200, r.text
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh}).status_code == 401
+    assert _refresh(client, refresh)[0].status_code == 401
     _a2, refresh2 = _login(client, username, "Reset1234pass")
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh2}).status_code == 200
+    assert _refresh(client, refresh2)[0].status_code == 200
 
 
 def test_session_has_last_used_and_expiry(client):
@@ -149,7 +137,8 @@ def test_revoked_session_rows_cleaned_on_relogin(client):
     # 吊销当前会话行（仍留在表中为已吊销状态）
     sid = [t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"][0]["id"]
     client.delete(f"/api/auth/tokens/{sid}", headers=h)
-    assert len([t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"]) == 1
+    # 吊销后 access 立即失效（即时吊销），旧会话行仍留在表中（revoked=True）
+    assert _me(client, access).status_code == 401
     # 重新登录：清理已吊销行 + 新建 1 个活跃会话，总数仍为 1（不累积）
     a2, _ = _login(client, username, "Old1234pass")
     tokens = client.get("/api/auth/tokens", headers={"Authorization": f"Bearer {a2}"}).json()
@@ -162,9 +151,7 @@ def test_admin_list_user_tokens_has_kind(client):
     """admin 端令牌列表返回 kind 字段，可区分会话/设备令牌。"""
     access, _refresh, _ = _reg(client)
     uid = _me(client, access).json()["id"]
-    r = client.post("/api/auth/admin/login", json={"username": "admin", "password": "test-admin-pw-12345"})
-    assert r.status_code == 200, r.text
-    admin_h = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    admin_h = {"Authorization": f"Bearer {admin_login(client)}"}
     r2 = client.get(f"/api/admin/users/{uid}/tokens", headers=admin_h)
     assert r2.status_code == 200, r2.text
     tokens = r2.json()
@@ -179,7 +166,7 @@ def test_same_device_session_reuse_within_window(client):
     access_a, refresh_a, username = _reg(client, password="Old1234pass")
     ha = {"Authorization": f"Bearer {access_a}"}
     # A 开启临时下载授权
-    assert client.post("/api/files/download-grant", headers=ha).status_code == 200
+    assert client.post("/api/files/download-grant", headers=ha, json={"password": "Old1234pass", "minutes": 0}).status_code == 200
     sessions_before = [t for t in client.get("/api/auth/tokens", headers=ha).json() if t["kind"] == "session"]
     assert len(sessions_before) == 1
     # 同设备再次登录：应复用同一会话行（不新增）
@@ -190,8 +177,8 @@ def test_same_device_session_reuse_within_window(client):
     # 复用后下载授权仍保留（未被重置）
     assert client.get("/api/files/download-status", headers=hb).json()["granted"] is True
     # 旧 refresh 因轮转而失效，新 refresh 可用
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh_a}).status_code == 401
-    assert client.post("/api/auth/refresh", json={"refresh_token": refresh_b}).status_code == 200
+    assert _refresh(client, refresh_a)[0].status_code == 401
+    assert _refresh(client, refresh_b)[0].status_code == 200
 
 
 def test_different_device_creates_new_session(client):
@@ -223,7 +210,7 @@ def test_download_grant_then_revoke(client):
     """开启临时下载后可下载；手动关闭后 403。"""
     access, _refresh, _ = _reg(client)
     h = _upload(client, access)
-    g = client.post("/api/files/download-grant", headers=h)
+    g = client.post("/api/files/download-grant", headers=h, json={"password": "Test1234pass", "minutes": 0})
     assert g.status_code == 200 and g.json()["granted"] is True
     assert client.get("/api/files/download-status", headers=h).json()["granted"] is True
     d = client.get("/api/files/download", headers=h, params={"path": "a.txt"})
@@ -242,7 +229,7 @@ def test_download_grant_isolated_per_session(client):
     access_b, _rb = _login(client, username, "Old1234pass", headers={"User-Agent": "device-B/1.0 (Macintosh)"})
     ha = {"Authorization": f"Bearer {access_a}"}
     hb = {"Authorization": f"Bearer {access_b}"}
-    assert client.post("/api/files/download-grant", headers=ha).status_code == 200
+    assert client.post("/api/files/download-grant", headers=ha, json={"password": "Old1234pass", "minutes": 0}).status_code == 200
     assert client.get("/api/files/download-status", headers=ha).json()["granted"] is True
     # B 的会话未受影响
     assert client.get("/api/files/download-status", headers=hb).json()["granted"] is False
@@ -274,16 +261,13 @@ def test_sync_download_rejects_browser_jwt(client):
 
 
 def test_revoked_session_cannot_grant_or_download(client):
-    """单令牌吊销后，该会话不能开启临时下载也不能下载（get_current_session 过滤 revoked）。"""
+    """单令牌吊销后立即生效：access JWT 立即失效（消除 60 分钟僵尸窗口）。"""
     access, _refresh, _ = _reg(client)
     h = _upload(client, access)
     sid = [t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"][0]["id"]
     client.delete(f"/api/auth/tokens/{sid}", headers=h)
-    # access JWT 仍有效（单吊销不 bump password_version）
-    assert _me(client, access).status_code == 200
-    # 但会话已吊销：grant 401、download 403
-    assert client.post("/api/files/download-grant", headers=h).status_code == 401
-    assert client.get("/api/files/download", headers=h, params={"path": "a.txt"}).status_code == 403
+    # 即时吊销：access JWT 因会话行 revoked 立即失效，所有接口返回 401
+    assert _me(client, access).status_code == 401
 
 
 def test_preview_unsafe_type_rejected(client):
@@ -294,3 +278,94 @@ def test_preview_unsafe_type_rejected(client):
                      files={"file": ("page.html", io.BytesIO(b"<script>x</script>"), "text/html")})
     assert up.status_code == 200, up.text
     assert client.get("/api/files/preview", headers=h, params={"path": "page.html"}).status_code == 415
+
+
+# ---- 新增：会话 IP/地域、当前会话标记、退出其他设备、并发上限、即时吊销 ----
+
+def test_tokens_return_ip_and_is_current(client):
+    """令牌列表回传 ip 与 is_current 字段；当前会话被标记。"""
+    access, _refresh, _ = _reg(client)
+    h = {"Authorization": f"Bearer {access}"}
+    tokens = client.get("/api/auth/tokens", headers=h).json()
+    sessions = [t for t in tokens if t["kind"] == "session"]
+    assert len(sessions) == 1
+    assert "ip" in sessions[0]
+    assert "geo" in sessions[0]
+    assert sessions[0]["is_current"] is True
+
+
+def test_revoke_others_keeps_current(client):
+    """退出其他设备：吊销除当前会话外的全部令牌，当前会话仍可用。"""
+    access_a, _ra, username = _reg(client, password="Old1234pass")
+    ha = {"Authorization": f"Bearer {access_a}"}
+    # 用不同 UA 模拟另一台设备登录
+    access_b, _rb = _login(client, username, "Old1234pass", headers={"User-Agent": "device-B/1.0"})
+    # A 创建一个设备令牌
+    client.post("/api/auth/tokens?label=daemon&expires_days=0", headers=ha)
+    # 从 A 的会话退出其他设备
+    r = client.delete("/api/auth/tokens-others", headers=ha)
+    assert r.status_code == 200, r.text
+    assert r.json()["count"] >= 2  # B 的会话 + 设备令牌
+    # A 的当前会话仍可用
+    assert _me(client, access_a).status_code == 200
+    # B 的会话已失效
+    assert _me(client, access_b).status_code == 401
+
+
+def test_concurrent_session_limit_evicts_oldest(client):
+    """超过并发会话上限时自动吊销最早的活跃会话。"""
+    from app.db.models import get_db, set_setting, SessionLocal
+    db = SessionLocal()
+    try:
+        set_setting(db, "max_concurrent_sessions", "1")  # 只允许 1 个活跃会话
+    finally:
+        db.close()
+    access_a, _ra, username = _reg(client, password="Old1234pass")
+    ha = {"Authorization": f"Bearer {access_a}"}
+    # 第二台设备（不同 UA）→ 超过上限 1，A 被挤掉
+    access_b, _rb = _login(client, username, "Old1234pass", headers={"User-Agent": "dev-B"})
+    assert _me(client, access_a).status_code == 401
+    assert _me(client, access_b).status_code == 200
+    # 第三台设备 → B 被挤掉
+    access_c, _rc = _login(client, username, "Old1234pass", headers={"User-Agent": "dev-C"})
+    assert _me(client, access_b).status_code == 401
+    assert _me(client, access_c).status_code == 200
+    # 恢复默认（清理测试副作用）
+    db = SessionLocal()
+    try:
+        set_setting(db, "max_concurrent_sessions", "")
+    finally:
+        db.close()
+
+
+def test_single_revoke_immediate_no_zombie_window(client):
+    """单条吊销浏览器会话后，access JWT 立即失效（无 60 分钟僵尸窗口）。"""
+    access, _refresh, _ = _reg(client)
+    h = {"Authorization": f"Bearer {access}"}
+    sid = [t for t in client.get("/api/auth/tokens", headers=h).json() if t["kind"] == "session"][0]["id"]
+    client.delete(f"/api/auth/tokens/{sid}", headers=h)
+    # access 应立即 401，而非等到自然过期
+    assert _me(client, access).status_code == 401
+
+
+def test_new_device_login_logged(client):
+    """从未见过的设备(UA)登录留痕 login_new_device；同设备再次登录不重复记录。"""
+    from app.db.models import SessionLocal, AccessLog
+    access, _refresh, username = _reg(client, password="Old1234pass")
+    uid = _me(client, access).json()["id"]
+    # 用全新 UA 登录 = 新设备，应留痕
+    _login(client, username, "Old1234pass", headers={"User-Agent": "brand-new-device/1.0"})
+    db = SessionLocal()
+    try:
+        logs = db.query(AccessLog).filter_by(user_id=uid, action="login_new_device").count()
+        assert logs == 1  # 新设备登录留痕一次
+    finally:
+        db.close()
+    # 同设备再次登录（相同 UA）→ 复用会话，不应新增 login_new_device
+    _login(client, username, "Old1234pass", headers={"User-Agent": "brand-new-device/1.0"})
+    db = SessionLocal()
+    try:
+        logs2 = db.query(AccessLog).filter_by(user_id=uid, action="login_new_device").count()
+        assert logs2 == logs  # 未新增
+    finally:
+        db.close()

@@ -140,11 +140,15 @@ class AccessToken(Base):
     kind = Column(String, default="device")           # device=守护进程等外部令牌 / session=浏览器登录会话
     label = Column(String, default="")
     device_fingerprint = Column(String, default="", index=True)  # 同设备指纹(sha256(ip|ua))，用于会话复用去重
+    ip = Column(String, default="")                    # 登录时的客户端 IP（会话审计与展示）
+    geo = Column(String, default="")                   # IP 地域（城市·国家），登录时解析一次缓存
     token_hash = Column(String, unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=True)
     revoked = Column(Boolean, default=False)
     last_used_at = Column(DateTime, nullable=True)
     download_granted_until = Column(DateTime, nullable=True)  # 临时下载授权窗口（仅 session 用）
+    download_granted_at = Column(DateTime, nullable=True)    # 临时下载授权开启时间（用于审计本次窗口内的下载记录）
+    single_download_path = Column(Text, default="")        # 单次下载授权路径（验证密码后仅允许下载此文件一次）
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -214,6 +218,25 @@ def set_setting(db, key, value):
     else:
         db.add(SystemSetting(key=key, value=str(value)))
     db.commit()
+    _setting_cache.pop(key, None)  # 使缓存失效，使运行时调整立即生效
+
+
+# ---- 策略缓存（带 TTL，避免每请求查 SystemSetting）----
+# set_setting 写入时自动失效对应 key，确保管理员后台调整立即生效。
+_setting_cache = {}
+_SETTING_CACHE_TTL = 30
+
+
+def get_cached_setting(db, key, default=""):
+    """读 SystemSetting（带 30s 缓存）；set_setting 写入时自动失效。"""
+    import time as _time
+    now = _time.time()
+    hit = _setting_cache.get(key)
+    if hit and now - hit[1] < _SETTING_CACHE_TTL:
+        return hit[0]
+    val = get_setting(db, key, default)
+    _setting_cache[key] = (val, now)
+    return val
 
 
 # ---- 登录限流（DB 共享，跨 worker 生效；按 key 前缀隔离 login/admin/reset）----
@@ -422,6 +445,16 @@ def _migrate_columns():
             cursor.execute('ALTER TABLE access_tokens ADD COLUMN download_granted_until DATETIME')
         except Exception:
             pass
+    if "single_download_path" not in tcols:
+        try:
+            cursor.execute('ALTER TABLE access_tokens ADD COLUMN single_download_path TEXT DEFAULT ""')
+        except Exception:
+            pass
+    if "download_granted_at" not in tcols:
+        try:
+            cursor.execute('ALTER TABLE access_tokens ADD COLUMN download_granted_at DATETIME')
+        except Exception:
+            pass
     if "device_fingerprint" not in tcols:
         try:
             cursor.execute('ALTER TABLE access_tokens ADD COLUMN device_fingerprint TEXT DEFAULT ""')
@@ -431,8 +464,14 @@ def _migrate_columns():
                 pass
         except Exception:
             pass
+    for col in ("ip", "geo"):
+        if col not in tcols:
+            try:
+                cursor.execute(f'ALTER TABLE access_tokens ADD COLUMN {col} TEXT DEFAULT ""')
+            except Exception:
+                pass
 
-    # files 表新增 group_id 列（关联 file_groups）
+  # files 表新增 group_id 列（关联 file_groups）
     cursor.execute("PRAGMA table_info(files)")
     fcols = [r[1] for r in cursor.fetchall()]
     if "group_id" not in fcols:

@@ -10,6 +10,7 @@ from sqlalchemy import func
 
 from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User, AccessToken, get_db
 from ..core import storage, indexer, guard
+from ..core.security import verify_password
 from ..config import settings
 from .auth import get_current_user, get_current_session, _log
 from pydantic import BaseModel
@@ -295,13 +296,20 @@ def create_note(
 @router.get("/download")
 def download_file(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
     # 浏览器端下载需开启临时下载窗口；守护进程走 /api/sync/download 不受此限
-    if not _download_granted(session, datetime.utcnow()):
-        raise HTTPException(403, "未开启临时下载，请到设置页开启")
+    # 浏览器端下载需开启临时下载窗口或单次授权；守护进程走 /api/sync/download 不受此限
+    now = datetime.utcnow()
+    window_granted = _download_granted(session, now)
+    single_granted = bool(session and session.single_download_path and session.single_download_path == path)
+    if not window_granted and not single_granted:
+        raise HTTPException(403, "未授权下载，请验证密码后重试")
     f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
     try:
         p = storage.read_file(user.id, path)
     except FileNotFoundError:
         raise HTTPException(404, "文件不存在")
+    # 单次授权：下载完成后立即清除，防止同一授权被复用
+    if single_granted and not window_granted:
+        session.single_download_path = ""
     db.add(AccessLog(user_id=user.id, action="file_download", detail=path))
     db.commit()
     return FileResponse(path=str(p), filename=p.name,
@@ -311,25 +319,68 @@ def download_file(path: str = Query(...), db: Session = Depends(get_db), user=De
 
 # ---- 临时下载授权（浏览器端默认禁下载，主动开启短期窗口）----
 
+class DownloadGrantRequest(BaseModel):
+    password: str
+    minutes: int = 0  # 0=用默认 DOWNLOAD_GRANT_MINUTES；可选 5/15/30
+
+
 @router.post("/download-grant")
-def grant_download(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
-    """开启当前浏览器会话的临时下载窗口（默认 5 分钟，可配置 DOWNLOAD_GRANT_MINUTES）。"""
+def grant_download(req: DownloadGrantRequest, request: Request, db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
+    """验证密码后开启当前浏览器会话的临时下载窗口。"""
     if not session:
         # 旧 token 无 sid / device token / 已吊销会话：401 触发前端刷新续签
         raise HTTPException(401, "登录状态需刷新，请重试")
+    if not verify_password(req.password, user.password_hash):
+        _log(db, user.id, "download_grant_failed", "密码验证失败", request)
+        raise HTTPException(403, "密码错误")
+    allowed_minutes = {0: settings.DOWNLOAD_GRANT_MINUTES, 5: 5, 15: 15, 30: 30}
+    minutes = allowed_minutes.get(req.minutes, settings.DOWNLOAD_GRANT_MINUTES)
+    now = datetime.utcnow()
     until = datetime.utcnow() + timedelta(minutes=settings.DOWNLOAD_GRANT_MINUTES)
+    until = now + timedelta(minutes=minutes)
     session.download_granted_until = until
+    session.download_granted_at = now
+    session.single_download_path = ""  # 切换到窗口模式，清除可能残留的单次授权
     # _log 内部 commit，与授权写入同事务，避免「授权已生效但日志失败返回 500」的不一致
-    _log(db, user.id, "download_grant", f"开启临时下载（{settings.DOWNLOAD_GRANT_MINUTES} 分钟）", request)
-    return {"granted": True, "until": until.isoformat(), "minutes": settings.DOWNLOAD_GRANT_MINUTES}
+    _log(db, user.id, "download_grant", f"开启临时下载（{minutes} 分钟）", request)
+    return {"granted": True, "until": until.isoformat(), "minutes": minutes}
+
+
+class SingleDownloadRequest(BaseModel):
+    password: str
+    path: str
+
+
+@router.post("/download-grant-single")
+def grant_single_download(req: SingleDownloadRequest, request: Request, db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
+    """验证密码后授权单次下载指定文件（下载后自动失效）。"""
+    if not session:
+        raise HTTPException(401, "登录状态需刷新，请重试")
+    if not verify_password(req.password, user.password_hash):
+        _log(db, user.id, "download_grant_failed", "密码验证失败（单次下载）", request)
+        raise HTTPException(403, "密码错误")
+    # 校验文件归属
+    if not db.query(FileModel).filter_by(owner_id=user.id, path=req.path).first():
+        raise HTTPException(404, "文件不存在")
+    session.single_download_path = req.path
+    _log(db, user.id, "download_grant_single", f"授权单次下载 {req.path}", request)
+    return {"granted": True, "path": req.path}
 
 
 @router.post("/download-revoke")
 def revoke_download(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
     """手动关闭当前会话的临时下载窗口。"""
-    if session and session.download_granted_until:
-        session.download_granted_until = None
-        _log(db, user.id, "download_revoke", "手动关闭临时下载", request)
+    if session:
+        changed = False
+        if session.download_granted_until:
+            session.download_granted_until = None
+            session.download_granted_at = None
+            changed = True
+        if session.single_download_path:
+            session.single_download_path = ""
+            changed = True
+        if changed:
+            _log(db, user.id, "download_revoke", "手动关闭临时下载", request)
     return {"granted": False}
 
 
@@ -337,7 +388,25 @@ def revoke_download(request: Request, db: Session = Depends(get_db), user=Depend
 def download_status(db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
     """查询当前会话的临时下载状态。"""
     granted = _download_granted(session, datetime.utcnow())
-    return {"granted": granted, "until": session.download_granted_until.isoformat() if granted else ""}
+    single_path = session.single_download_path if session else ""
+    return {
+        "granted": granted,
+        "until": session.download_granted_until.isoformat() if granted else "",
+        "single_path": single_path,
+    }
+
+
+@router.get("/download-history")
+def download_history(db: Session = Depends(get_db), user=Depends(get_current_user), session=Depends(get_current_session)):
+    """查询本次临时下载窗口内的下载记录。"""
+    if not session or not session.download_granted_at:
+        return {"files": [], "count": 0}
+    logs = db.query(AccessLog).filter(
+        AccessLog.user_id == user.id,
+        AccessLog.action == "file_download",
+        AccessLog.created_at >= session.download_granted_at,
+    ).order_by(AccessLog.created_at.desc()).all()
+    return {"files": [{"path": l.detail, "time": l.created_at.isoformat()} for l in logs], "count": len(logs)}
 
 
 @router.get("/preview")
@@ -499,18 +568,11 @@ def search_files(q: str = Query(...), limit: int = Query(10), db: Session = Depe
 def storage_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
     files = db.query(FileModel).filter_by(owner_id=user.id).all()
     total_size = sum(f.size for f in files)
-    import shutil
-    disk = shutil.disk_usage(settings.storage_path)
 
     return {
         "total_files": len(files),
         "total_size_mb": round(total_size / 1024 / 1024, 2),
         "quota_mb": user.quota_mb,
-        "disk": {
-            "total_gb": round(disk.total / 1024 / 1024 / 1024, 2),
-            "used_gb": round(disk.used / 1024 / 1024 / 1024, 2),
-            "free_gb": round(disk.free / 1024 / 1024 / 1024, 2),
-        },
     }
 
 

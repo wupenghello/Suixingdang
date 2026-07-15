@@ -68,16 +68,9 @@ def user():
 @pytest.fixture
 def make_user(client):
     """注册一个新用户，返回 (token, user_id, username)。"""
+    from auth_helpers import register
     def _make(username: str | None = None, password: str = "Test1234pass"):
-        username = username or f"u{uuid.uuid4().hex[:8]}"
-        r = client.post("/api/auth/register", json={
-            "username": username,
-            "password": password,
-            "security_question": "q?",
-            "security_answer": "a",
-        })
-        assert r.status_code == 200, r.text
-        token = r.json()["access_token"]
+        token, _refresh, username = register(client, username, password)
         me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert me.status_code == 200, me.text
         return token, me.json()["id"], username

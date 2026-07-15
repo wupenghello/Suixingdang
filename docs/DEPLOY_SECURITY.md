@@ -140,10 +140,10 @@ openssl rand -hex 32
 
 以下机制已在代码中实现，部署时无需额外操作，但应知晓：
 
-1. **认证**：bcrypt 密码哈希、JWT（access/refresh 分离）、TOTP 双因子、可吊销的 opaque 设备令牌。
+1. **认证**：bcrypt 密码哈希、JWT（access/refresh 分离）、TOTP 双因子、可吊销的 opaque 设备令牌。浏览器会话令牌存 HttpOnly + Secure + SameSite=Lax cookie（前端 JS 不可读，防 XSS 偷令牌）；设备令牌仍走 Authorization 头。
 2. **多租户隔离**：文件按 `user_id` 分目录，DB 查询带 `owner_id` 过滤，向量库按用户独立 collection。
 3. **传输安全**：Caddy 自动 HTTPS + HSTS + `X-Content-Type-Options`/`X-Frame-Options` 等安全头。
-4. **CORS**：来源白名单（`CORS_ORIGINS` 或按 `DOMAIN` 派生），认证用 Bearer token 故不启用 credentials。
+4. **CORS / CSRF**：前端与 API 同源，CORS 不适用、不启用 credentials；会话 cookie 走 SameSite=Lax（写操作全 POST/PUT/DELETE）防跨站请求伪造。
 5. **凭据加密**：LLM API Key 以 Fernet（HKDF 派生密钥）加密入库，运行时按需解密。
 6. **密保答案**：bcrypt 哈希存储（兼容历史 sha256，重置时自动升级）。
 7. **登录限流**：按 `(scope:用户名, IP)` 滑窗失败计数，5 次/15 分钟触发 15 分钟锁定；状态落 SQLite（`login_attempts` 表），**多 worker 共享生效**。`login`/`adminlogin`/`reset` 三套独立 scope，互不连累。客户端 IP 取自受信任代理（见下）。
