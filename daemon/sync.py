@@ -3,6 +3,7 @@
 import os
 import time
 import json
+import hashlib
 from pathlib import Path
 from typing import Optional
 
@@ -61,22 +62,46 @@ async def _get_remote_manifest() -> dict:
 
 
 async def upload_file(rel_path: str) -> bool:
-    """上传文件到服务器。"""
+    """上传文件到服务器。带 base_hash 冲突检测。"""
     local = Path(config.WATCH_DIR) / rel_path
     if not local.exists():
         return False
+
+    # 计算本地文件 hash，用于冲突检测
+    file_hash = hashlib.sha256(local.read_bytes()).hexdigest()
+    # 从本地状态中取出上次同步时的 hash 作为 base_hash
+    state = _state_load()
+    prev = state.get(rel_path, {})
+    base_hash = prev.get("hash", "")
 
     async with httpx.AsyncClient(timeout=120) as client:
         with open(local, "rb") as f:
             res = await client.post(
                 f"{config.SERVER_URL}/api/sync/upload",
                 headers=config.auth_headers,
-                params={"relative_path": rel_path, "source": "home"},
+                params={"relative_path": rel_path, "source": "home", "base_hash": base_hash},
                 files={"file": (local.name, f, "application/octet-stream")},
             )
         if res.status_code == 200:
             print(f"  [上传] {rel_path} OK")
+            # 更新本地状态中的 hash
+            new_state = _state_load()
+            if rel_path in new_state:
+                new_state[rel_path]["hash"] = file_hash
+                _state_save(new_state)
             return True
+        elif res.status_code == 409:
+            # 冲突：服务器端文件已被修改，本地版本保存为 .conflict 副本
+            server_hash = res.headers.get("x-server-hash", "")
+            print(f"  [同步冲突] {rel_path}: 服务器端文件已被修改")
+            print(f"    server_hash={server_hash[:16]}, local_hash={file_hash[:16]}")
+            conflict_path = Path(config.WATCH_DIR) / (rel_path + ".conflict")
+            try:
+                conflict_path.write_bytes(local.read_bytes())
+                print(f"    本地版本已保存为冲突副本: {conflict_path.name}")
+            except Exception as e:
+                print(f"    保存冲突副本失败: {e}")
+            return False
         elif res.status_code == 403:
             print(f"  [Guard拦截] {rel_path}: {res.json().get('detail', '')}")
             return False
@@ -228,5 +253,5 @@ async def sync_single_file(rel_path: str, action: str = "upload"):
     if await upload_file(rel_path):
         state = _state_load()
         stat = local.stat()
-        state[rel_path] = {"mtime": stat.st_mtime, "size": stat.st_size}
+        state[rel_path] = {"mtime": stat.st_mtime, "size": stat.st_size, "hash": hashlib.sha256(local.read_bytes()).hexdigest()}
         _state_save(state)

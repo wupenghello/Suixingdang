@@ -17,5 +17,15 @@ venv/
 # 本地工具配置
 .claude/
 
+# Node / 本地截图脚本（仅本地开发用，不入库）
+node_modules/
+package.json
+package-lock.json
+sxd_*.mjs
+
+# 测试产物
+test-results/
+**/test-results/
+
 # 系统文件
 .DS_Store

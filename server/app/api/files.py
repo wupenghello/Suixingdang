@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import mimetypes
 import json
+import re
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FAFile, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -812,6 +813,93 @@ def search_files(q: str = Query(...), limit: int = Query(10), db: Session = Depe
     return {"query": q, "results": results}
 
 
+def _extract_wikilinks(text: str) -> list:
+    """从文本中提取 [[wiki link]] 目标名称。"""
+    return re.findall(r'\[\[([^\]]+)\]\]', text or "")
+
+
+@router.get("/backlinks")
+def get_backlinks(
+    path: str = Query(...),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """查找哪些笔记链接到了指定笔记（反向链接）。
+
+    匹配逻辑：扫描用户所有笔记（source=note）的正文，
+    检查是否包含 [[目标笔记名]] 或 [[目标笔记名|别名]] 格式的 wiki link。
+    """
+    target_name = Path(path).stem  # 去掉扩展名作为 link target
+    target_variants = {
+        target_name,
+        target_name.lower(),
+        Path(path).name,        # 也匹配带扩展名的完整文件名
+    }
+
+    notes = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.source == "note",
+    ).all()
+    backlinks = []
+    for f in notes:
+        if f.path == path:
+            continue
+        try:
+            p = storage.read_file(user.id, f.path)
+            if p.stat().st_size > 2 * 1024 * 1024:
+                continue
+            content = p.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        wikilinks = _extract_wikilinks(content)
+        # 检查是否有 wikilink 匹配目标
+        for wl in wikilinks:
+            wl_name = wl.split("|")[0].split("#")[0].strip()  # 支持 [[name|alias]] 和 [[name#anchor]]
+            if wl_name in target_variants or wl_name.lower() in target_variants:
+                # 找到匹配行作为上下文
+                for line in content.split("\n"):
+                    if f"[[{wl}" in line:
+                        snippet = line.strip()[:200]
+                        break
+                else:
+                    snippet = ""
+                backlinks.append({
+                    "file_id": f.id, "path": f.path, "name": f.name,
+                    "modified_at": str(f.modified_at) if f.modified_at else "",
+                    "snippet": snippet,
+                })
+                break
+    return {"path": path, "backlinks": backlinks}
+
+
+@router.get("/resolve-wikilink")
+def resolve_wikilink(
+    name: str = Query(...),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """将 [[wiki link]] 名称解析为实际文件路径。
+
+    查找用户笔记中文件名（不含扩展名）匹配的文件。
+    """
+    name_clean = name.split("|")[0].split("#")[0].strip()
+    name_lower = name_clean.lower()
+    # 先精确匹配，再模糊匹配
+    exact = db.query(FileModel).filter(
+        FileModel.owner_id == user.id,
+        FileModel.source == "note",
+    ).all()
+    for f in exact:
+        stem = Path(f.name).stem
+        if stem.lower() == name_lower:
+            return {"file_id": f.id, "path": f.path, "name": f.name}
+    # 模糊匹配（包含关系）
+    for f in exact:
+        stem = Path(f.name).stem
+        if name_lower in stem.lower() or stem.lower() in name_lower:
+            return {"file_id": f.id, "path": f.path, "name": f.name}
+    raise HTTPException(404, "未找到匹配的笔记")
+
+
 @router.get("/stats")
 def storage_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
     files = db.query(FileModel).filter_by(owner_id=user.id).all()
@@ -823,6 +911,9 @@ def storage_stats(db: Session = Depends(get_db), user=Depends(get_current_user))
         "quota_mb": user.quota_mb,
     }
 
+from fastapi.responses import FileResponse, JSONResponse
+from io import BytesIO
+import zipfile as _zipfile
 
 @router.post("/index-all")
 def index_all_files(db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -830,8 +921,82 @@ def index_all_files(db: Session = Depends(get_db), user=Depends(get_current_user
     return {"message": f"已索引 {count} 个文件", "count": count}
 
 
+@router.get("/export")
+def export_files(
+    group_id: str = Query("", description="按分组导出，空则导出全部"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """批量导出文件为 ZIP（笔记保留 .md 格式，其他文件原样打包）。"""
+    query = db.query(FileModel).filter(FileModel.owner_id == user.id)
+    if group_id:
+        query = query.filter(FileModel.group_id == group_id)
+    files = query.all()
+    if not files:
+        raise HTTPException(404, "没有可导出的文件")
+
+    buf = BytesIO()
+    with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            try:
+                p = storage.read_file(user.id, f.path)
+                zf.writestr(f.path, p.read_bytes())
+            except Exception:
+                continue
+    buf.seek(0)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"suixingdang-export-{timestamp}.zip"
+    db.add(AccessLog(user_id=user.id, action="file_export", detail=f"导出 {len(files)} 个文件"))
+    db.commit()
+    return FileResponse(
+        buf, media_type="application/zip", filename=filename,
+    )
+
+
 def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
-    results = db.query(FileModel).filter(
-        FileModel.owner_id == user_id, FileModel.name.contains(q)
-    ).limit(limit).all()
-    return [{"file_id": f.id, "path": f.path, "name": f.name, "score": 1.0} for f in results]
+    """关键词搜索：同时匹配文件名和笔记正文内容。
+
+    对于文本类文件（md/txt/markdown/rst），读取内容并返回高亮上下文片段；
+    非文本文件仅匹配文件名。
+    """
+    ql = q.lower()
+    matched = {}
+    # 1) 文件名匹配
+    name_hits = db.query(FileModel).filter(
+        FileModel.owner_id == user_id, FileModel.name.ilike(f"%{q}%")
+    ).limit(limit * 2).all()
+    for f in name_hits:
+        matched[f.id] = {
+            "file_id": f.id, "path": f.path, "name": f.name, "size": f.size,
+            "score": 1.0, "snippet": "",
+        }
+    # 2) 正文内容匹配（文本/笔记文件）
+    text_files = db.query(FileModel).filter(
+        FileModel.owner_id == user_id,
+        FileModel.source == "note",
+    ).limit(200).all()
+    for f in text_files:
+        if f.id in matched:
+            continue
+        try:
+            p = storage.read_file(user_id, f.path)
+            if p.stat().st_size > 2 * 1024 * 1024:
+                continue
+            content = p.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        idx = content.lower().find(ql)
+        if idx < 0:
+            continue
+        start = max(0, idx - 40)
+        end = min(len(content), idx + len(q) + 60)
+        snippet = content[start:end].replace("\n", " ").strip()
+        if start > 0:
+            snippet = "…" + snippet
+        if end < len(content):
+            snippet = snippet + "…"
+        matched[f.id] = {
+            "file_id": f.id, "path": f.path, "name": f.name, "size": f.size,
+            "score": 0.8, "snippet": snippet,
+        }
+    return list(matched.values())[:limit]
