@@ -30,8 +30,25 @@ jobs:
         run: pip-audit -r server/requirements.txt
         continue-on-error: true
 
+  frontend:
+    name: 前端单测（vitest）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'server/.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: 'server/package-lock.json'
+      - name: 装前端测试依赖
+        run: npm ci
+        working-directory: server
+      - name: 跑前端单测
+        run: npm test
+        working-directory: server
+
   build-and-push:
-    needs: test
+    needs: [test, frontend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

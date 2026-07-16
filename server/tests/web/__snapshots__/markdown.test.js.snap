@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderMarkdown > 快照：固定 markdown 渲染稳定（升级 marked/DOMPurify 时提示漂移） 1`] = `
+"<h1 id="标题">标题</h1>
+<p>段落 <strong>粗</strong> <code>码</code>。</p>
+<pre style="position: relative;"><div class="code-block-header"><span class="code-lang-label">js</span><button class="code-copy-btn" title="复制代码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div><code class="language-js">var x = 1;
+</code></pre>
+"
+`;

@@ -19,3 +19,29 @@ jobs:
       - name: 依赖漏洞扫描（顾问，不阻塞构建）
         run: pip-audit -r server/requirements.txt
         continue-on-error: true
+
+  frontend:
+    name: 前端单测（vitest）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # F17 cache-busting 检查需要 git 历史
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'server/.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: 'server/package-lock.json'
+      - name: 装前端测试依赖
+        run: npm ci
+        working-directory: server
+      - name: 跑前端单测
+        run: npm test
+        working-directory: server
+      - name: cache-busting 检查（改静态文件须升 ?v=）
+        run: node scripts/check-cache-busting.mjs
+        working-directory: server
+        env:
+          BASE: origin/${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
