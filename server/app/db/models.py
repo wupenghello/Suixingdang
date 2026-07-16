@@ -106,6 +106,10 @@ class File(Base):
     guard_status = Column(String, default="safe")
     guard_reason = Column(Text, default="")
     indexed = Column(Boolean, default=False)
+    tags = Column(Text, default="[]")           # JSON 数组字符串，笔记标签
+    pinned = Column(Boolean, default=False)     # 收藏/置顶
+    summary = Column(Text, default="")          # AI 自动摘要
+    ai_tags = Column(Text, default="[]")        # AI 建议标签（JSON 数组），与人工 tags 区分
 
 
 class SyncEvent(Base):
@@ -182,6 +186,20 @@ class TransferMessage(Base):
     type = Column(String, nullable=False)            # text / file
     content = Column(Text, default="")               # 文本内容（type=text）
     file_id = Column(String, ForeignKey("files.id"), nullable=True)  # 关联文件（type=file）
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MaskMapping(Base):
+    """脱敏映射表：mask_id -> real_value，用于服务端脱敏后按需解密。
+
+    mask_id 为确定性哈希（user_id + 服务端密钥 + 原文），同一用户同一值
+    始终生成相同 mask_id，解密时校验 user_id 归属。
+    """
+    __tablename__ = "mask_mappings"
+
+    mask_id = Column(String, primary_key=True)       # 16 位 hex
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    real_value = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -483,6 +501,18 @@ def _migrate_columns():
                 pass
         except Exception:
             pass
+    # files 表新增 tags / pinned / summary / ai_tags 列（笔记增强）
+    for _col, _coltype in [
+        ("tags", 'TEXT DEFAULT "[]"'),
+        ("pinned", "BOOLEAN DEFAULT 0"),
+        ("summary", 'TEXT DEFAULT ""'),
+        ("ai_tags", 'TEXT DEFAULT "[]"'),
+    ]:
+        if _col not in fcols:
+            try:
+                cursor.execute(f"ALTER TABLE files ADD COLUMN {_col} {_coltype}")
+            except Exception:
+                pass
     conn.commit()
     conn.close()
 

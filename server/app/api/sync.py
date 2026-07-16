@@ -17,6 +17,7 @@ async def sync_upload(
     file: UploadFile = FAFile(...),
     relative_path: str = Query(...),
     source: str = Query("home"),
+    base_hash: str = Query("", description="客户端编辑前文件的 content_hash，用于冲突检测"),
     db: Session = Depends(get_db),
     user=Depends(get_current_device_user),
 ):
@@ -26,6 +27,17 @@ async def sync_upload(
         db.add(SyncEvent(user_id=user.id, file_name=relative_path, direction="home_to_server", status="failed", detail=f"Guard拦截: {reason}"))
         db.commit()
         raise HTTPException(403, f"Guard 拦截: {reason}")
+
+    # 冲突检测：客户端提供 base_hash 且服务器已有该文件时，
+    # 若 base_hash 与服务器当前 content_hash 不一致，说明两端都修改过，返回 409。
+    if base_hash:
+        pre_existing = db.query(FileModel).filter_by(owner_id=user.id, path=relative_path).first()
+        if pre_existing and pre_existing.content_hash and pre_existing.content_hash != base_hash:
+            raise HTTPException(
+                409,
+                detail=f"同步冲突：服务器端的文件已被修改（server_hash={pre_existing.content_hash[:16]}, base_hash={base_hash[:16]})",
+                headers={"X-Server-Hash": pre_existing.content_hash or ""},
+            )
 
     meta = storage.save_fileobj(user.id, relative_path, file.file, source=source)
 

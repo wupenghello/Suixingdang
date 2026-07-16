@@ -8,6 +8,7 @@ from openai import OpenAI
 
 from ..db.models import ChatMessage, SessionLocal
 from . import tools as T
+from ..core import mask as M
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ SYSTEM_PROMPT = """你是"随行档"的 AI 文件助手。你管理着一个私�
 - 始终用中文回复，简洁直接
 - 执行操作前简要说明你要做什么
 - 如果用户意图模糊，先列出最可能的文件让用户确认
+- 涉及敏感文件（身份证、银行流水、体检报告、简历等）时，回复中引用文件名可用简称，不要完整复述文件内容中的身份证号、手机号等隐私数字
 """
 
 
@@ -72,9 +74,10 @@ def chat(user_id: str, user_message: str, history: Optional[list] = None) -> dic
         msg = response.choices[0].message
 
         if not msg.tool_calls:
-            result = {"reply": msg.content or "", "tool_calls": tool_call_log}
-            _save_history(user_id, user_message, result)
-            return result
+            raw_result = {"reply": msg.content or "", "tool_calls": tool_call_log}
+            _save_history(user_id, user_message, raw_result)
+            masked_reply, masked_tc = M.mask_result(raw_result["reply"], raw_result["tool_calls"], user_id)
+            return {"reply": masked_reply, "tool_calls": masked_tc}
 
         messages.append(msg)
 
@@ -98,9 +101,11 @@ def chat(user_id: str, user_message: str, history: Optional[list] = None) -> dic
             tool_call_log[-1]["result"] = result[:500]
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-    result = {"reply": "我已经执行了所需的操作。还有什么需要帮忙的吗？", "tool_calls": tool_call_log}
-    _save_history(user_id, user_message, result)
-    return result
+    raw_result = {"reply": "我已经执行了所需的操作。还有什么需要帮忙吗？", "tool_calls": tool_call_log}
+    _save_history(user_id, user_message, raw_result)
+    # Mask sensitive data before sending to frontend (raw stays in DB for LLM context)
+    masked_reply, masked_tc = M.mask_result(raw_result["reply"], raw_result["tool_calls"], user_id)
+    return {"reply": masked_reply, "tool_calls": masked_tc}
 
 
 def chat_stream(user_id: str, user_message: str, history: Optional[list] = None):
@@ -137,7 +142,9 @@ def chat_stream(user_id: str, user_message: str, history: Optional[list] = None)
                 fn_args = _json.loads(tc.function.arguments or "{}")
                 fn_args["user_id"] = user_id
                 tool_call_log.append({"tool": fn_name, "args": fn_args})
-                yield {"type": "tool", "data": {"tool": fn_name, "args": fn_args}}
+                # Strip user_id before sending to frontend
+                _display_args = {k: v for k, v in fn_args.items() if k != "user_id"}
+                yield {"type": "tool", "data": {"tool": fn_name, "args": _display_args}}
 
                 fn = T.TOOL_FUNCTIONS.get(fn_name)
                 if fn:
@@ -155,17 +162,28 @@ def chat_stream(user_id: str, user_message: str, history: Optional[list] = None)
         else:
             # 非流式响应已包含最终回复，直接使用（避免重复请求）
             full_reply = msg.content or ""
-            yield {"type": "delta", "data": full_reply}
+            # Mask before sending to frontend (raw saved to DB below)
+            _ms = M.MaskSession(user_id)
+            _masked_tc = _ms.mask_tool_calls(tool_call_log)
+            _masked_reply = _ms.mask_text(full_reply, extra_values=_ms.sensitive_names)
+            _ms.flush()
+            yield {"type": "delta", "data": _masked_reply}
             break
 
     else:
         # max_rounds 耗尽（工具调用循环过多）
-        full_reply = "我已经执行了所需的操作。还有什么需要帮忙的吗？"
-        yield {"type": "delta", "data": full_reply}
+        full_reply = "我已经执行了所需的操作。还有什么需要帮忙吗？"
+        _ms = M.MaskSession(user_id)
+        _masked_tc = _ms.mask_tool_calls(tool_call_log)
+        _masked_reply = _ms.mask_text(full_reply, extra_values=_ms.sensitive_names)
+        _ms.flush()
+        yield {"type": "delta", "data": _masked_reply}
 
-    result = {"reply": full_reply, "tool_calls": tool_call_log}
-    _save_history(user_id, user_message, result)
-    yield {"type": "done", "data": result}
+    # Save RAW to DB for LLM context; send MASKED to frontend.
+    # _masked_reply / _masked_tc are set in either the if-else or for-else branch above.
+    raw_result = {"reply": full_reply, "tool_calls": tool_call_log}
+    _save_history(user_id, user_message, raw_result)
+    yield {"type": "done", "data": {"reply": _masked_reply, "tool_calls": _masked_tc}}
 
 
 def _save_history(user_id: str, user_message: str, result: dict):
@@ -186,13 +204,15 @@ def get_history(user_id: str, limit: int = 50) -> list:
     try:
         msgs = db.query(ChatMessage).filter_by(user_id=user_id).order_by(
             ChatMessage.created_at.desc()).limit(limit).all()
-        return [{
+        raw = [{
             "role": m.role, "content": m.content,
             "tool_calls": json.loads(m.tool_calls) if m.tool_calls else [],
             "time": str(m.created_at),
         } for m in reversed(msgs)]
     finally:
         db.close()
+    # Mask sensitive data for frontend display (raw stays in DB for LLM context)
+    return M.mask_history_messages(raw, user_id)
 
 
 def chat_history_for_llm(user_id: str, limit: int = 10) -> list:
