@@ -578,6 +578,7 @@ function loginShell(card) {
 }
 
 async function renderRegister() {
+  document.body.classList.remove('view-shell');
   document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo">档</div>
@@ -621,6 +622,7 @@ window.renderRegister = renderRegister;
 
 // ============ Forgot Password ============
 function renderForgotPassword() {
+  document.body.classList.remove('view-shell');
   document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo">档</div>
@@ -689,6 +691,7 @@ window.renderForgotPassword = renderForgotPassword;
 // 未登录访问根路径时展示的产品官网:顶栏 + Hero + 特性 + 安全/多端 + CTA + Footer。
 // 纯静态渲染,右上角"登录"跳 renderLogin;注册 CTA 随 register-status 开关,失败降级为仅"登录"。
 function renderLanding() {
+  document.body.classList.remove('view-shell');
   const ic = {
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
     chat:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
@@ -956,6 +959,7 @@ window.renderLanding = renderLanding;
 
 // ============ Login ============
 function renderLogin() {
+  document.body.classList.remove('view-shell');
   document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo" id="login-logo" title="返回官网">档</div>
@@ -4655,6 +4659,7 @@ const App = {
    checkDownloadStatus();
  },
  renderLayout() {
+    document.body.classList.add('view-shell');
     const username = this.currentUser ? this.currentUser.username : '随行档';
     const initial = this.currentUser ? this.currentUser.username.charAt(0).toUpperCase() : '档';
     const aiEnabled = this.currentUser && this.currentUser.ai_enabled;

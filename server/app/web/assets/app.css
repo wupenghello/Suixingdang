@@ -60,6 +60,7 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+html { overflow-x: hidden; }
 body {
   font-family: var(--font-sans);
   background: var(--bg);
@@ -72,7 +73,18 @@ body {
 }
 
 /* ---- Layout · 飞书式 256px 文字侧栏 ---- */
-.app-layout { display: flex; height: 100vh; overflow: hidden; }
+.app-layout { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
+/* 应用壳视图锁 body（app.js 在 renderLayout 时给 body 加 view-shell；落地页/登录页不加） */
+body.view-shell { overflow: hidden; }
+
+/* 打印兜底：解锁 body 与所有滚动/裁剪容器，避免应用壳只能打印第一页 */
+@media print {
+  html, body { overflow: visible !important; height: auto !important; }
+  body.view-shell { overflow: visible !important; }
+  .app-layout, .main-content, .chat-container, .settings-layout { display: block !important; height: auto !important; overflow: visible !important; }
+  .sidebar { display: none !important; }
+  .files-body, .chat-messages, .settings-panel, .note-editor-split, .note-preview-pane, .note-toc-list { overflow: visible !important; height: auto !important; }
+}
 
 .sidebar {
   width: 256px;
@@ -910,7 +922,7 @@ html { scroll-behavior: smooth; }
   --shadow: 0 2px 6px rgba(16,24,40,.06), 0 12px 28px rgba(16,24,40,.07);
   --shadow-lg: 0 2px 8px rgba(16,24,40,.06), 0 30px 70px rgba(16,24,40,.16);
   --maxw: 1120px;
-  position: relative; min-height: 100vh; background: var(--bg); color: var(--ink);
+  position: relative; min-height: 100vh; min-height: 100dvh; background: var(--bg); color: var(--ink);
   font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
   font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased;
 }
@@ -1159,8 +1171,8 @@ html { scroll-behavior: smooth; }
 
 /* —— 全屏模式 —— */
 .note-editor-modal.is-fullscreen {
-  width: 100vw !important; max-width: 100vw !important; max-height: 100vh !important;
-  height: 100vh; border-radius: 0; padding: 16px 24px;
+  width: 100vw !important; max-width: 100vw !important; max-height: 100vh !important; max-height: 100dvh !important;
+  height: 100vh; height: 100dvh; border-radius: 0; padding: 16px 24px;
 }
 
 /* —— 顶部栏 —— */
