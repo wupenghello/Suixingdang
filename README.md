@@ -163,6 +163,18 @@ cd ..
 
 详见 [docs/DESIGN.md](docs/DESIGN.md)。
 
+## 测试
+
+| 层 | 命令 | 范围 |
+|---|---|---|
+| 后端 | `cd server && pytest -v` | FastAPI 接口 / 安全 / 多租户隔离（`server/tests/`） |
+| 前端 | `cd server && npm test` | 工具函数单测，vitest + jsdom（`server/tests/web/`） |
+| AI 评测 | 见 [PROMPTFOO_GUIDE.md](PROMPTFOO_GUIDE.md) | LLM 输出质量（模型层） |
+
+**前端单测 vs AI 评测，各司其职**：vitest 测前端代码逻辑（渲染 / 解析 / 转义 / 分类）；PROMPTFOO 测大模型输出内容质量。改前端工具函数跑 `npm test`，调 prompt / 换模型跑 PROMPTFOO，两者不混。
+
+CI（`.github/workflows/test.yml`）在 PR 时自动跑后端 pytest + 前端 vitest + pip-audit；前端覆盖率低于门槛（`server/vitest.config.mjs` thresholds）会失败。
+
 ## 功能清单
 
 - [x] 文件上传/在线预览/浏览（Web 界面，浏览器端下载需临时授权）

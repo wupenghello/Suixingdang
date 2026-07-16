@@ -1,0 +1,21 @@
+# 防止 Node 前端工具链与测试产物进入生产镜像（Dockerfile 的 COPY . . 时排除）
+node_modules/
+tests/
+test-results/
+coverage/
+.nvmrc
+package.json
+package-lock.json
+vitest.config.mjs
+
+# Python 本地环境与缓存
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 其他
+.git/
+.gitignore
+.env*
