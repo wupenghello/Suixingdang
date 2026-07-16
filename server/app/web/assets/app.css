@@ -210,6 +210,50 @@ body.view-shell { overflow: hidden; }
 }
 .nav-logout:hover { background: var(--danger-light); color: var(--danger); }
 
+/* -- 账户弹层（侧栏左下角点击展开） -- */
+.account-popover {
+  position: fixed; z-index: 1000; width: 280px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  padding: 6px; animation: ap-in .12s ease-out;
+}
+@keyframes ap-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.ap-header { display: flex; align-items: center; gap: 10px; padding: 8px 8px 10px; }
+.ap-avatar {
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 600; color: #fff;
+  background: linear-gradient(135deg, var(--primary) 0%, #5B8DEF 100%);
+}
+.ap-meta { min-width: 0; flex: 1; }
+.ap-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+.ap-storage { padding: 8px 8px 6px; border-top: 1px solid var(--border-light); font-size: 12px; color: var(--text-muted); }
+.ap-storage-head { display: flex; justify-content: space-between; margin-bottom: 6px; color: var(--text); }
+.ap-storage-track { height: 6px; background: var(--bg-surface-hover); border-radius: 3px; overflow: hidden; }
+.ap-storage-bar { height: 100%; border-radius: 3px; transition: width .3s; }
+.ap-storage-bar.fill-success { background: var(--success); }
+.ap-storage-bar.fill-warning { background: var(--warning); }
+.ap-storage-bar.fill-danger { background: var(--danger); }
+.ap-storage-foot { margin-top: 4px; font-size: 11px; }
+.ap-storage-note { padding: 2px 0; }
+.ap-fail { color: var(--danger); }
+.ap-login { padding: 6px 8px; border-top: 1px solid var(--border-light); font-size: 12px; display: flex; justify-content: space-between; gap: 8px; }
+.ap-login-label { color: var(--text-muted); flex-shrink: 0; }
+.ap-login-val { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-menu { padding: 4px 0 0; border-top: 1px solid var(--border-light); margin-top: 2px; }
+.ap-item {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border: none; background: none; border-radius: var(--radius-sm);
+  font-size: 13px; color: var(--text); cursor: pointer; text-align: left;
+}
+.ap-item:hover { background: var(--bg-surface-hover); }
+.ap-item svg { width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0; }
+.ap-divider { height: 1px; background: var(--border-light); margin: 4px 0; }
+.ap-danger { color: var(--danger); }
+.ap-danger svg { color: var(--danger); }
+.ap-danger:hover { background: var(--danger-light); }
+
 /* 折叠按钮 */
 .sidebar-collapse {
   position: absolute; bottom: 16px; right: -12px; z-index: 10;
@@ -832,6 +876,21 @@ body.view-shell { overflow: hidden; }
 .account-field { background: var(--bg-surface); padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
 .account-label { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; }
 .account-value { font-size: 14px; color: var(--text); font-weight: 500; word-break: break-all; }
+
+/* ---- 账户页：登录历史 ---- */
+.login-history { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.lh-title { padding: 10px 16px; font-size: 13px; font-weight: 600; color: var(--text); background: var(--bg-surface); border-bottom: 1px solid var(--border-light); }
+.lh-list { background: var(--bg-surface); }
+.lh-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border-light); font-size: 13px; }
+.lh-item:last-child { border-bottom: none; }
+.lh-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--text-muted); }
+.lh-dot.ok { background: var(--success); }
+.lh-dot.warn { background: var(--warning); }
+.lh-dot.fail { background: var(--danger); }
+.lh-text { font-weight: 500; color: var(--text); flex-shrink: 0; }
+.lh-detail { color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lh-time { color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.lh-empty { padding: 16px; text-align: center; font-size: 13px; color: var(--text-muted); }
 
 /* ---- Transfer Assistant (文件传输助手) ---- */
 .transfer-container { background: var(--bg); }

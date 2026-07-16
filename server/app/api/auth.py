@@ -931,6 +931,24 @@ def get_me(user=Depends(get_current_user)):
     }
 
 
+# ---- 登录历史（仅当前用户自身的 access_logs；强制 user_id 过滤，防 IDOR）----
+
+@router.get("/login-history")
+def login_history(limit: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    limit = max(1, min(int(limit), 50))  # 钳制 1..50，规避超大 limit 拖库
+    logs = (
+        db.query(AccessLog)
+        .filter(AccessLog.user_id == user.id)
+        .order_by(AccessLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {"action": l.action, "detail": l.detail, "ip": l.ip or "", "created_at": str(l.created_at)}
+        for l in logs
+    ]
+
+
 # ---- 日志 ----
 
 def _log(db: Session, user_id: Optional[str], action: str, detail: str, request: Request):
