@@ -117,6 +117,7 @@ function paginationHTML(view, fnName) {
 
 // ============ Login ============
 function renderLogin() {
+  document.body.classList.remove('view-shell');
   document.getElementById('admin-app').innerHTML = `
     <div class="login-container">
       <aside class="login-brand">
@@ -199,6 +200,7 @@ function bindAdminDelegation() {
 
 // ============ Layout ============
 function renderLayout() {
+  document.body.classList.add('view-shell');
   bindAdminDelegation();
   document.getElementById('admin-app').innerHTML = `
     <div class="admin-layout">

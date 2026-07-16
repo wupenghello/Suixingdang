@@ -222,7 +222,7 @@ function formatDate(ts) {
 function formatDateTime(ts) {
   // 复用 parseServerTs 统一服务器 naive-UTC 时间戳的解析逻辑
   const ms = parseServerTs(ts);
-  if (!ms) return ts ? String(ts) : '';
+  if (!ms) return escapeHtml(ts ? String(ts) : '');
   return new Date(ms).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 function getFileIcon(name, isDir) {
@@ -460,6 +460,168 @@ function closeContextMenu() {
   if (existing) existing.remove();
 }
 
+// ============ Account Popover（侧栏账户弹层） ============
+// 左下角 .sidebar-user 的点击入口：身份 / 存储用量 / 最近登录 / 快捷动作。
+// 数据全部来自当前用户自身（/me + /stats），不涉及他人；纯内存渲染，不落盘。
+let _accountPopover = null;
+let _popoverDismiss = null; // {onDown, onEsc} — 供 closeAccountPopover 统一移除
+
+function closeAccountPopover() {
+  // 统一移除 document 级监听器，避免菜单项点击 / toggle 路径泄漏（修复：监听器泄漏）
+  if (_popoverDismiss) {
+    document.removeEventListener('mousedown', _popoverDismiss.onDown);
+    document.removeEventListener('keydown', _popoverDismiss.onEsc);
+    _popoverDismiss = null;
+  }
+  if (_accountPopover) { _accountPopover.remove(); _accountPopover = null; }
+  const anchor = document.getElementById('sidebar-user');
+  if (anchor) anchor.setAttribute('aria-expanded', 'false');
+}
+
+async function openAccountPopover(anchor) {
+  // toggle：已开则关
+  if (_accountPopover) { closeAccountPopover(); return; }
+  const me = App.currentUser || {};
+  const initial = (me.username || '档').charAt(0).toUpperCase();
+  const roleMap = { user: '普通用户', admin: '管理员' };
+  const statusBadge = me.status === 'active'
+    ? '<span class="badge badge-success">正常</span>'
+    : '<span class="badge badge-danger">已禁用</span>';
+
+  const pop = document.createElement('div');
+  pop.className = 'account-popover';
+  pop.setAttribute('role', 'menu');
+  pop.innerHTML = `
+    <div class="ap-header">
+      <div class="ap-avatar">${escapeHtml(initial)}</div>
+      <div class="ap-meta">
+        <div class="ap-name">${escapeHtml(me.username || '')}</div>
+        <div class="ap-sub">${escapeHtml(roleMap[me.role] || me.role || '')} · ${statusBadge}</div>
+      </div>
+    </div>
+    <div class="ap-storage" id="ap-storage">加载中…</div>
+    <div class="ap-login" id="ap-login"></div>
+    <div class="ap-menu" role="none">
+      <button class="ap-item" role="menuitem" data-ap="account">${ICONS.user}<span>账户详情</span></button>
+      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全与会话</span></button>
+      <button class="ap-item" role="menuitem" data-ap="others">${ICONS.logout}<span>退出其他设备</span></button>
+    </div>
+    <div class="ap-divider"></div>
+    <button class="ap-item ap-danger" role="menuitem" data-ap="logout">${ICONS.logout}<span>退出登录</span></button>`;
+  document.body.appendChild(pop);
+  _accountPopover = pop;
+  anchor.setAttribute('aria-expanded', 'true');
+
+  positionPopover(pop, anchor);
+  loadPopoverStats(pop);
+
+  // 最近登录（来自 /me；完整登录历史见设置-账户页）
+  const loginEl = pop.querySelector('#ap-login');
+  if (loginEl && me.last_login_at) {
+    loginEl.innerHTML = `<span class="ap-login-label">最近登录</span><span class="ap-login-val">${formatDateTime(me.last_login_at)}</span>`;
+  }
+
+  // 菜单项动作
+  pop.querySelectorAll('[data-ap]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.ap;
+      closeAccountPopover();
+      if (action === 'account') App.openSettings('account');
+      else if (action === 'security') App.openSettings('security');
+      else if (action === 'others') revokeOtherTokens();
+      else if (action === 'logout') App.logout();
+    });
+  });
+
+  // 关闭：点击外部 / Esc（setTimeout 避免与本轮 click 冲突）
+  setTimeout(() => {
+    const onDown = (e) => {
+      if (_accountPopover && !_accountPopover.contains(e.target) && !anchor.contains(e.target)) closeAccountPopover();
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') { closeAccountPopover(); try { anchor.focus(); } catch {} }
+    };
+    _popoverDismiss = { onDown, onEsc };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onEsc);
+  }, 0);
+}
+
+// 弹层定位：默认向上展开，上方空间不足则向下；横向夹在视口内
+function positionPopover(pop, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  const gap = 8;
+  const top = (rect.top - gap - popRect.height > 8)
+    ? rect.top - popRect.height - gap
+    : rect.bottom + gap;
+  pop.style.top = Math.max(8, Math.min(top, window.innerHeight - popRect.height - 8)) + 'px';
+  pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - popRect.width - 8)) + 'px';
+}
+
+// 弹层内的存储用量（紧凑版），异步加载
+function loadPopoverStats(pop) {
+  const el = pop.querySelector('#ap-storage');
+  if (!el) return;
+  (async () => {
+    try {
+      const d = await getStats();
+      // 弹层已关闭则放弃写入（用 isConnected 正确检测移除，修复：关闭检测死代码）
+      if (!el.isConnected) return;
+      if (!d) { el.textContent = '用量加载失败'; el.classList.add('ap-fail'); return; }
+      el.innerHTML = renderPopoverStorage(d);
+    } catch { if (el.isConnected) { el.textContent = '用量加载失败'; el.classList.add('ap-fail'); } }
+  })();
+}
+
+// ============ 存储用量共享逻辑（弹层 / 账户页 / 设置-存储索引 三处共用） ============
+// 计算配额使用百分比与配色（充足→绿，偏紧→橙，告急→红）
+function computeStorageFill(used, quota) {
+  const limited = quota > 0;
+  const pct = limited ? Math.min((used / quota) * 100, 100) : 0;
+  let fill = 'success';
+  if (pct >= 90) fill = 'danger';
+  else if (pct >= 70) fill = 'warning';
+  return { limited, pct, fill };
+}
+
+// 弹层紧凑版存储条
+function renderPopoverStorage(stats) {
+  const used = Number(stats.total_size_mb) || 0;
+  const quota = Number(stats.quota_mb) || 0;
+  const { limited, pct, fill } = computeStorageFill(used, quota);
+  if (!limited) return `<div class="ap-storage-note">已用 ${used} MB · 未设配额</div>`;
+  return `<div class="ap-storage-head"><span>存储用量</span><span>${Math.round(pct)}%</span></div>
+    <div class="ap-storage-track"><div class="ap-storage-bar fill-${fill}" style="width:${pct}%"></div></div>
+    <div class="ap-storage-foot">${used} MB / ${quota} MB</div>`;
+}
+
+// 标准版存储条（供账户页、设置-存储索引页使用）
+function renderStorageBar(stats) {
+  const used = Number(stats.total_size_mb) || 0;
+  const quota = Number(stats.quota_mb) || 0;
+  const { limited, pct, fill } = computeStorageFill(used, quota);
+  if (!limited) return `<div class="storage-usage-note">当前账号未设置存储配额，用量无上限。</div>`;
+  return `<div class="storage-usage">
+    <div class="storage-usage-head"><span>配额使用</span><span class="storage-usage-pct">${Math.round(pct)}%</span></div>
+    <div class="storage-usage-track"><div class="storage-usage-bar fill-${fill}" style="width:${pct}%"></div></div>
+    <div class="storage-usage-foot">${used} MB / ${quota} MB</div>
+  </div>`;
+}
+
+// /api/files/stats 短缓存（30s），避免弹层→账户页→设置页重复请求（修复：三次重复请求）
+let _statsData = null;
+let _statsDataTs = 0;
+async function getStats() {
+  const now = Date.now();
+  if (_statsData && now - _statsDataTs < 30000) return _statsData;
+  const res = await API.get('/api/files/stats');
+  if (!res || !res.ok) return _statsData; // 失败时返回旧数据（若有）
+  _statsData = await res.json();
+  _statsDataTs = now;
+  return _statsData;
+}
+
 // ============ Drag-Drop Upload ============
 function setupDragDrop() {
   // 幂等：App.init 每次登录都会再跑，避免重复挂 document 监听导致一次拖放触发 N 次上传
@@ -578,6 +740,7 @@ function loginShell(card) {
 }
 
 async function renderRegister() {
+  document.body.classList.remove('view-shell');
   document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo">档</div>
@@ -621,6 +784,7 @@ window.renderRegister = renderRegister;
 
 // ============ Forgot Password ============
 function renderForgotPassword() {
+  document.body.classList.remove('view-shell');
   document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo">档</div>
@@ -689,6 +853,7 @@ window.renderForgotPassword = renderForgotPassword;
 // 未登录访问根路径时展示的产品官网:顶栏 + Hero + 特性 + 安全/多端 + CTA + Footer。
 // 纯静态渲染,右上角"登录"跳 renderLogin;注册 CTA 随 register-status 开关,失败降级为仅"登录"。
 function renderLanding() {
+  document.body.classList.remove('view-shell');
   const ic = {
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
     chat:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
@@ -956,6 +1121,7 @@ window.renderLanding = renderLanding;
 
 // ============ Login ============
 function renderLogin() {
+  document.body.classList.remove('view-shell');
   document.getElementById('app').innerHTML = loginShell(`
       <div class="login-card">
         <div class="login-logo" id="login-logo" title="返回官网">档</div>
@@ -3913,13 +4079,13 @@ function previewVideo(path, name, opts = {}) {
 }
 
 // ============ Settings ============
-async function renderSettings() {
+async function renderSettings(initialTab) {
   const TAB_ICONS = {
     general: ICONS.database,
     security: ICONS.shield,
     account: ICONS.user,
   };
-  const activeTab = loadPref('settingsTab', 'general');
+  const activeTab = initialTab || loadPref('settingsTab', 'general');
   document.getElementById('main-content').innerHTML = `
     <div class="settings-layout">
       <nav class="settings-nav" id="settings-nav">
@@ -3933,8 +4099,8 @@ async function renderSettings() {
     </div>`;
 
   // 渲染对应标签面板内容
-  function renderTab(tab) {
-    savePref('settingsTab', tab);
+  function renderTab(tab, persist = true) {
+    if (persist) savePref('settingsTab', tab); // 仅用户主动点击时持久化，深链初始渲染不覆盖偏好
     document.querySelectorAll('.settings-nav-item').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === tab);
     });
@@ -4056,7 +4222,7 @@ async function renderSettings() {
   document.querySelectorAll('.settings-nav-item').forEach(btn => {
     btn.addEventListener('click', () => renderTab(btn.dataset.tab));
   });
-  renderTab(activeTab);
+  renderTab(activeTab, false); // 初始渲染（含深链）不覆盖用户偏好
 }
 
 async function loadAccountInfo() {
@@ -4078,54 +4244,118 @@ async function loadAccountInfo() {
     const totpBadge = me.totp_enabled
       ? '<span class="badge badge-success">已开启</span>'
       : '<span class="badge badge-warning">未开启</span>';
+    const roleText = escapeHtml(roleMap[me.role] || me.role); // 统一转义，与弹层保持一致
+
+    // 先渲染主体（不阻塞），再异步填充存储用量
     el.innerHTML = `
       <div class="account-info">
         <div class="account-row">
           <div class="account-avatar">${escapeHtml(me.username.charAt(0).toUpperCase())}</div>
           <div class="account-name">
             <div class="account-username">${escapeHtml(me.username)}</div>
-            <div class="account-sub">${roleMap[me.role] || me.role} · ${statusBadge}</div>
+            <div class="account-sub">${roleText} · ${statusBadge}</div>
           </div>
         </div>
         <div class="account-grid">
           <div class="account-field"><span class="account-label">用户名</span><span class="account-value">${escapeHtml(me.username)}</span></div>
-          <div class="account-field"><span class="account-label">角色</span><span class="account-value">${roleMap[me.role] || me.role}</span></div>
+          <div class="account-field"><span class="account-label">角色</span><span class="account-value">${roleText}</span></div>
           <div class="account-field"><span class="account-label">账户状态</span><span class="account-value">${statusBadge}</span></div>
           <div class="account-field"><span class="account-label">存储配额</span><span class="account-value">${quotaText}</span></div>
           <div class="account-field"><span class="account-label">双因子验证</span><span class="account-value">${totpBadge}</span></div>
           <div class="account-field"><span class="account-label">最近登录</span><span class="account-value">${me.last_login_at ? formatDateTime(me.last_login_at) : '-'}</span></div>
           <div class="account-field"><span class="account-label">注册时间</span><span class="account-value">${me.created_at ? formatDateTime(me.created_at) : '-'}</span></div>
+          <div class="account-field"><span class="account-label">已用空间</span><span class="account-value" id="acct-used">-</span></div>
+          <div class="account-field"><span class="account-label">剩余配额</span><span class="account-value" id="acct-remain">-</span></div>
         </div>
+        <div id="acct-storage"></div>
+        <div class="login-history" id="login-history"></div>
       </div>`;
+
+    // 异步填充存储用量（失败降级，不阻塞主体）
+    fillAccountStorage();
+
+    // 加载登录历史（带竞态防护）
+    loadLoginHistory();
   } catch {
     renderErrorState(el, '账户信息加载失败', () => loadAccountInfo());
   }
+}
+
+// 异步填充账户页存储用量（共享 renderStorageBar）
+async function fillAccountStorage() {
+  const usedEl = document.getElementById('acct-used');
+  if (!usedEl) return;
+  try {
+    const d = await getStats();
+    if (!usedEl.isConnected) return; // 已离开账户页
+    if (!d) return;
+    const used = Number(d.total_size_mb) || 0;
+    const quota = Number(d.quota_mb) || 0;
+    const { limited, remaining } = computeStorageFill(used, quota);
+    usedEl.textContent = used + ' MB';
+    const remainEl = document.getElementById('acct-remain');
+    if (remainEl) remainEl.textContent = limited ? remaining + ' MB' : '不限';
+    const storageEl = document.getElementById('acct-storage');
+    if (storageEl) storageEl.innerHTML = renderStorageBar(d);
+  } catch { /* 失败保持「-」降级 */ }
+}
+
+// 登录历史：读 /api/auth/login-history，仅当前用户自身记录（后端强制 user_id 过滤）
+let _loginHistorySeq = 0; // 竞态防护：丢弃过期响应
+async function loadLoginHistory() {
+  const el = document.getElementById('login-history');
+  if (!el) return;
+  const seq = ++_loginHistorySeq;
+  const ACTION_MAP = {
+    login_success: { cls: 'ok', text: '登录成功' },
+    login_failed: { cls: 'fail', text: '登录失败' },
+    login_locked: { cls: 'fail', text: '登录锁定' },
+    login_blocked: { cls: 'fail', text: '登录被拒（账号禁用）' },
+    login_totp_failed: { cls: 'fail', text: '二次验证失败' },
+    login_new_device: { cls: 'warn', text: '新设备登录' },
+    register: { cls: 'ok', text: '注册账号' },
+    password_reset_success: { cls: 'warn', text: '重置密码成功' },
+    password_reset_failed: { cls: 'fail', text: '重置密码失败' },
+    password_reset_locked: { cls: 'fail', text: '重置锁定' },
+    revoke_other_tokens: { cls: 'warn', text: '退出其他设备' },
+    revoke_all_tokens: { cls: 'warn', text: '吊销全部令牌' },
+  };
+  try {
+    const res = await API.get('/api/auth/login-history?limit=10');
+    if (seq !== _loginHistorySeq) return; // 已有更新请求，丢弃本响应
+    if (!res || !res.ok) { el.innerHTML = '<div class="lh-empty">登录记录加载失败</div>'; return; }
+    const logs = await res.json();
+    if (!logs || !logs.length) { el.innerHTML = '<div class="lh-empty">暂无登录记录</div>'; return; }
+    el.innerHTML = `<div class="lh-title">最近登录记录</div>
+      <div class="lh-list">${logs.map(l => {
+        const m = ACTION_MAP[l.action] || { cls: '', text: l.action };
+        const detail = (l.detail || '').trim();
+        return `<div class="lh-item">
+          <span class="lh-dot ${m.cls}"></span>
+          <span class="lh-text">${escapeHtml(m.text)}</span>
+          ${detail ? `<span class="lh-detail">${escapeHtml(detail)}</span>` : ''}
+          <span class="lh-time">${l.created_at ? formatDateTime(l.created_at) : ''}</span>
+        </div>`;
+      }).join('')}</div>`;
+  } catch { if (seq === _loginHistorySeq) el.innerHTML = '<div class="lh-empty">登录记录加载失败</div>'; }
 }
 
 async function loadStats() {
   const el = document.getElementById('stats-content');
   if (!el) return;
   try {
-    const res = await API.get('/api/files/stats');
-    const data = await res.json();
+    const data = await getStats();
+    if (!data) { renderErrorState(el, '统计加载失败', () => loadStats()); return; }
     const used = Number(data.total_size_mb) || 0;
     const quota = Number(data.quota_mb) || 0;
-    const limited = quota > 0;
+    const { limited, pct } = computeStorageFill(used, quota);
     const remaining = limited ? Math.max(quota - used, 0) : 0;
-    const pct = limited ? Math.min((used / quota) * 100, 100) : 0;
-    // 进度条配色：充足→绿，偏紧→橙，告急→红
-    let fill = 'success', remainCls = 'accent-success';
-    if (pct >= 90) { fill = 'danger'; remainCls = 'accent-danger'; }
-    else if (pct >= 70) { fill = 'warning'; remainCls = 'accent-warning'; }
+    // 剩余配额配色：充足→绿，偏紧→橙，告急→红
+    let remainCls = 'accent-success';
+    if (pct >= 90) remainCls = 'accent-danger';
+    else if (pct >= 70) remainCls = 'accent-warning';
     const quotaText = limited ? `${quota}<span class="stat-unit"> MB</span>` : '不限';
     const remainText = limited ? `${remaining}<span class="stat-unit"> MB</span>` : '不限';
-    const quotaBar = limited
-      ? `<div class="storage-usage">
-          <div class="storage-usage-head"><span>配额使用</span><span class="storage-usage-pct">${Math.round(pct)}%</span></div>
-          <div class="storage-usage-track"><div class="storage-usage-bar fill-${fill}" style="width:${pct}%"></div></div>
-          <div class="storage-usage-foot">${used} MB / ${quota} MB</div>
-        </div>`
-      : `<div class="storage-usage-note">当前账号未设置存储配额，用量无上限。</div>`;
     el.innerHTML = `
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-label">文件总数</div><div class="stat-value">${data.total_files}</div></div>
@@ -4133,7 +4363,7 @@ async function loadStats() {
         <div class="stat-card"><div class="stat-label">存储配额</div><div class="stat-value">${quotaText}</div></div>
         <div class="stat-card ${limited ? remainCls : ''}"><div class="stat-label">剩余配额</div><div class="stat-value">${remainText}</div></div>
       </div>
-      ${quotaBar}
+      ${renderStorageBar(data)}
     `;
   } catch { renderErrorState(el, '统计加载失败', () => loadStats()); }
 }
@@ -4655,6 +4885,7 @@ const App = {
    checkDownloadStatus();
  },
  renderLayout() {
+    document.body.classList.add('view-shell');
     const username = this.currentUser ? this.currentUser.username : '随行档';
     const initial = this.currentUser ? this.currentUser.username.charAt(0).toUpperCase() : '档';
     const aiEnabled = this.currentUser && this.currentUser.ai_enabled;
@@ -4692,13 +4923,14 @@ const App = {
             </div>
           </nav>
           <div class="sidebar-footer">
-            <div class="sidebar-user">
+            <div class="sidebar-user" id="sidebar-user" role="button" tabindex="0"
+                 aria-haspopup="menu" aria-expanded="false" aria-label="账户与退出" title="查看账户">
               <div class="sidebar-user-avatar">${initial}</div>
               <div class="sidebar-user-info">
                 <span class="sidebar-user-name">${escapeHtml(username)}</span>
                 <span class="sidebar-user-sub">点击查看账户</span>
               </div>
-              <button class="nav-item nav-logout" id="btn-sidebar-logout" title="退出登录">${ICONS.logout}</button>
+              <button class="nav-item nav-logout" id="btn-sidebar-logout" title="退出登录" aria-label="退出登录">${ICONS.logout}</button>
             </div>
           </div>
           <button class="sidebar-collapse" id="sidebar-toggle" title="收起侧栏">${ICON_CHEVRON_LEFT}</button>
@@ -4710,6 +4942,19 @@ const App = {
       btn.addEventListener('click', () => this.navigate(btn.dataset.view));
     });
     document.getElementById('btn-sidebar-logout').addEventListener('click', () => this.logout());
+    // 侧栏账户区：点击 / Enter / Space 打开账户弹层（退出按钮已自带逻辑，点击它不触发弹层）
+    const userBtn = document.getElementById('sidebar-user');
+    if (userBtn) {
+      userBtn.addEventListener('click', (e) => {
+        if (e.target.closest('#btn-sidebar-logout')) return;
+        openAccountPopover(userBtn);
+      });
+      userBtn.addEventListener('keydown', (e) => {
+        // 退出按钮自有逻辑，Enter/Space 不应触发弹层（与 click handler 保持一致）
+        if (e.target.closest('#btn-sidebar-logout')) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAccountPopover(userBtn); }
+      });
+    }
     const logoBtn = document.getElementById('sidebar-logo');
     if (logoBtn) logoBtn.addEventListener('click', () => this.navigate('settings'));
     const searchTrigger = document.getElementById('sidebar-search-trigger');
@@ -4721,7 +4966,7 @@ const App = {
       savePref('sidebarCollapsed', isCollapsed);
     });
  },
- navigate(view) {
+ navigate(view, opts = {}) {
    // 离开聊天视图时中止进行中的流式回复，避免向已分离的 DOM 继续写入
    if (this.currentView === 'chat' && view !== 'chat' && currentChatAbort) currentChatAbort.abort();
    this.currentView = view;
@@ -4733,10 +4978,16 @@ const App = {
     if (view === 'files') renderFiles();
     else if (view === 'chat') renderChat();
     else if (view === 'transfer') renderTransfer();
-    else if (view === 'settings') renderSettings();
+    else if (view === 'settings') renderSettings(opts.tab);
+  },
+  openSettings(tab) {
+    // 校验 tab 值，避免非法值经 renderTab 被持久化到偏好（修复：openSettings tab 未校验）
+    const validTab = ['general', 'security', 'account'].includes(tab) ? tab : 'general';
+    this.navigate('settings', { tab: validTab });
   },
   logout() {
     if (currentChatAbort) currentChatAbort.abort();
+    closeAccountPopover(); // session 过期/主动退出时同步关闭弹层，避免 DOM 泄漏到落地页
     this.currentView = 'transfer';
     renderLanding();
     // 清服务端 cookie + 吊销会话：后台执行，不阻塞落地页渲染

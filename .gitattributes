@@ -1,0 +1,3 @@
+# shell 脚本强制 LF 换行：Windows 上 Git 默认 core.autocrlf=true 会把 .sh 转成 CRLF，
+# 导致 `#!/usr/bin/env bash\r` 找不到解释器、脚本无法执行。
+*.sh text eol=lf

@@ -50,10 +50,22 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+html { overflow-x: hidden; }
 body { font-family: var(--font-sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.55; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 
 /* ---- Layout ---- */
-.admin-layout { display: flex; height: 100vh; overflow: hidden; }
+.admin-layout { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
+/* 管理壳视图锁 body（admin.js 在 renderLayout 时给 body 加 view-shell；登录页不加） */
+body.view-shell { overflow: hidden; }
+
+/* 打印兜底：解锁 body 与所有滚动/裁剪容器，避免管理后台只能打印第一页 */
+@media print {
+  html, body { overflow: visible !important; height: auto !important; }
+  body.view-shell { overflow: visible !important; }
+  .admin-layout { display: block !important; height: auto !important; overflow: visible !important; }
+  .admin-sidebar { display: none !important; }
+  .admin-main { overflow: visible !important; height: auto !important; }
+}
 .admin-sidebar {
   width: 208px; background: var(--bg-surface); border-right: 1px solid var(--border);
   padding: 20px 0; flex-shrink: 0; display: flex; flex-direction: column;

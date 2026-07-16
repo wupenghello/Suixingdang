@@ -567,7 +567,7 @@ def _migrate_llm_from_env():
             # 尝试从 .env 文件读取
             for env_path in [_Path(".env"), _Path("server/.env"), _Path(settings.STORAGE_DIR).parent / ".env"]:
                 if env_path.exists():
-                    for line in env_path.read_text().splitlines():
+                    for line in env_path.read_text(encoding="utf-8").splitlines():
                         line = line.strip()
                         if line.startswith(f"{key}="):
                             return _strip_quotes(line.split("=", 1)[1].strip())
