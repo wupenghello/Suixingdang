@@ -175,14 +175,17 @@ def delete_message(message_id: str, db: Session = Depends(get_db), user=Depends(
     if not msg:
         raise HTTPException(404, "消息不存在")
 
-    # 文件消息：同时删除文件库中的文件
+    # 文件消息：软删除文件库中的文件(进回收站,保留期内可恢复)
     if msg.type == "file" and msg.file_id:
         f = db.query(FileModel).filter_by(id=msg.file_id, owner_id=user.id).first()
         if f:
-            storage.delete_file(user.id, f.path)
-            indexer.remove_from_index(user.id, f.path)
-            db.add(SyncEvent(user_id=user.id, file_name=f.path, direction="delete", status="completed"))
-            db.delete(f)
+            f.deleted_at = datetime.utcnow()
+            try:
+                indexer.remove_from_index(user.id, f.path)
+            except Exception:
+                pass
+            db.add(SyncEvent(user_id=user.id, file_name=f.path, direction="delete", status="completed", detail="soft_delete"))
+            db.add(AccessLog(user_id=user.id, action="file_soft_delete", detail=f.path))
 
     elif msg.type == "text":
         try:
