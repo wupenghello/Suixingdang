@@ -150,7 +150,7 @@ def delete_file(user_id: str, file_path: str, purge: bool = False) -> str:
             File.owner_id == user_id, File.path == file_path, File.deleted_at.is_(None),
         ).first()
         if not f:
-            return json.dumps({"error": "文件不存在"}, ensure_ascii=False)
+            raise FileNotFoundError(f"文件不存在: {file_path}")
         if purge:
             # 直接物理清除(不可恢复)
             from ..core import storage, indexer

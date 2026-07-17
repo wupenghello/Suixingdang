@@ -108,8 +108,15 @@ def sync_download(path: str = Query(...), db: Session = Depends(get_db), user=De
 @router.get("/manifest")
 def get_manifest(db: Session = Depends(get_db), user=Depends(get_current_device_user)):
     files = storage.list_all_files(user.id)
+    # 过滤软删除文件:软删除后物理文件仍保留(回收站保留期内可恢复),
+    # 但 manifest 不应暴露已删除文件(守护进程按 manifest 同步)
+    active_paths = {f[0] for f in db.query(FileModel.path).filter(
+        FileModel.owner_id == user.id, FileModel.deleted_at.is_(None),
+    ).all()}
     manifest = []
     for rel in files:
+        if rel not in active_paths:
+            continue
         p = storage._user_dir(user.id) / rel
         stat = p.stat()
         manifest.append({"path": rel, "size": stat.st_size, "modified": stat.st_mtime})

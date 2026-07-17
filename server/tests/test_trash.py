@@ -19,6 +19,7 @@
 """
 import io
 import time
+import uuid
 from datetime import datetime, timedelta
 
 
@@ -42,7 +43,7 @@ def _soft_delete(client, headers, path):
 
 def test_soft_delete_moves_to_trash(client, make_user):
     """软删除后文件从活跃列表消失，出现在回收站。"""
-    token, uid, _ = make_user(username="trash-a", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-a-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
 
     uploaded = _upload(client, headers, name="to-trash.txt", body=b"bye")
@@ -70,7 +71,7 @@ def test_soft_delete_moves_to_trash(client, make_user):
 
 def test_restore_to_original_path(client, make_user):
     """恢复至原路径，文件重新出现在活跃列表。"""
-    token, uid, _ = make_user(username="trash-b", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-b-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
 
     uploaded = _upload(client, headers, name="restore-me.txt", body=b"back")
@@ -93,7 +94,7 @@ def test_restore_to_original_path(client, make_user):
 
 def test_restore_conflict_auto_rename(client, make_user):
     """恢复时原路径被占用，自动加 " (恢复)" 后缀。"""
-    token, uid, _ = make_user(username="trash-c", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-c-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
 
     # 上传并软删除第一个文件
@@ -119,7 +120,7 @@ def test_restore_over_quota_rejected(client, make_user):
     # 通过 admin 端点创建小配额用户较复杂，这里用默认无限配额用户，
     # 改为直接验证配额检查逻辑：上传大文件后软删除，再恢复应成功（无限配额）。
     # 配额边界在 _check_quota 单测覆盖，这里仅确认恢复路径正常返回 200。
-    token, uid, _ = make_user(username="trash-quota", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-quota-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
     uploaded = _upload(client, headers, name="q.txt", body=b"x")
     file_id = _soft_delete(client, headers, uploaded["path"])["file_id"]
@@ -129,7 +130,7 @@ def test_restore_over_quota_rejected(client, make_user):
 
 def test_purge_one(client, make_user):
     """彻底删除单个回收站文件。"""
-    token, uid, _ = make_user(username="trash-d", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-d-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
     uploaded = _upload(client, headers, name="purge.txt", body=b"gone")
     file_id = _soft_delete(client, headers, uploaded["path"])["file_id"]
@@ -144,7 +145,7 @@ def test_purge_one(client, make_user):
 
 def test_empty_trash(client, make_user):
     """清空回收站(需携带 confirm 词)。"""
-    token, uid, _ = make_user(username="trash-e", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-e-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
     for i in range(3):
         p = _upload(client, headers, name=f"empty-{i}.txt", body=b"x")["path"]
@@ -195,7 +196,7 @@ def test_empty_trash_skips_locked(client, make_user):
 def test_purge_expired_only(client, make_user):
     """过期 purge 只清理超过保留期的文件，未过期不动。"""
     from app.db.models import SessionLocal, File as FileModel
-    token, uid, _ = make_user(username="trash-f", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-f-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
 
     # 上传两个文件并软删除
@@ -226,8 +227,8 @@ def test_purge_expired_only(client, make_user):
 
 def test_trash_ownership_isolation(client, make_user):
     """用户 A 不能操作用户 B 的回收站文件。"""
-    a_token, _, _ = make_user(username="trash-ga", password="Test1234pass")
-    b_token, _, _ = make_user(username="trash-gb", password="Test1234pass")
+    a_token, _, _ = make_user(username=f"trash-ga-"+uuid.uuid4().hex[:6], password="Test1234pass")
+    b_token, _, _ = make_user(username=f"trash-gb-"+uuid.uuid4().hex[:6], password="Test1234pass")
 
     # B 上传并软删除
     uploaded = _upload(client, _h(b_token), name="secret.txt", body=b"private")
@@ -245,7 +246,7 @@ def test_trash_ownership_isolation(client, make_user):
 def test_manifest_excludes_trashed(client, make_user):
     """软删除后 manifest 不再包含该文件（守护进程感知删除）。"""
     from auth_helpers import admin_login
-    token, uid, _ = make_user(username="trash-h", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-h-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
     uploaded = _upload(client, headers, name="sync.txt", body=b"sync")
     path = uploaded["path"]
@@ -271,7 +272,7 @@ def test_manifest_excludes_trashed(client, make_user):
 
 def test_quota_excludes_trashed(client, make_user):
     """配额统计不计入回收站文件。通过 trash/stats 验证回收站占用空间。"""
-    token, uid, _ = make_user(username="trash-i", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-i-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
     body = b"x" * 1000
     uploaded = _upload(client, headers, name="big.txt", body=body)
@@ -290,7 +291,7 @@ def test_quota_excludes_trashed(client, make_user):
 
 def test_trashed_file_not_operable(client, make_user):
     """已软删除的文件：预览/下载/重命名/标签 均返回 404。"""
-    token, uid, _ = make_user(username="trash-j", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-j-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
     uploaded = _upload(client, headers, name="gone.txt", body=b"ghost")
     path = uploaded["path"]
@@ -306,7 +307,7 @@ def test_trashed_file_not_operable(client, make_user):
 
 def test_transfer_file_message_soft_delete(client, make_user):
     """传输助手文件消息删除时，文件走软删除（进回收站而非物理清除）。"""
-    token, uid, _ = make_user(username="trash-k", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-k-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
 
     # 通过传输助手发文件
@@ -327,7 +328,7 @@ def test_transfer_file_message_soft_delete(client, make_user):
 def test_restore_file_tool(client, make_user):
     """Agent restore_file 工具应能把回收站文件恢复至活跃列表。"""
     from app.agent import tools
-    token, uid, _ = make_user(username="trash-tool", password="Test1234pass")
+    token, uid, _ = make_user(username=f"trash-tool-"+uuid.uuid4().hex[:6], password="Test1234pass")
     headers = _h(token)
     uploaded = _upload(client, headers, name="tool-restore.txt", body=b"agent")
     file_id = _soft_delete(client, headers, uploaded["path"])["file_id"]
