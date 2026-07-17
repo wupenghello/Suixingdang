@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from pydantic import BaseModel
 
-from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, LlmProvider, get_db, get_setting, set_setting
+from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, LlmProvider, get_db, get_setting, set_setting, get_trash_retention_days, DEFAULT_TRASH_RETENTION_DAYS
 from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password, verify_password
 from ..core import storage
 from ..config import settings
@@ -171,6 +171,72 @@ def delete_user(user_id: str, request: Request, db: Session = Depends(get_db), a
     db.commit()
     _log(db, None, "admin_delete_user", f"删除用户「{username}」", request)
     return {"message": f"用户 {username} 已删除"}
+
+
+# ---- 全局回收站统计与清理 ----
+
+@router.get("/trash/stats")
+def admin_trash_stats(db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """全局回收站统计：总文件数、总占用、按用户分布、7 天内将过期数。"""
+    rows = db.query(File).filter(File.deleted_at.isnot(None)).all()
+    total_size = sum(f.size for f in rows)
+    retention_days = get_trash_retention_days(db)
+    now = datetime.utcnow()
+    cutoff = now + timedelta(days=7)
+    per_user = {}
+    expiring_soon = 0
+    locked_count = 0
+    for f in rows:
+        per_user.setdefault(f.owner_id, {"count": 0, "size": 0})
+        per_user[f.owner_id]["count"] += 1
+        per_user[f.owner_id]["size"] += f.size
+        if f.locked_at:
+            locked_count += 1
+        elif f.deleted_at + timedelta(days=retention_days) <= cutoff:
+            expiring_soon += 1
+    # 解析用户名为可读形式
+    user_map = {}
+    if per_user:
+        for u in db.query(User).filter(User.id.in_(list(per_user.keys()))).all():
+            user_map[u.id] = u.username
+    user_distribution = [{
+        "user_id": uid,
+        "username": user_map.get(uid, uid),
+        "count": v["count"],
+        "size": v["size"],
+    } for uid, v in sorted(per_user.items(), key=lambda x: -x[1]["count"])]
+    return {
+        "total": len(rows),
+        "total_size": total_size,
+        "retention_days": retention_days,
+        "expiring_soon": expiring_soon,
+        "locked_count": locked_count,
+        "user_distribution": user_distribution,
+    }
+
+
+@router.post("/trash/purge")
+def admin_trash_purge(request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """手动触发全局回收站过期清理。"""
+    retention_days = get_trash_retention_days(db)
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    expired = db.query(File).filter(
+        File.deleted_at.isnot(None), File.deleted_at <= cutoff,
+        File.locked_at.is_(None),
+    ).all()
+    purged = 0
+    for f in expired:
+        storage.delete_file(f.owner_id, f.path)
+        try:
+            indexer.remove_from_index(f.owner_id, f.path)
+        except Exception:
+            pass
+        db.delete(f)
+        purged += 1
+    if purged:
+        db.commit()
+    _log(db, None, "admin_trash_purge", f"管理员清理回收站过期文件 {purged} 个", request)
+    return {"purged": purged, "retention_days": retention_days}
 
 
 # ---- 用户详情 ----
@@ -451,6 +517,7 @@ def get_settings_api(db: Session = Depends(get_db), admin=Depends(get_current_ad
         "allow_register": get_setting(db, "allow_register", str(settings.ALLOW_REGISTER).lower()),
         "default_quota_mb": int(get_setting(db, "default_quota_mb", str(settings.DEFAULT_QUOTA_MB))),
         "site_name": get_setting(db, "site_name", ""),
+        "trash_retention_days": int(get_setting(db, "trash_retention_days", str(DEFAULT_TRASH_RETENTION_DAYS))),
     }
 
 
@@ -465,6 +532,14 @@ def update_settings(req: dict, request: Request, db: Session = Depends(get_db), 
             raise HTTPException(400, "配额必须是数字")
     if "site_name" in req:
         set_setting(db, "site_name", str(req["site_name"]))
+    if "trash_retention_days" in req:
+        try:
+            v = int(req["trash_retention_days"])
+            if not (1 <= v <= 90):
+                raise ValueError
+            set_setting(db, "trash_retention_days", str(v))
+        except (ValueError, TypeError):
+            raise HTTPException(400, "保留天数必须是 1-90 之间的整数")
     parts = []
     if "allow_register" in req:
         parts.append(f"允许注册={'开' if str(req['allow_register']).lower() == 'true' else '关'}")
@@ -472,6 +547,8 @@ def update_settings(req: dict, request: Request, db: Session = Depends(get_db), 
         parts.append(f"默认配额={req['default_quota_mb']}MB")
     if "site_name" in req:
         parts.append(f"站点名称={req['site_name']}")
+    if "trash_retention_days" in req:
+        parts.append(f"回收站保留={req['trash_retention_days']}天")
     _log(db, None, "admin_update_settings", "、".join(parts), request)
     return {"message": "设置已保存"}
 

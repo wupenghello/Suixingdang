@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from ..db.models import File, SyncEvent, AccessToken, TransferMessage, SessionLocal
 from ..core import storage, indexer, guard
@@ -88,6 +89,26 @@ def list_transfer_messages(user_id: str, limit: int = 20) -> str:
         db.close()
 
 
+def restore_file(user_id: str, file_id: str = "", file_path: str = "") -> str:
+    """从回收站恢复文件至原位置（Agent 调用）。
+
+    优先用 file_id（精准定位）；未提供时按 file_path 在回收站内查找。
+    内部直接调用 files 模块的恢复核心，与原 POST /api/files/trash/restore 逻辑一致。
+    """
+    from ..api.files import restore_trash_file_core
+    db = SessionLocal()
+    try:
+        data = restore_trash_file_core(db, user_id, file_id=file_id, file_path=file_path)
+        if "error" not in data:
+            db.commit()
+        return json.dumps(data, ensure_ascii=False)
+    except Exception:
+        logger.exception("tool restore_file failed for user %s", user_id)
+        return json.dumps({"error": "恢复文件时出错"}, ensure_ascii=False)
+    finally:
+        db.close()
+
+
 # ============ 基础文件工具 ============
 
 def search_files(user_id: str, query: str, limit: int = 10) -> str:
@@ -117,17 +138,47 @@ def get_file_info(user_id: str, file_path: str) -> str:
         db.close()
 
 
-def delete_file(user_id: str, file_path: str) -> str:
+def delete_file(user_id: str, file_path: str, purge: bool = False) -> str:
+    """删除文件。
+
+    purge=False(默认):软删除移入回收站,保留期内可恢复;
+    purge=True:直接物理清除,不可恢复(仅用于 Agent 明确被要求"彻底删除"的场景)。
+    """
     db = SessionLocal()
     try:
-        f = db.query(File).filter_by(owner_id=user_id, path=file_path).first()
-        storage.delete_file(user_id, file_path)
-        indexer.remove_from_index(user_id, file_path)
-        if f:
+        f = db.query(File).filter(
+            File.owner_id == user_id, File.path == file_path, File.deleted_at.is_(None),
+        ).first()
+        if not f:
+            return json.dumps({"error": "文件不存在"}, ensure_ascii=False)
+        if purge:
+            # 直接物理清除(不可恢复)
+            from ..core import storage, indexer
+            storage.delete_file(user_id, file_path)
+            try:
+                indexer.remove_from_index(user_id, file_path)
+            except Exception:
+                pass
             db.delete(f)
-        db.add(SyncEvent(user_id=user_id, file_name=file_path, direction="delete", status="completed"))
+            db.add(SyncEvent(user_id=user_id, file_name=file_path, direction="delete", status="completed", detail="purge"))
+            db.commit()
+            return json.dumps({"success": True, "message": f"已彻底删除 {file_path}（不可恢复）", "file_id": f.id}, ensure_ascii=False)
+        # 软删除：设 deleted_at + 移除语义索引,保留物理文件与 DB 记录(回收站保留期内可恢复)
+        from datetime import datetime
+        f.deleted_at = datetime.utcnow()
+        # 记录删除时所在目录,恢复时优先归位到此目录(而非根目录)
+        try:
+            parent = str(Path(file_path).parent)
+            f.original_dir = parent if parent != "." else ""
+        except Exception:
+            pass
+        try:
+            indexer.remove_from_index(user_id, file_path)
+        except Exception:
+            pass
+        db.add(SyncEvent(user_id=user_id, file_name=file_path, direction="delete", status="completed", detail="soft_delete"))
         db.commit()
-        return json.dumps({"success": True, "message": f"已删除 {file_path}"}, ensure_ascii=False)
+        return json.dumps({"success": True, "message": f"已移入回收站 {file_path}（保留 7 天,期间可恢复）", "file_id": f.id}, ensure_ascii=False)
     except Exception:
         logger.exception("tool delete_file failed for user %s path %s", user_id, file_path)
         return json.dumps({"error": "删除文件时出错"}, ensure_ascii=False)
@@ -403,6 +454,68 @@ def list_sync_events(user_id: str, limit: int = 20) -> str:
         db.close()
 
 
+def trash_cleanup_assistant(user_id: str) -> str:
+    """回收站清理助手:扫描回收站,按「最旧 / 最大 / 即将过期 / 已锁存」分桶给建议。
+
+    规则扫描,无 LLM 调用(零额外成本)。返回结构化的清理建议。
+    """
+    db = SessionLocal()
+    try:
+        from ..db.models import get_trash_retention_days
+        rows = db.query(File).filter(
+            File.owner_id == user_id, File.deleted_at.isnot(None),
+        ).all()
+        if not rows:
+            return json.dumps({"message": "回收站为空,无需清理", "total": 0, "suggestions": []}, ensure_ascii=False)
+        now = datetime.utcnow()
+        retention_days = get_trash_retention_days(db)
+        locked = [f for f in rows if f.locked_at]
+        unlocked = [f for f in rows if not f.locked_at]
+        expiring_soon = [f for f in unlocked if f.deleted_at + timedelta(days=retention_days) <= now + timedelta(hours=24)]
+        old = sorted(unlocked, key=lambda f: f.deleted_at)[:10]
+        largest = sorted(unlocked, key=lambda f: f.size, reverse=True)[:10]
+        total_size = sum(f.size for f in rows)
+
+        def _fmt(files):
+            return [{"path": f.path, "name": f.name, "size": f.size,
+                     "deleted_at": str(f.deleted_at)} for f in files]
+
+        suggestions = []
+        if expiring_soon:
+            suggestions.append({
+                "type": "expiring_soon",
+                "title": "即将过期(24 小时内自动永久删除)",
+                "files": _fmt(expiring_soon),
+                "reason": f"这 {len(expiring_soon)} 个文件将在 24 小时内被自动永久删除,若仍请先恢复或锁存。",
+            })
+        if old:
+            suggestions.append({
+                "type": "oldest",
+                "title": "最早进入回收站(优先清理)",
+                "files": _fmt(old),
+                "reason": f"这 {len(old)} 个文件最早进入回收站,可考虑彻底删除以释放空间。",
+            })
+        if largest:
+            suggestions.append({
+                "type": "largest",
+                "title": "占用空间最大(清理收益最高)",
+                "files": _fmt(largest),
+                "reason": f"这 {len(largest)} 个文件占用空间最大,彻底删除可显著释放磁盘。",
+            })
+        return json.dumps({
+            "total": len(rows),
+            "total_size": total_size,
+            "locked_count": len(locked),
+            "retention_days": retention_days,
+            "suggestions": suggestions,
+            "message": f"回收站共 {len(rows)} 个文件(占用 {round(total_size/1024/1024, 2)} MB),锁存 {len(locked)} 个。" + (
+                "发现可清理项,建议查看下方" if suggestions else "暂无明显可清理项。"
+            ),
+        }, ensure_ascii=False)
+    finally:
+        db.close()
+
+
 def cleanup_suggestions(user_id: str, days: int = 90) -> str:
     cutoff = datetime.utcnow() - timedelta(days=days)
     db = SessionLocal()
@@ -438,6 +551,8 @@ TOOL_FUNCTIONS = {
     "list_files": list_files,
     "get_file_info": get_file_info,
     "delete_file": delete_file,
+    "restore_file": restore_file,
+    "trash_cleanup_assistant": trash_cleanup_assistant,
     "check_guard": check_guard,
     "summarize_file": summarize_file,
     "qa": qa,
@@ -454,7 +569,9 @@ TOOL_SCHEMAS = [
     {"type": "function", "function": {"name": "search_files", "description": "语义搜索文件和文字便签，返回匹配结果及内容片段", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "default": 10}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "list_files", "description": "列出目录文件", "parameters": {"type": "object", "properties": {"directory": {"type": "string"}}}}},
     {"type": "function", "function": {"name": "get_file_info", "description": "获取文件详情", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
-    {"type": "function", "function": {"name": "delete_file", "description": "删除文件", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
+    {"type": "function", "function": {"name": "delete_file", "description": "删除文件。默认 purge=false 软删除移入回收站(保留期内可恢复);purge=true 直接物理清除不可恢复,仅在用户明确要求「彻底删除」时使用。", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "purge": {"type": "boolean", "default": False, "description": "true=直接物理清除不可恢复;false=软删除入回收站(默认)"}}, "required": ["file_path"]}}},
+    {"type": "function", "function": {"name": "restore_file", "description": "从回收站恢复文件至原位置。优先传 file_id(从 delete_file 返回或 trash 列表中获取)；也可按原路径 file_path 查找。原路径被占用时自动重命名。", "parameters": {"type": "object", "properties": {"file_id": {"type": "string", "description": "回收站文件的 opaque UUID(优先)"}, "file_path": {"type": "string", "description": "文件的原始路径(备选)"}}, "required": []}}},
+    {"type": "function", "function": {"name": "trash_cleanup_assistant", "description": "回收站清理助手:扫描回收站并按「即将过期/最早进入/占用最大」分桶给出清理建议(规则扫描,无 AI 调用)。回答「帮我清理回收站」「我回收站里哪些该删」时调用。", "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {"name": "check_guard", "description": "检查文件敏感度（支持方向感知）", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "direction": {"type": "string", "description": "同步方向: home_to_server / server_to_home / server_to_company / upload，不传则不区分方向"}}, "required": ["file_path"]}}},
     {"type": "function", "function": {"name": "summarize_file", "description": "用 AI 生成文件内容摘要", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
     {"type": "function", "function": {"name": "qa", "description": "基于文件内容的问答（RAG 检索相关文件后回答）", "parameters": {"type": "object", "properties": {"question": {"type": "string"}, "file_path": {"type": "string", "description": "可选，指定文件则只针对该文件回答"}}, "required": ["question"]}}},
