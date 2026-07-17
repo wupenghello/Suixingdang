@@ -16,7 +16,7 @@ import { getPreviewType } from './utils/file-classify.js?v=60';
 import { ICONS, getFileIcon } from './utils/icons.js?v=60';
 import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=60';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
-import { expBadge } from './utils/trash.js?v=60';
+import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
 
 // ============ API 层 ============
 const API = {
@@ -3009,17 +3009,7 @@ let trashSelectMode = false;        // 回收站批量选择模式
 let _trashItems = [];               // 当前渲染的回收站原始数据(供批量/预览复用)
 
 async function renderTrash() {
-  document.getElementById('main-content').innerHTML = `
-    <div class="topbar">
-      <div class="topbar-title">${ICONS.trash} 回收站</div>
-      <div class="topbar-spacer"></div>
-      <button class="btn btn-secondary btn-sm" id="btn-trash-select-toggle" title="批量选择">${SELECT_ICON}<span>批量选择</span></button>
-      <button class="btn btn-secondary" id="btn-trash-purge">${ICONS.refresh} 清理过期</button>
-      <button class="btn btn-danger" id="btn-trash-empty">${ICONS.trash} 清空回收站</button>
-    </div>
-    <div id="trash-banner" class="trash-banner" style="margin:0 0 12px"></div>
-    <div id="trash-batch-bar" class="batch-bar" style="display:none"></div>
-    <div id="trash-content">加载中...</div>`;
+  document.getElementById('main-content').innerHTML = trashShellHTML();
   document.getElementById('btn-trash-select-toggle').addEventListener('click', () => {
     trashSelectMode = !trashSelectMode;
     if (!trashSelectMode) trashSelection.clear();
@@ -3056,48 +3046,20 @@ async function loadTrash() {
     _trashItems = d.items;
     if (banner) {
       const lockedTxt = d.items.filter(i => i.locked).length;
-      banner.innerHTML = `${ICONS.trash} 文件在回收站保留 <strong>${d.retention_days} 天</strong> 后将永久删除。已锁存文件不受此限制。` + (lockedTxt ? ` 当前锁存 <strong>${lockedTxt}</strong> 个。` : '');
+      banner.innerHTML = trashBannerHTML(d.retention_days, lockedTxt);
     }
     if (!d.items.length) {
-      el.innerHTML = `<div class="empty-state"><div class="trash-empty-art">${ICONS.trash}</div><div class="empty-title">回收站空空如也</div><div class="empty-desc">删除的文件会在此保留 ${d.retention_days} 天,期间可随时恢复。<br>重要文件可手动锁存,跳出自动清理。</div></div>`;
+      el.innerHTML = trashEmptyStateHTML(d.retention_days);
       return;
     }
-    el.innerHTML = `
-      <div style="padding:8px 0 12px;font-size:13px;color:var(--text-muted)">
-        共 ${d.items.length} 个文件 · 保留期 ${d.retention_days} 天
-      </div>
-      <table class="data-table">
-        <thead><tr>
-          <th style="width:34px"></th>
-          <th>文件名</th><th>原路径</th><th>大小</th><th>删除时间</th><th>剩余天数</th><th>操作</th>
-        </tr></thead>
-        <tbody>
-          ${d.items.map(i => {
-            const size = i.size > 1048576 ? (i.size/1048576).toFixed(1)+' MB' : i.size > 1024 ? (i.size/1024).toFixed(1)+' KB' : i.size+' B';
-            const delTime = new Date(i.deleted_at).toLocaleString('zh-CN', { hour12: false });
-            return `<tr class="trash-row" data-file-id="${escapeHtml(i.file_id)}" data-name="${escapeHtml(i.name)}">
-              <td><div class="file-check" title="选择"></div></td>
-              <td style="font-weight:500">${escapeHtml(i.name)}</td>
-              <td style="color:var(--text-muted);font-size:12px">${escapeHtml(i.path)}</td>
-              <td style="font-size:12px">${size}</td>
-              <td style="color:var(--text-muted);font-size:12px">${delTime}</td>
-              <td style="font-size:12px">${_expBadge(i.remaining_days, i.locked)}</td>
-              <td style="text-align:right;white-space:nowrap">
-                <button class="icon-btn" data-action="trash-preview" title="预览">${ICONS.eye}</button>
-                <button class="btn btn-secondary btn-sm" data-action="trash-restore" title="恢复至原位置">${ICONS.refresh} 恢复</button>
-                <button class="btn btn-sm ${i.locked?'btn-primary':'btn-secondary'}" data-action="trash-lock" title="${i.locked?'解锁':'锁存(跳出自动清理)'}">${i.locked?ICONS.lock+' 解锁':ICONS.lock+' 锁存'}</button>
-                <button class="btn btn-danger btn-sm" data-action="trash-purge" title="彻底删除">${ICONS.trash} 删除</button>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>`;
+    el.innerHTML = trashTableHTML(d.items, d.retention_days);
     el.querySelectorAll('.trash-row').forEach(row => {
       const fid = row.dataset.fileId;
       const name = row.dataset.name;
       const item = d.items.find(x => x.file_id === fid);
       row.querySelector('.file-check').addEventListener('click', (e) => {
         e.stopPropagation();
+        if (!trashSelectMode) trashSelectMode = true;
         if (trashSelection.has(fid)) trashSelection.delete(fid); else trashSelection.add(fid);
         syncTrashSelectUI();
       });
@@ -3157,15 +3119,6 @@ function syncTrashSelectUI() {
   });
 }
 
-// 过期徽章三级: <1天红, 1-2天橙, 否则灰(抽到 utils/trash.js)
-function _expBadge(remainingDays, locked) {
-  const b = expBadge(remainingDays, locked);
-  if (b.cls === 'lock') return `<span class="badge badge-lock" title="已锁存,永不过期">${ICONS.lock} 锁存</span>`;
-  if (b.cls === 'danger') return `<span style="color:var(--danger);font-weight:600">⚠ ${b.text}</span>`;
-  if (b.cls === 'warning') return `<span style="color:var(--warning);font-weight:600">${b.text}</span>`;
-  return `<span>${b.text}</span>`;
-}
-
 async function previewTrashFile(fileId, name) {
   const fileName = name || 'file';
   const previewType = getPreviewType(fileName);
@@ -3178,6 +3131,7 @@ async function previewTrashFile(fileId, name) {
     <div class="preview-actions"><button class="icon-btn" id="trash-preview-close">✕</button></div></div>
     <div class="preview-body"><div class="preview-loading">加载中...</div></div>`;
   document.body.appendChild(overlay);
+  let url = null;
   const closeOverlay = () => { if (url) URL.revokeObjectURL(url); overlay.remove(); };
   document.getElementById('trash-preview-close').addEventListener('click', closeOverlay);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
@@ -3187,7 +3141,7 @@ async function previewTrashFile(fileId, name) {
     if (res.status === 415) { body.innerHTML = '<div class="preview-error">此类型不支持浏览器预览(安全限制)</div>'; return; }
     if (!res.ok) { body.innerHTML = '<div class="preview-error">预览失败</div>'; return; }
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    url = URL.createObjectURL(blob);
     const mt = (res.headers.get('content-type') || '').split(';')[0];
     if (mt.startsWith('image/')) { body.innerHTML = `<img class="preview-image" src="${url}">`; }
     else if (mt.startsWith('video/')) { body.innerHTML = `<video class="preview-video" controls src="${url}"></video>`; }

@@ -271,14 +271,16 @@ body.view-shell { overflow: hidden; }
 
 /* ---- Topbar · 飞书式页面头 ---- */
 .topbar {
-  height: 52px; padding: 0 24px; gap: 12px; flex-shrink: 0;
-  display: flex; align-items: center;
+  height: auto; min-height: 52px; padding: 8px 24px; gap: 12px; flex-shrink: 0;
+  display: flex; align-items: center; flex-wrap: wrap;
   background: var(--bg-surface); border-bottom: 1px solid var(--border);
 }
 .topbar-title {
-  font-family: var(--font-sans); font-size: 15px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-sans); font-size: 16px; font-weight: 600;
   letter-spacing: -0.011em; white-space: nowrap; flex-shrink: 0; color: var(--text);
 }
+.topbar-title svg { width: 18px; height: 18px; flex-shrink: 0; }
 .topbar-subtitle { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
 .topbar-spacer { flex: 1; }
 
@@ -1707,7 +1709,17 @@ html { scroll-behavior: smooth; }
 .shortcut-desc { font-size: 13px; color: var(--text, #333); }
 
 /* ============ 回收站专业化 ============ */
+
+/* 滚动体：仿 .files-body，让长表格在 #main-content(overflow:hidden) 内可滚动 */
+.trash-body { flex: 1 1 auto; overflow-y: auto; padding: 18px 24px 32px; min-height: 0; }
+
+/* 横向滚动兜底：窄屏下 7 列表格不击穿视口，改为横滚 */
+.table-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.table-scroll > .data-table { border: none; border-radius: 0; }
+
+/* ---- 保留期横幅 ---- */
 .trash-banner {
+  display: flex; align-items: center; gap: 12px;
   margin: 0 0 12px;
   padding: 10px 14px;
   background: var(--warning-light);
@@ -1717,16 +1729,28 @@ html { scroll-behavior: smooth; }
   font-size: 13px;
   color: var(--text-secondary);
 }
-.trash-banner strong { color: var(--text); }
-.trash-empty-art {
-  width: 64px; height: 64px;
+.trash-banner-icon {
+  flex-shrink: 0;
+  width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: rgba(255, 125, 0, 0.12);
+  color: var(--warning);
+}
+.trash-banner-icon svg { width: 16px; height: 16px; }
+.trash-banner-text { flex: 1; min-width: 0; line-height: 1.5; }
+.trash-banner strong { color: var(--text); }
+
+/* ---- 空态 ---- */
+.trash-empty-art {
+  width: 72px; height: 72px;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 16px;
   border-radius: 50%;
   background: var(--warning-light);
   color: var(--warning);
 }
-.trash-empty-art svg { width: 32px; height: 32px; }
+.trash-empty-art svg { width: 36px; height: 36px; }
 .badge-lock {
   background: rgba(51, 112, 255, 0.10);
   color: var(--primary);
@@ -1734,8 +1758,23 @@ html { scroll-behavior: smooth; }
   display: inline-flex; align-items: center; gap: 3px;
 }
 .badge-lock svg { width: 10px; height: 10px; }
-.trash-row.is-selected { background: var(--primary-light); }
-.trash-row.is-selected:hover { background: var(--primary-light); }
+
+/* 选中高亮：作用在 td（与 .data-table tr:hover td 同模式），避免被单元格背景盖住 */
+.trash-row.is-selected > td { background: var(--primary-light) !important; }
+.trash-row.is-selected:hover > td { background: var(--primary-light) !important; }
+
+/* 回收站表格固定列宽 */
+.trash-table { table-layout: fixed; width: 100%; }
+.trash-table .col-check { width: 36px; }
+.trash-table .col-name { width: auto; }
+.trash-table .col-path { width: 16%; }
+.trash-table .col-size { width: 70px; }
+.trash-table .col-deleted { width: 150px; }
+.trash-table .col-remaining { width: 80px; }
+.trash-table .col-actions { width: 260px; }
+.trash-table .th-check { text-align: center; }
+.trash-table td:last-child { text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+
 .trash-preview-badge {
   font-family: var(--font-mono);
   font-size: 11px;
