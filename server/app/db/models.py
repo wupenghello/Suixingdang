@@ -110,6 +110,9 @@ class File(Base):
     pinned = Column(Boolean, default=False)     # 收藏/置顶
     summary = Column(Text, default="")          # AI 自动摘要
     ai_tags = Column(Text, default="[]")        # AI 建议标签（JSON 数组），与人工 tags 区分
+    deleted_at = Column(DateTime, nullable=True, index=True)  # 软删除时间：NULL=活跃，非NULL=在回收站内
+    locked_at = Column(DateTime, nullable=True, index=True)  # 锁存时间：非NULL=跳出自动清理（用户手动保护）
+    original_dir = Column(Text, default="")     # 删除时所在目录，恢复时优先归位到此目录
 
 
 class SyncEvent(Base):
@@ -255,6 +258,20 @@ def get_cached_setting(db, key, default=""):
     val = get_setting(db, key, default)
     _setting_cache[key] = (val, now)
     return val
+
+# ---- 回收站 ----
+DEFAULT_TRASH_RETENTION_DAYS = 7
+DEFAULT_TRASH_LOCK_LIMIT = 200     # 单用户锁存文件数量上限（防借锁存规避自动清理）
+
+
+def get_trash_retention_days(db) -> int:
+    """回收站保留天数：从 system_settings 读，默认 7，钳制 1..90。"""
+    raw = get_cached_setting(db, "trash_retention_days", str(DEFAULT_TRASH_RETENTION_DAYS))
+    try:
+        v = int(raw)
+    except (ValueError, TypeError):
+        return DEFAULT_TRASH_RETENTION_DAYS
+    return max(1, min(90, v))
 
 
 # ---- 登录限流（DB 共享，跨 worker 生效；按 key 前缀隔离 login/admin/reset）----
@@ -507,12 +524,25 @@ def _migrate_columns():
         ("pinned", "BOOLEAN DEFAULT 0"),
         ("summary", 'TEXT DEFAULT ""'),
         ("ai_tags", 'TEXT DEFAULT "[]"'),
+        ("deleted_at", "DATETIME"),
+        ("locked_at", "DATETIME"),
+        ("original_dir", 'TEXT DEFAULT ""'),
     ]:
         if _col not in fcols:
             try:
                 cursor.execute(f"ALTER TABLE files ADD COLUMN {_col} {_coltype}")
             except Exception:
                 pass
+    # 回收站查询需要 deleted_at 索引（单独加，因上述循环内 CREATE INDEX 语法不同）
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS ix_files_deleted_at ON files (deleted_at)')
+    except Exception:
+        pass
+    # 锁存文件独立索引（用于 purge 时快速跳过）
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS ix_files_locked_at ON files (locked_at)')
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 

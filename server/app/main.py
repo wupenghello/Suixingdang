@@ -19,12 +19,45 @@ async def lifespan(app: FastAPI):
     Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
     ensure_storage()
     init_db()
+    _trash_purge_on_startup()
     print(f"[Suixingdang] 用户端启动")
     print(f"[Suixingdang] 存储目录: {settings.storage_path}")
     print(f"[Suixingdang] 数据库: {settings.DATABASE_PATH}")
     print(f"[Suixingdang] LLM 配置已迁移到管理后台（数据库管理）")
     print(f"[Suixingdang] 注册开关: {'开放' if settings.ALLOW_REGISTER else '关闭'}")
     yield
+
+
+def _trash_purge_on_startup():
+    """启动时清理过期的回收站文件（一次性兜底，避免长期未触发清理导致磁盘堆积）。"""
+    try:
+        from .db.models import SessionLocal, get_trash_retention_days, File as FileModel
+        from .core import storage, indexer
+        from datetime import datetime, timedelta
+        db = SessionLocal()
+        try:
+            retention_days = get_trash_retention_days(db)
+            cutoff = datetime.utcnow() - timedelta(days=retention_days)
+            expired = db.query(FileModel).filter(
+                FileModel.deleted_at.isnot(None), FileModel.deleted_at <= cutoff,
+                FileModel.locked_at.is_(None),
+            ).all()
+            purged = 0
+            for f in expired:
+                storage.delete_file(f.owner_id, f.path)
+                try:
+                    indexer.remove_from_index(f.owner_id, f.path)
+                except Exception:
+                    pass
+                db.delete(f)
+                purged += 1
+            if purged:
+                db.commit()
+                print(f"[Suixingdang] 启动清理回收站过期文件 {purged} 个（保留期 {retention_days} 天）")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[Suixingdang] ⚠️ 启动清理回收站失败: {e}")
 
 
 app = FastAPI(

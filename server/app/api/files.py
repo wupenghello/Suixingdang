@@ -5,12 +5,12 @@ from pathlib import Path
 import mimetypes
 import json
 import re
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FAFile, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FAFile, Query, Request, Body
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User, AccessToken, get_db
+from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User, AccessToken, get_db, get_trash_retention_days, DEFAULT_TRASH_LOCK_LIMIT
 from ..core import storage, indexer, guard
 from ..core.security import verify_password
 from ..config import settings
@@ -63,7 +63,9 @@ class NoteRequest(BaseModel):
 def _check_quota(db: Session, user: User, file_size: int):
     if user.quota_mb <= 0:
         return
-    used = db.query(func.sum(FileModel.size)).filter(FileModel.owner_id == user.id).scalar() or 0
+    used = db.query(func.sum(FileModel.size)).filter(
+        FileModel.owner_id == user.id, FileModel.deleted_at.is_(None),
+    ).scalar() or 0
     if used + file_size > user.quota_mb * 1024 * 1024:
         raise HTTPException(413, f"存储空间不足（配额 {user.quota_mb}MB）")
 
@@ -86,7 +88,8 @@ def list_files(
     # 按分组筛选：返回该分组下全部文件（跨目录）
     if group_id:
         rows = db.query(FileModel).filter(
-            FileModel.owner_id == user.id, FileModel.group_id == group_id
+            FileModel.owner_id == user.id, FileModel.group_id == group_id,
+            FileModel.deleted_at.is_(None),
         ).order_by(FileModel.uploaded_at.desc()).all()
         group_map = {}
         g = db.query(FileGroup).filter_by(owner_id=user.id).all()
@@ -109,9 +112,20 @@ def list_files(
     group_map = {}
     for grp in db.query(FileGroup).filter_by(owner_id=user.id).all():
         group_map[grp.id] = grp.name
+    # 软删除路径集合：磁盘上仍存在但已进回收站的文件需从活跃列表剔除
+    trashed = {r[0] for r in db.query(FileModel.path).filter(
+        FileModel.owner_id == user.id, FileModel.deleted_at.isnot(None),
+    ).all()}
+    filtered = []
     for item in items:
+        if not item["is_dir"] and item["path"] in trashed:
+            continue  # 已软删除：从活跃列表移除
+        filtered.append(item)
         if not item["is_dir"]:
-            f = db.query(FileModel).filter_by(owner_id=user.id, path=item["path"]).first()
+            f = db.query(FileModel).filter(
+                FileModel.owner_id == user.id, FileModel.path == item["path"],
+                FileModel.deleted_at.is_(None),
+            ).first()
             if f:
                 item["guard_status"] = f.guard_status
                 item["file_id"] = f.id
@@ -130,7 +144,7 @@ def list_files(
             item["group_id"] = ""
             item["group_name"] = ""
             item.update({"tags": [], "pinned": False, "summary": "", "ai_tags": []})
-    return {"directory": directory or "/", "items": items}
+    return {"directory": directory or "/", "items": filtered}
 
 
 @router.post("/upload")
@@ -163,11 +177,12 @@ async def upload_file(
     # 配额精确检查
     _check_quota(db, user, meta["size"])
 
-    # 自动去重：相同 content_hash 的文件不重复入库
+    # 自动去重：相同 content_hash 的活跃文件不重复入库（回收站文件不参与去重）
     dup = db.query(FileModel).filter(
         FileModel.owner_id == user.id,
         FileModel.content_hash == meta["content_hash"],
         FileModel.path != meta["path"],
+        FileModel.deleted_at.is_(None),
     ).first()
     if dup:
         storage.delete_file(user.id, rel_path)
@@ -180,7 +195,10 @@ async def upload_file(
 
     final_status = c_status if c_status != "safe" else status
     final_reason = c_reason if c_reason else reason
-    existing = db.query(FileModel).filter_by(owner_id=user.id, path=meta["path"]).first()
+    existing = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == meta["path"],
+        FileModel.deleted_at.is_(None),
+    ).first()
     if existing:
         existing.size = meta["size"]
         existing.content_hash = meta["content_hash"]
@@ -190,6 +208,7 @@ async def upload_file(
         existing.group_id = group_id or None
         f = existing
     else:
+        # 该路径曾有文件但被软删除（deleted_at 非空），恢复同名新文件时需新建记录
         f = FileModel(
             owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
             content_hash=meta["content_hash"], mime_type=meta["mime_type"],
@@ -267,11 +286,12 @@ def create_note(
         storage.delete_file(user.id, rel_path)
         raise
 
-    # 自动去重
+    # 自动去重（回收站文件不参与去重）
     dup = db.query(FileModel).filter(
         FileModel.owner_id == user.id,
         FileModel.content_hash == meta["content_hash"],
         FileModel.path != meta["path"],
+        FileModel.deleted_at.is_(None),
     ).first()
     if dup:
         storage.delete_file(user.id, rel_path)
@@ -285,7 +305,10 @@ def create_note(
 
     final_status = c_status if c_status != "safe" else status
     final_reason = c_reason if c_reason else reason
-    existing = db.query(FileModel).filter_by(owner_id=user.id, path=meta["path"]).first()
+    existing = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == meta["path"],
+        FileModel.deleted_at.is_(None),
+    ).first()
     if existing:
         existing.size = meta["size"]
         existing.content_hash = meta["content_hash"]
@@ -295,6 +318,7 @@ def create_note(
         existing.group_id = req.group_id or None
         f = existing
     else:
+        # 该路径曾有文件但被软删除，恢复同名新笔记时需新建记录
         f = FileModel(
             owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
             content_hash=meta["content_hash"], mime_type=meta["mime_type"],
@@ -354,7 +378,10 @@ def rename_file(req: RenameRequest, db: Session = Depends(get_db), user=Depends(
         raise HTTPException(400, "新名称不能为空")
     if new_name in {".", ".."} or "/" in new_name:
         raise HTTPException(400, "名称不合法")
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=req.path).first()
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == req.path,
+        FileModel.deleted_at.is_(None),
+    ).first()
     if not f:
         raise HTTPException(404, "文件不存在")
     old_path = f.path
@@ -367,7 +394,9 @@ def rename_file(req: RenameRequest, db: Session = Depends(get_db), user=Depends(
         raise HTTPException(403, f"Guard 拦截: {reason}")
 
     # 同名冲突
-    if new_path != old_path and db.query(FileModel).filter_by(owner_id=user.id, path=new_path).first():
+    if new_path != old_path and db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == new_path, FileModel.deleted_at.is_(None),
+    ).first():
         raise HTTPException(409, "同名文件已存在")
 
     # 落盘移动：读旧写新再删旧（跨设备安全，且避开 os.rename 对存在目标的行为差异）
@@ -400,7 +429,10 @@ class TagsRequest(BaseModel):
 @router.put("/tags")
 def set_tags(req: TagsRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """设置文件/笔记的标签（整体覆盖）。"""
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=req.path).first()
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == req.path,
+        FileModel.deleted_at.is_(None),
+    ).first()
     if not f:
         raise HTTPException(404, "文件不存在")
     # 清洗：去重、去空白、限长、最多 20 个
@@ -420,8 +452,10 @@ def set_tags(req: TagsRequest, db: Session = Depends(get_db), user=Depends(get_c
 
 @router.get("/all-tags")
 def all_tags(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """聚合当前用户所有标签及其计数，用于标签云。"""
-    rows = db.query(FileModel).filter(FileModel.owner_id == user.id).all()
+    """聚合当前用户所有活跃标签及其计数，用于标签云。"""
+    rows = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.deleted_at.is_(None),
+    ).all()
     counter = {}
     for f in rows:
         for t in _parse_tags(f.tags):
@@ -438,7 +472,10 @@ class PinRequest(BaseModel):
 @router.put("/pin")
 def toggle_pin(req: PinRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """置顶/取消置顶文件。"""
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=req.path).first()
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == req.path,
+        FileModel.deleted_at.is_(None),
+    ).first()
     if not f:
         raise HTTPException(404, "文件不存在")
     f.pinned = bool(req.pinned)
@@ -452,7 +489,10 @@ def toggle_pin(req: PinRequest, db: Session = Depends(get_db), user=Depends(get_
 def ai_enhance(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
     """对笔记内容调用 LLM 生成摘要与建议标签，结果落库并返回。"""
     from ..core.llm_service import get_llm_config, AiDisabled, NoLlmConfigured
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == path,
+        FileModel.deleted_at.is_(None),
+    ).first()
     if not f:
         raise HTTPException(404, "文件不存在")
     try:
@@ -519,14 +559,22 @@ def ai_enhance(path: str = Query(...), db: Session = Depends(get_db), user=Depen
 def _resolve_file_path(db: Session, user_id: str, path: str = None, file_id: str = None) -> tuple[str, FileModel]:
     """Resolve a file reference to (path, FileModel). Accepts file_id (preferred,
     opaque UUID) or path (legacy). Used by preview/download endpoints so the
-    real path never needs to be sent from the browser."""
+    real path never needs to be sent from the browser. 仅解析活跃文件（回收站文件不可预览/下载）。"""
     if file_id:
-        f = db.query(FileModel).filter_by(owner_id=user_id, id=file_id).first()
+        f = db.query(FileModel).filter(
+            FileModel.owner_id == user_id, FileModel.id == file_id,
+            FileModel.deleted_at.is_(None),
+        ).first()
         if not f:
             raise HTTPException(404, "文件不存在")
         return f.path, f
     if path:
-        f = db.query(FileModel).filter_by(owner_id=user_id, path=path).first()
+        f = db.query(FileModel).filter(
+            FileModel.owner_id == user_id, FileModel.path == path,
+            FileModel.deleted_at.is_(None),
+        ).first()
+        if not f:
+            raise HTTPException(404, "文件不存在")
         return path, f
     raise HTTPException(400, "需要提供 path 或 file_id")
 
@@ -698,15 +746,28 @@ def preview_text(path: str = Query(None), file_id: str = Query(None), db: Sessio
 
 @router.delete("")
 def delete_file(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
-    storage.delete_file(user.id, path)
-    indexer.remove_from_index(user.id, path)
-    if f:
-        db.delete(f)
-    db.add(SyncEvent(user_id=user.id, file_name=path, direction="delete", status="completed"))
-    db.add(AccessLog(user_id=user.id, action="file_delete", detail=path))
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == path,
+        FileModel.deleted_at.is_(None),
+    ).first()
+    if not f:
+        raise HTTPException(404, "文件不存在")
+    # 软删除：设 deleted_at，从语义索引移除，但保留物理文件与 DB 记录（回收站保留期内可恢复）
+    f.deleted_at = datetime.utcnow()
+    # 记录删除时所在目录,恢复时优先归位到此目录(而非根目录)
+    try:
+        parent = str(Path(path).parent)
+        f.original_dir = parent if parent != "." else ""
+    except Exception:
+        pass
+    try:
+        indexer.remove_from_index(user.id, path)
+    except Exception:
+        pass
+    db.add(SyncEvent(user_id=user.id, file_name=path, direction="delete", status="completed", detail="soft_delete"))
+    db.add(AccessLog(user_id=user.id, action="file_soft_delete", detail=path))
     db.commit()
-    return {"message": f"已删除 {path}"}
+    return {"message": f"已移入回收站 {path}", "file_id": f.id}
 
 
 # ---- 分组管理 ----
@@ -789,7 +850,10 @@ def move_to_group(
     user=Depends(get_current_user),
 ):
     """将文件移入（或移出，group_id 为空时移出）分组。"""
-    f = db.query(FileModel).filter_by(owner_id=user.id, path=path).first()
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == path,
+        FileModel.deleted_at.is_(None),
+    ).first()
     if not f:
         raise HTTPException(404, "文件不存在")
     if group_id:
@@ -838,6 +902,7 @@ def get_backlinks(
 
     notes = db.query(FileModel).filter(
         FileModel.owner_id == user.id, FileModel.source == "note",
+        FileModel.deleted_at.is_(None),
     ).all()
     backlinks = []
     for f in notes:
@@ -887,6 +952,7 @@ def resolve_wikilink(
     exact = db.query(FileModel).filter(
         FileModel.owner_id == user.id,
         FileModel.source == "note",
+        FileModel.deleted_at.is_(None),
     ).all()
     for f in exact:
         stem = Path(f.name).stem
@@ -902,7 +968,9 @@ def resolve_wikilink(
 
 @router.get("/stats")
 def storage_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    files = db.query(FileModel).filter_by(owner_id=user.id).all()
+    files = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.deleted_at.is_(None),
+    ).all()
     total_size = sum(f.size for f in files)
 
     return {
@@ -928,7 +996,9 @@ def export_files(
     user=Depends(get_current_user),
 ):
     """批量导出文件为 ZIP（笔记保留 .md 格式，其他文件原样打包）。"""
-    query = db.query(FileModel).filter(FileModel.owner_id == user.id)
+    query = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.deleted_at.is_(None),
+    )
     if group_id:
         query = query.filter(FileModel.group_id == group_id)
     files = query.all()
@@ -963,7 +1033,8 @@ def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
     matched = {}
     # 1) 文件名匹配
     name_hits = db.query(FileModel).filter(
-        FileModel.owner_id == user_id, FileModel.name.ilike(f"%{q}%")
+        FileModel.owner_id == user_id, FileModel.name.ilike(f"%{q}%"),
+        FileModel.deleted_at.is_(None),
     ).limit(limit * 2).all()
     for f in name_hits:
         matched[f.id] = {
@@ -974,6 +1045,7 @@ def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
     text_files = db.query(FileModel).filter(
         FileModel.owner_id == user_id,
         FileModel.source == "note",
+        FileModel.deleted_at.is_(None),
     ).limit(200).all()
     for f in text_files:
         if f.id in matched:
@@ -1000,3 +1072,376 @@ def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
             "score": 0.8, "snippet": snippet,
         }
     return list(matched.values())[:limit]
+
+
+# ================== 回收站 ==================
+
+
+def _purge_expired(db: Session, user_id: str, retention_days: int) -> int:
+    """物理清除某用户超过保留期的回收站文件。返回清除条数。
+
+    已锁存(locked_at 非空)的文件一律跳过——用户主动保护的文件不受自动清理影响。
+    """
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    expired = db.query(FileModel).filter(
+        FileModel.owner_id == user_id,
+        FileModel.deleted_at.isnot(None),
+        FileModel.deleted_at <= cutoff,
+        FileModel.locked_at.is_(None),
+    ).all()
+    purged = 0
+    for f in expired:
+        storage.delete_file(user_id, f.path)
+        try:
+            indexer.remove_from_index(user_id, f.path)
+        except Exception:
+            pass
+        db.delete(f)
+        purged += 1
+    if purged:
+        db.add(AccessLog(user_id=user_id, action="file_purge", detail=f"回收站过期清理 {purged} 个文件"))
+        db.commit()
+    return purged
+
+
+@router.get("/trash")
+def trash_list(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """列出当前用户回收站中的文件，按删除时间倒序。"""
+    rows = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.deleted_at.isnot(None),
+    ).order_by(FileModel.deleted_at.desc()).all()
+    group_map = {}
+    for grp in db.query(FileGroup).filter_by(owner_id=user.id).all():
+        group_map[grp.id] = grp.name
+    retention_days = get_trash_retention_days(db)
+    now = datetime.utcnow()
+    items = []
+    for f in rows:
+        remaining = retention_days - (now - f.deleted_at).total_seconds() / 86400
+        items.append({
+            "file_id": f.id, "name": f.name, "path": f.path, "size": f.size,
+            "mime_type": f.mime_type or "application/octet-stream",
+            "source": f.source or "manual",
+            "group_id": f.group_id or "",
+            "group_name": group_map.get(f.group_id, "") if f.group_id else "",
+            "deleted_at": f.deleted_at.isoformat(),
+            "remaining_days": round(max(remaining, 0), 2),
+            "locked": bool(f.locked_at),
+            "original_dir": f.original_dir or "",
+        })
+    return {"items": items, "retention_days": retention_days, "total": len(items)}
+
+
+@router.get("/trash/stats")
+def trash_stats(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """当前用户回收站统计：文件数、占用空间、锁存数、24 小时内将过期数。"""
+    rows = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.deleted_at.isnot(None),
+    ).all()
+    retention_days = get_trash_retention_days(db)
+    now = datetime.utcnow()
+    expire_24h_cutoff = now + timedelta(hours=24)
+    locked_count = 0
+    will_expire_soon = 0
+    for f in rows:
+        if f.locked_at:
+            locked_count += 1
+        elif f.deleted_at + timedelta(days=retention_days) <= expire_24h_cutoff:
+            will_expire_soon += 1
+    return {
+        "total": len(rows),
+        "total_size": sum(f.size for f in rows),
+        "locked_count": locked_count,
+        "will_expire_24h": will_expire_soon,
+    }
+
+
+@router.post("/trash/restore")
+def trash_restore(file_id: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """恢复回收站中的文件至原位置。原路径被占用时自动重命名。"""
+    data = restore_trash_file_core(db, user.id, file_id=file_id)
+    if "error" in data:
+        raise HTTPException(404 if "不存在" in data["error"] or "为空" in data["error"] else 400, data["error"])
+    db.commit()
+    return data
+
+
+def restore_trash_file_core(db: Session, user_id: str, file_id: str = "", file_path: str = "") -> dict:
+    """恢复回收站文件的核心逻辑（供 API 端点与 Agent 工具复用）。
+
+    返回 dict：成功时含 message/path/file_id/renamed；失败时含 error（中文友好描述）。
+    调用方负责 commit。
+    """
+    from ..db.models import User as _User
+    f = None
+    if file_id:
+        f = db.query(FileModel).filter(
+            FileModel.owner_id == user_id, FileModel.id == file_id, FileModel.deleted_at.isnot(None),
+        ).first()
+    elif file_path:
+        f = db.query(FileModel).filter(
+            FileModel.owner_id == user_id, FileModel.path == file_path, FileModel.deleted_at.isnot(None),
+        ).first()
+    if not f:
+        rows = db.query(FileModel).filter(
+            FileModel.owner_id == user_id, FileModel.deleted_at.isnot(None),
+        ).order_by(FileModel.deleted_at.desc()).limit(10).all()
+        if not rows:
+            return {"error": "回收站为空，没有可恢复的文件"}
+        hint = ", ".join(r.path for r in rows[:5])
+        return {"error": "回收站中未找到该文件", "trash_preview": hint}
+
+    # 配额检查
+    user_obj = db.query(_User).filter_by(id=user_id).first()
+    if not user_obj:
+        raise HTTPException(404, "用户不存在")
+    try:
+        _check_quota(db, user_obj, f.size)
+    except HTTPException as e:
+        return {"error": e.detail}
+
+    original_path = f.path
+    # 恢复目标路径:优先归位到删除时所在目录(original_dir),否则回到原路径
+    restore_dir = (f.original_dir or "").strip()
+    target_name = Path(original_path).name
+    target_path = f"{restore_dir}/{target_name}" if restore_dir else original_path
+    # 若目标路径已被占用(或 original_dir 未记录时回退到原路径仍被占),自动重命名
+    if db.query(FileModel).filter(
+        FileModel.owner_id == user_id, FileModel.path == target_path, FileModel.deleted_at.is_(None),
+    ).first():
+        p = Path(target_path)
+        stem, suffix = p.stem, p.suffix
+        parent = str(p.parent) if str(p.parent) != "." else ""
+        for i in range(1, 100):
+            cand = f"{stem} (恢复){suffix}" if i == 1 else f"{stem} (恢复 {i}){suffix}"
+            new_path = f"{parent}/{cand}" if parent else cand
+            if not db.query(FileModel).filter(
+                FileModel.owner_id == user_id, FileModel.path == new_path, FileModel.deleted_at.is_(None),
+            ).first():
+                target_path = new_path
+                break
+        else:
+            return {"error": "原路径附近同名文件过多，请手动清理后重试"}
+
+    f.path = target_path
+    f.name = Path(target_path).name
+    f.deleted_at = None
+    f.modified_at = datetime.utcnow()
+
+    try:
+        indexer.index_file(user_id, f.id, target_path)
+    except Exception:
+        pass
+
+    db.add(AccessLog(user_id=user_id, action="file_restore", detail=f"{f.path}{' (重命名)' if target_path != original_path else ''}"))
+    return {"message": "已恢复", "path": f.path, "file_id": f.id, "renamed": target_path != original_path}
+
+
+@router.delete("/trash")
+def trash_purge_one(file_id: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """彻底删除回收站中的单个文件（物理清除，不可恢复）。"""
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.id == file_id, FileModel.deleted_at.isnot(None),
+    ).first()
+    if not f:
+        raise HTTPException(404, "回收站中不存在该文件")
+    storage.delete_file(user.id, f.path)
+    try:
+        indexer.remove_from_index(user.id, f.path)
+    except Exception:
+        pass
+    db.delete(f)
+    db.add(AccessLog(user_id=user.id, action="file_purge", detail=f"彻底删除 {f.path}"))
+    db.commit()
+    return {"message": "已彻底删除", "file_id": file_id}
+
+
+@router.post("/trash/purge")
+def trash_purge_expired(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """机会性清理当前用户过期的回收站文件（可在读时调用）。返回清理数。"""
+    retention_days = get_trash_retention_days(db)
+    purged = _purge_expired(db, user.id, retention_days)
+    return {"purged": purged, "retention_days": retention_days}
+
+
+# ---- 回收站增强：锁存 / 批量 / 只读预览 / 清空确认 ----
+
+def _get_trash_file(db: Session, user_id: str, file_id: str) -> FileModel:
+    """取当前用户回收站内单个文件,不存在则 404。所有回收站操作共用此入口,守隔离。"""
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user_id, FileModel.id == file_id,
+        FileModel.deleted_at.isnot(None),
+    ).first()
+    if not f:
+        raise HTTPException(404, "回收站中不存在该文件")
+    return f
+
+
+@router.get("/trash/preview")
+def trash_preview(file_id: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """回收站内只读预览(图片/视频/音频/PDF/文本)。
+
+    与普通预览两点差异：
+    1. 以 file_id 在回收站命名空间定位(用 _get_trash_file),而非活跃文件;
+    2. HTML/SVG/XML 等可执行类型仍按 _UNSAFE_PREVIEW_TYPES 禁止(防存储型 XSS)。
+    """
+    f = _get_trash_file(db, user.id, file_id)
+    try:
+        p = storage.read_file(user.id, f.path)
+    except FileNotFoundError:
+        raise HTTPException(404, "物理文件已不存在")
+    media_type = f.mime_type or mimetypes.guess_type(str(p))[0] or "application/octet-stream"
+    if media_type in _UNSAFE_PREVIEW_TYPES:
+        raise HTTPException(415, "此类型不支持浏览器预览")
+    db.add(AccessLog(user_id=user.id, action="file_preview", detail=f"[trash] {f.path}"))
+    db.commit()
+    return FileResponse(path=str(p), media_type=media_type, headers=_NO_STORE)
+
+
+class TrashLockRequest(BaseModel):
+    file_id: str
+    locked: bool
+
+
+@router.post("/trash/lock")
+def trash_lock(req: TrashLockRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """锁存/解锁回收站中的单个文件。
+
+    锁存 = 跳出自动清理(手动保护),直到用户解锁。
+    单用户锁存上限 DEFAULT_TRASH_LOCK_LIMIT(默认 200),超出应先解锁部分。
+    """
+    f = _get_trash_file(db, user.id, req.file_id)
+    now_locked = bool(f.locked_at)
+    if req.locked and not now_locked:
+        # 上限校验(不包含本次)
+        cur_locked = db.query(FileModel).filter(
+            FileModel.owner_id == user.id, FileModel.deleted_at.isnot(None),
+            FileModel.locked_at.isnot(None),
+        ).count()
+        if cur_locked >= DEFAULT_TRASH_LOCK_LIMIT:
+            raise HTTPException(409, f"锁存数已达上限 {DEFAULT_TRASH_LOCK_LIMIT},请先解锁部分文件")
+        f.locked_at = datetime.utcnow()
+        db.add(AccessLog(user_id=user.id, action="file_lock", detail=f.path))
+        db.commit()
+    elif not req.locked and now_locked:
+        f.locked_at = None
+        db.add(AccessLog(user_id=user.id, action="file_unlock", detail=f.path))
+        db.commit()
+    return {"file_id": f.id, "locked": bool(f.locked_at)}
+
+
+class TrashBatchRequest(BaseModel):
+    file_ids: list[str]
+
+
+@router.post("/trash/restore-batch")
+def trash_restore_batch(req: TrashBatchRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """批量恢复回收站文件。逐项执行,部分失败不回滚已成功的项。
+
+    返回每项回执(results)与成功/跳过的汇总(counts)。
+    """
+    if not req.file_ids or len(req.file_ids) > 200:
+        raise HTTPException(400, "file_ids 数量需在 1..200 之间")
+    results = []
+    ok = 0
+    for fid in req.file_ids:
+        data = restore_trash_file_core(db, user.id, file_id=fid)
+        if "error" in data:
+            results.append({"file_id": fid, "ok": False, "error": data["error"]})
+        else:
+            ok += 1
+            results.append({**data, "file_id": fid, "ok": True})
+    if ok:
+        db.add(AccessLog(user_id=user.id, action="file_batch_restore", detail=f"批量恢复 {ok}/{len(req.file_ids)} 个文件"))
+        db.commit()
+    return {
+        "results": results,
+        "succeeded": ok,
+        "failed": len(req.file_ids) - ok,
+        "total": len(req.file_ids),
+    }
+
+
+@router.post("/trash/purge-batch")
+def trash_purge_batch(req: TrashBatchRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """批量彻底删除(物理清除)。已锁存文件一律跳过,不报错但体现在结果中。"""
+    if not req.file_ids or len(req.file_ids) > 200:
+        raise HTTPException(400, "file_ids 数量需在 1..200 之间")
+    results = []
+    purged = 0
+    skipped_locked = 0
+    for fid in req.file_ids:
+        f = db.query(FileModel).filter(
+            FileModel.owner_id == user.id, FileModel.id == fid,
+            FileModel.deleted_at.isnot(None),
+        ).first()
+        if not f:
+            results.append({"file_id": fid, "ok": False, "error": "不存在"})
+            continue
+        if f.locked_at:
+            skipped_locked += 1
+            results.append({"file_id": fid, "ok": False, "skipped": True, "error": "已锁存,跳过"})
+            continue
+        storage.delete_file(user.id, f.path)
+        try:
+            indexer.remove_from_index(user.id, f.path)
+        except Exception:
+            pass
+        db.delete(f)
+        purged += 1
+        results.append({"file_id": fid, "ok": True})
+    if purged:
+        db.add(AccessLog(user_id=user.id, action="file_batch_purge", detail=f"批量彻底删除 {purged} 个文件"))
+        db.commit()
+    return {"results": results, "succeeded": purged, "skipped_locked": skipped_locked, "total": len(req.file_ids)}
+
+
+CONFIRM_EMPTY_TOKEN = "永久删除"
+
+
+@router.delete("/trash/all")
+def trash_empty_legacy(confirm: str = Query(""), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """兼容旧版前端 / 测试的清空回收站端点。需传 confirm="永久删除"。
+
+    DELETE 带 body 在部分客户端支持不一,故旧路径改用 Query 参数 confirm;
+    新前端推荐使用 POST /trash/empty (JSON body)。
+    """
+    if confirm != CONFIRM_EMPTY_TOKEN:
+        raise HTTPException(400, f"清空回收站需携带 confirm=\"{CONFIRM_EMPTY_TOKEN}\"")
+    return _do_trash_empty(db, user.id)
+
+
+def _do_trash_empty(db: Session, user_id: str) -> dict:
+    """清空回收站的实际逻辑(POST /trash/empty 与 DELETE /trash/all 共用)。"""
+    rows = db.query(FileModel).filter(
+        FileModel.owner_id == user_id, FileModel.deleted_at.isnot(None),
+    ).all()
+    count = 0
+    locked_skipped = 0
+    for f in rows:
+        if f.locked_at:
+            locked_skipped += 1
+            continue
+        storage.delete_file(user_id, f.path)
+        try:
+            indexer.remove_from_index(user_id, f.path)
+        except Exception:
+            pass
+        db.delete(f)
+        count += 1
+    if count:
+        db.add(AccessLog(user_id=user_id, action="file_trash_empty", detail=f"清空回收站 {count} 个文件(跳过锁存 {locked_skipped})"))
+        db.commit()
+    return {
+        "message": f"已清空回收站（{count} 个文件）",
+        "count": count,
+        "locked_skipped": locked_skipped,
+    }
+
+
+@router.post("/trash/empty")
+def trash_empty_confirm(confirm: str = Body("", embed=True), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """清空回收站的安全端点。必须传 JSON body {"confirm":"永久删除"}。embed=True 让 FastAPI 从 {"confirm":"..."} 取值。"""
+    if confirm != CONFIRM_EMPTY_TOKEN:
+        raise HTTPException(400, f"清空回收站需携带 confirm=\"{CONFIRM_EMPTY_TOKEN}\"")
+    return _do_trash_empty(db, user.id)
