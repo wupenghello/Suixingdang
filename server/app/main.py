@@ -97,11 +97,31 @@ WEB_DIR = Path(__file__).parent / "web"
 
 if WEB_DIR.exists():
     app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
+    # 落地页样式独立于 app.css，避免缓存耦合
+    _landing_css = WEB_DIR / "landing.css"
+    if _landing_css.exists():
+        @app.get("/landing.css")
+        def landing_css():
+            return FileResponse(str(_landing_css), media_type="text/css")
+
+    # 独立落地页：未登录用户的产品介绍页，与应用壳解耦
+    _landing_html = WEB_DIR / "landing.html"
+
+    @app.get("/welcome")
+    def welcome():
+        if _landing_html.exists():
+            return FileResponse(str(_landing_html))
+        return {"detail": "Landing page not built."}
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
         if full_path.startswith("api/"):
             return {"detail": "Not Found"}
+        # 落地页独立访问入口
+        if full_path == "welcome":
+            if _landing_html.exists():
+                return FileResponse(str(_landing_html))
+            return {"detail": "Landing page not built."}
         # 扫描器常探的敏感路径直接 404,不返回 SPA index.html(否则会被当 200 命中)
         if is_sensitive_path(full_path):
             raise HTTPException(status_code=404, detail="Not Found")

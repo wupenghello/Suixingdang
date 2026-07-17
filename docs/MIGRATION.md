@@ -23,11 +23,12 @@
 
 | 内容 | 容器内路径 | 主机路径（`DATA_DIR=/data/suixingdang` 时） | 作用 |
 |------|------|------|------|
-| SQLite 数据库 | `/data/db.sqlite` | `/data/suixingdang/db.sqlite` | **账户资料全在这**：用户名、bcrypt 密码哈希、TOTP 双因子密钥、设备令牌、文件元数据、聊天记录、审计日志、存储配额、加密后的 LLM API Key |
-| 用户文件本体 | `/data/files/<user_id>/` | `/data/suixingdang/files/<user_id>/` | 上传的所有文件，按用户分目录隔离 |
+| SQLite 数据库 | `/data/db.sqlite` | `/data/suixingdang/db.sqlite` | **账户资料全在这**：用户名、bcrypt 密码哈希、TOTP 双因子密钥、设备令牌、文件元数据、聊天记录、审计日志、存储配额、加密后的 LLM API Key、脱敏映射（`mask_mappings`） |
+| 用户文件本体 | `/data/files/<user_id>/` | `/data/suixingdang/files/<user_id>/` | 上传的所有文件 + 笔记（`.md`/`.txt`），按用户分目录隔离 |
 | Chroma 向量库 | `/data/chroma/` | `/data/suixingdang/chroma/` | 语义搜索的向量索引，按用户分集合 |
+| 备份（可选） | `/data/backups/` | `/data/suixingdang/backups/` | `scripts/backup.sh` 生成的 SQLite 备份（若启用） |
 
-> 容器内 `/data` 即主机 `${DATA_DIR}` 的挂载点（见 `docker-compose.yml`）。**只要整棵 `DATA_DIR` 一起搬，这三类数据自动全部覆盖**，无需关心内部路径。
+> 容器内 `/data` 即主机 `${DATA_DIR}` 的挂载点（见 `docker-compose.yml`）。**只要整棵 `DATA_DIR` 一起搬，这几类数据自动全部覆盖**，无需关心内部路径。
 
 ---
 
@@ -88,23 +89,31 @@ gpg -d ~/suixingdang-data.tar.gz.gpg | sudo tar xzf - -C /data
 sudo ls -la /data/suixingdang/
 ```
 
-> 镜像默认以 root 运行（见 [Dockerfile](../server/Dockerfile)），数据目录属主即 root，通常无需额外调整。
+> 镜像默认以非 root 运行（见 [Dockerfile](../server/Dockerfile) `appuser`），数据目录属主通常无需额外调整；若启动报权限错，`chown -R 1000:1000 /data/suixingdang` 一般可解。
 
-### 5. 新服务器：拉代码、放 `.env`、起服务
+### 5. 新服务器：放 `.env`、起服务
 
 ```bash
-git clone https://github.com/wupenghello/Suixingdang.git && cd Suixingdang
+# 用 install.sh 一键部署（推荐，会自动下载 compose/Caddyfile、复用已有 .env）
+curl -fsSL https://raw.githubusercontent.com/wupenghello/Suixingdang/main/install.sh | bash
+# 脚本检测到已有 .env 会复用配置直接启动，不会重新生成密钥
 
-# 用从旧服务器搬来的、含原始密钥的 .env（切勿用 .env.example 重新生成密钥！）
+# 或手动：git clone 后放 .env 启动
+git clone https://github.com/wupenghello/Suixingdang.git && cd Suixingdang
 cp ~/.env .env
 chmod 600 .env
-
 docker compose up -d --build
 ```
+
+> ⚠️ 用从旧服务器搬来的、含原始密钥的 `.env`（切勿用 `.env.example` 重新生成密钥！否则 JWT 全部失效、API Key 解不开）。
 
 ### 6. DNS 切换
 
 把域名的 A 记录指向新服务器 IP。DNS 生效后，Caddy 会自动在新机器上签发 HTTPS 证书。
+
+### 7. （可选）GeoIP 数据库
+
+若旧服务器配置了 `GEOIP_DB_PATH`（MaxMind GeoLite2-City.mmdb），把该文件一同搬到新服务器相同路径，保持 `.env` 中 `GEOIP_DB_PATH` 指向一致。
 
 ---
 
