@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#F7F8FA">
+  <title>随行档 — 私人文件中枢 · 零痕迹 · 即问即得 · 懂你的文件</title>
+  <meta name="description" content="随行档是自托管的私人文件中枢。浏览器打开即用，文件加密归档、一句话语义检索、AI 直接作答；公司电脑只看不留，离职一键吊销，如同从未存在。">
+  <meta property="og:title" content="随行档 — 私人文件中枢">
+  <meta property="og:description" content="自托管、加密归档、零痕迹。浏览器打开即用，文件加密归档、一句话检索、AI 直接回答。用完关页，这台电脑上什么都没留下。">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/landing.css">
+</head>
+<body class="sx-landing">
+  <!-- ============ Top bar ============ -->
+  <header class="sx-bar">
+    <a class="sx-brand" href="#top" title="随行档">
+      <span class="sx-mark">档</span>
+      <span class="sx-brand-meta"><span class="sx-brand-name">随行档</span><span class="sx-brand-sub">私人文件中枢</span></span>
+    </a>
+    <nav class="sx-bar-nav" aria-label="导航">
+      <a href="#features">功能</a>
+      <a href="#how">场景</a>
+      <a href="#security">安全</a>
+      <a href="#start">开始</a>
+    </nav>
+    <div class="sx-bar-cta">
+      <a class="sx-link" href="/app">登录</a>
+      <a class="sx-link sx-link--solid" href="#start">免费部署</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- ============ Hero ============ -->
+    <section class="sx-hero">
+      <div class="sx-hero-inner">
+        <span class="sx-pill">自托管 · 加密归档 · 零痕迹</span>
+        <h1>把所有文件，装进<br>只对你<span class="sx-accent">显影</span>的档案室。</h1>
+        <p class="sx-hero-lead">不想在公司电脑装网盘客户端，又需要随时取文件。随行档长在你自己的服务器上——浏览器打开就能用，文件加密归档、一句话检索、AI 直接回答。用完关页，这台电脑上什么都没留下。</p>
+        <div class="sx-hero-cta">
+          <a class="sx-btn" href="#start">免费部署 <span class="sx-arrow">→</span></a>
+          <a class="sx-btn sx-btn--ghost" href="#features">了解功能</a>
+        </div>
+
+        <!-- App mockup -->
+        <div class="sx-mockup" aria-hidden="true">
+          <div class="sx-mockup-bar"><span class="sx-mockup-dot"></span><span class="sx-mockup-dot"></span><span class="sx-mockup-dot"></span></div>
+          <div class="sx-mockup-body">
+            <aside class="sx-mockup-side">
+              <div class="sx-mockup-sideh">档案室</div>
+              <div class="sx-mockup-item is-active">全部文件</div>
+              <div class="sx-mockup-item">工作</div>
+              <div class="sx-mockup-item">证件</div>
+              <div class="sx-mockup-item">笔记</div>
+            </aside>
+            <div class="sx-mockup-main">
+              <div class="sx-mockup-q">上个月哪份报价最高？</div>
+              <div class="sx-mockup-a">在已归档文件中，<strong>报价单_2026Q2.xlsx</strong> 金额最高，为 ¥182,400。</div>
+              <div class="sx-mockup-files">
+                <span class="sx-mockup-chip">报价单_2026Q2.xlsx</span>
+                <span class="sx-mockup-chip">合同_甲方.pdf</span>
+                <span class="sx-mockup-chip">身份证.jpg</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 三条差异化 ============ -->
+    <section class="sx-section sx-section--tint" id="features">
+      <div class="sx-container">
+        <div class="sx-head">
+          <h2>三条差异化，撑起「随行」两个字</h2>
+          <p>零痕迹、即问即得、懂你的文件——三者缺一不可。</p>
+        </div>
+        <div class="sx-diff">
+          <div class="sx-diff-card">
+            <div class="sx-diff-num">01</div>
+            <h3>零痕迹</h3>
+            <p>公司电脑默认不下载文件，只在线预览，关页即失。离职一键吊销令牌，服务端即刻切断访问，如同从未存在。</p>
+            <ul class="sx-diff-list">
+              <li>浏览器默认禁下载，需验证密码才开启临时窗口</li>
+              <li>在线预览强制 no-store，不进磁盘缓存</li>
+              <li>HTML / SVG 等可执行类型禁止浏览器预览</li>
+              <li>吊销令牌 + 密码版本号 bump，旧凭证立即失效</li>
+            </ul>
+          </div>
+          <div class="sx-diff-card">
+            <div class="sx-diff-num">02</div>
+            <h3>即问即得</h3>
+            <p>不用翻文件夹，用自然语言告诉 Agent 意图，它找到文件、传好、通知你。</p>
+            <ul class="sx-diff-list">
+              <li>语义检索：搜"上季度报价"按内容匹配</li>
+              <li>AI 问答：问"尾款什么时候付"，Agent 在文件里找答案</li>
+              <li>支持 Word / Excel / PDF / PPT 内容提取</li>
+              <li>语义搜索失败自动回退关键词搜索，不掉链子</li>
+            </ul>
+          </div>
+          <div class="sx-diff-card">
+            <div class="sx-diff-num">03</div>
+            <h3>懂你的文件</h3>
+            <p>Agent 索引过文件名和内容，能分类、能提醒、能建议。</p>
+            <ul class="sx-diff-list">
+              <li>智能同步建议：基于修改时间推断该推送到哪</li>
+              <li>离职清理助手：设备令牌审计 + 敏感文件清单</li>
+              <li>清理建议：找出长期未用的文件</li>
+              <li>笔记双向链接：<code>[[wiki link]]</code> 语法串联知识</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 功能矩阵 ============ -->
+    <section class="sx-section">
+      <div class="sx-container">
+        <div class="sx-head">
+          <h2>一处档案室，替你收拢散落的文件</h2>
+          <p>加密归档、语义检索、AI 作答、敏感预警。文件从家里、从手机、从各个角落汇到一处，只对你开放。</p>
+        </div>
+        <div class="sx-bento">
+          <div class="sx-cell sx-cell--wide sx-cell--tint">
+            <div class="sx-cell-ico">🔍</div>
+            <h3>语义检索</h3>
+            <p>不用记文件名。搜"甲方合同条款"、"体检结论"，按内容匹配。Word、Excel、PDF、PPT 都能读。</p>
+          </div>
+          <div class="sx-cell">
+            <div class="sx-cell-ico">💬</div>
+            <h3>AI 对话</h3>
+            <p>问"尾款什么时候付"、"合同到期了吗"，Agent 在你的文件里找答案再回答，不用自己翻。</p>
+          </div>
+          <div class="sx-cell">
+            <div class="sx-cell-ico">🔄</div>
+            <h3>多端同步</h3>
+            <p>家里守护进程盯着文件夹，新增即加密上传；公司用浏览器，不装任何客户端。</p>
+          </div>
+          <div class="sx-cell">
+            <div class="sx-cell-ico">📝</div>
+            <h3>笔记 & 双向链接</h3>
+            <p>直接写 Markdown 笔记，<code>[[wiki link]]</code> 串联知识，反向链接自动聚合。</p>
+          </div>
+          <div class="sx-cell">
+            <div class="sx-cell-ico">📁</div>
+            <h3>分组 & 标签</h3>
+            <p>自定义分组、人工标签 + AI 建议标签、置顶收藏，文件再多也不乱。</p>
+          </div>
+          <div class="sx-cell">
+            <div class="sx-cell-ico">🗑️</div>
+            <h3>回收站</h3>
+            <p>软删除 + 可配置保留期 + 锁存跳出清理 + 批量恢复 / 删除 + 清空确认词防误操作。</p>
+          </div>
+          <div class="sx-cell">
+            <div class="sx-cell-ico">📨</div>
+            <h3>传输助手</h3>
+            <p>文字便签 + 文件自动入库，统一时间线，类微信文件传输助手。</p>
+          </div>
+          <div class="sx-cell">
+            <div class="sx-cell-ico">📦</div>
+            <h3>批量导出</h3>
+            <p>按分组或全部一键导出 ZIP，content_hash 自动去重，相同内容不重复存储。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 场景 ============ -->
+    <section class="sx-section sx-section--tint" id="how">
+      <div class="sx-container">
+        <div class="sx-head">
+          <h2>三种人，一种用法</h2>
+          <p>家里端、公司端、管理员——三端不对称，各取所需。</p>
+        </div>
+        <div class="sx-scenes">
+          <div class="sx-scene">
+            <div class="sx-scene-tag">家里</div>
+            <h3>装软件、完全拥有</h3>
+            <p>轻量守护进程监听文件夹，新增 / 修改 / 删除自动双向同步到服务器。冲突检测 + <code>.conflict</code> 副本，绝不静默覆盖。</p>
+          </div>
+          <div class="sx-scene">
+            <div class="sx-scene-tag">公司</div>
+            <h3>零安装、只看不留</h3>
+            <p>打开浏览器，登录域名找文件 / 对话 / 在线预览。默认禁止下载（需临时窗口），没有客户端、配置文件或同步缓存。</p>
+          </div>
+          <div class="sx-scene">
+            <div class="sx-scene-tag">管理员</div>
+            <h3>独立后台、全量管控</h3>
+            <p>用户 CRUD、配额 / 状态管理、设备令牌吊销、大模型配置、系统设置运行时调整、审计日志全量记录。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 安全 ============ -->
+    <section class="sx-section" id="security">
+      <div class="sx-container">
+        <div class="sx-head">
+          <h2>安全是 DNA，不是附加功能</h2>
+          <p>零痕迹、三重隔离、PII 服务端脱敏、全量审计——每一层都不可或缺。</p>
+        </div>
+        <div class="sx-sec-grid">
+          <div class="sx-sec-item">
+            <h3>🔐 加密归档</h3>
+            <p>文件加密存储；LLM API Key 以 Fernet（HKDF 派生）加密入库，运行时按需解密。</p>
+          </div>
+          <div class="sx-sec-item">
+            <h3>🧅 三重隔离</h3>
+            <p>存储按 user_id 分目录、DB 查询带 owner_id 过滤、向量库按用户独立集合。</p>
+          </div>
+          <div class="sx-sec-item">
+            <h3>🎭 PII 脱敏</h3>
+            <p>AI 回复中的身份证 / 手机号 / 邮箱 / API Key / 银行卡自动遮罩，真实值不落前端。</p>
+          </div>
+          <div class="sx-sec-item">
+            <h3>🛡️ Guard 检测</h3>
+            <p>同步 / 上传前扫描文件名与内容，凭据类硬拦、隐私类告警，方向感知。</p>
+          </div>
+          <div class="sx-sec-item">
+            <h3>📜 全量审计</h3>
+            <p>登录 / 文件操作 / 管理操作 / 限流锁定 / 下载授权全量记录，含真实客户端 IP。</p>
+          </div>
+          <div class="sx-sec-item">
+            <h3>🔒 认证授权</h3>
+            <p>bcrypt + JWT access/refresh 分离 + TOTP 双因子 + 可吊销设备令牌 + 登录限流。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 部署 ============ -->
+    <section class="sx-section sx-section--tint" id="start">
+      <div class="sx-container">
+        <div class="sx-head">
+          <h2>一键部署，长在你自己的服务器上</h2>
+          <p>一行命令，自动下载配置、生成密钥、拉镜像启动。无需 clone 源码。</p>
+        </div>
+        <div class="sx-deploy">
+          <div class="sx-deploy-card">
+            <div class="sx-deploy-step">1</div>
+            <h3>一键脚本</h3>
+            <pre><code>curl -fsSL https://raw.githubusercontent.com/wupenghello/Suixingdang/main/install.sh | bash</code></pre>
+            <p>脚本交互式收集域名与密码，自动生成三把独立密钥，写 <code>.env</code>（权限 600），拉镜像启动。</p>
+          </div>
+          <div class="sx-deploy-card">
+            <div class="sx-deploy-step">2</div>
+            <h3>登录配置</h3>
+            <pre><code># 打开 https://你的域名/admin
+# 账号 admin（密码见 .env）
+# 在「大模型配置」页添加 DeepSeek / OpenAI API Key</code></pre>
+            <p>管理员在后台添加大模型并分配给用户，即可使用 AI 对话、语义检索、内容摘要等能力。</p>
+          </div>
+          <div class="sx-deploy-card">
+            <div class="sx-deploy-step">3</div>
+            <h3>开始使用</h3>
+            <pre><code># 用户端：https://你的域名
+# 家里守护进程：创建设备令牌后配置
+# 公司端：浏览器打开即用，零安装</code></pre>
+            <p>多账户、多设备、三端不对称——家里同步、公司只看不留、管理员全量管控。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CTA band ============ -->
+    <section class="sx-band">
+      <div class="sx-band-inner">
+        <h2>把文件，装进只对你显影的档案室。</h2>
+        <p>自托管、加密归档、零痕迹。浏览器打开即用。</p>
+        <div class="sx-band-cta">
+          <a class="sx-btn sx-btn--lg" href="#start">免费部署 <span class="sx-arrow">→</span></a>
+          <a class="sx-btn sx-btn--ghost sx-btn--lg" href="/app">登录</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ Footer ============ -->
+  <footer class="sx-foot">
+    <div class="sx-foot-inner">
+      <div class="sx-foot-brand">
+        <span class="sx-mark">档</span>
+        <span>随行档 · 私人文件中枢</span>
+      </div>
+      <nav class="sx-foot-nav">
+        <a href="#features">功能</a>
+        <a href="#how">场景</a>
+        <a href="#security">安全</a>
+        <a href="#start">部署</a>
+        <a href="/app">登录</a>
+      </nav>
+      <p class="sx-foot-copy">© 2026 随行档 Suixingdang · 自托管、加密归档、零痕迹 <span class="sx-foot-version">v2.0.0</span></p>
+    </div>
+  </footer>
+</body>
+</html>

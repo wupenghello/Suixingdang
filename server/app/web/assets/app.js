@@ -34,14 +34,16 @@ const API = {
       const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
       if (refreshRes.ok) {
         res = await fetch(url, { ...options, headers });
-      } else {
-        App.logout();  // refresh 也失效：清 cookie 并回落地页（同步渲染）
-        return res;    // 返回 401（非 undefined），调用方 res.ok 检查不致 TypeError
+      } else if (!options._skipLogoutRedirect) {
+        // refresh 也失效：清 cookie 并回落地页（同步渲染）。
+        // 仅非跳过模式调用——App.init 探测登录态时由 init 自己决定渲染 login()，避免竞态。
+        App.logout();
+        return res;  // 返回 401（非 undefined），调用方 res.ok 检查不致 TypeError
       }
     }
     return res;
   },
-  async get(url) { return this.request(url); },
+  async get(url, options) { return this.request(url, options); },
   async post(url, body) {
     return this.request(url, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) });
   },
@@ -916,7 +918,7 @@ function renderLogin() {
           <a href="#" data-action="renderForgotPassword">忘记密码？</a>
           <a href="#" data-action="renderRegister" id="register-link">注册新账号</a>
         </div>
-        <a class="login-back" href="#" data-action="renderLanding">← 返回官网</a>
+        <a class="login-back" href="/welcome">← 返回官网</a>
       </div>
     `);
   // 动态检查注册是否开放
@@ -926,7 +928,7 @@ function renderLogin() {
   }).catch(() => {});
 
   const loginLogo = document.getElementById('login-logo');
-  if (loginLogo) loginLogo.addEventListener('click', renderLanding);
+  if (loginLogo) { loginLogo.href = '/welcome'; loginLogo.removeAttribute('onclick'); }
 
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -5083,23 +5085,25 @@ const App = {
   currentView: 'transfer',
   currentUser: null,
   async init() {
-    // 登录态由 cookie 决定：探测 /me，200 即已登录；失败（含静默刷新失败）回落地页
+    // 登录态由 HttpOnly cookie 决定：服务端 set/clear，前端 JS 不可读。
+    // 未登录时渲染应用内登录表单（renderLogin），已登录时进应用壳。
+    // 不依赖 /welcome 跳转——避免 refresh 失败时 SPA 壳与落地页竞态导致白屏。
     try {
-      const res = await API.get('/api/auth/me');
-      if (!res || !res.ok) return;  // refresh 失败时 App.logout 已渲染落地页
+      const res = await API.get('/api/auth/me', { _skipLogoutRedirect: true });
+      if (!res || !res.ok) { renderLogin(); return; }
       this.currentUser = await res.json();
     } catch {
-      renderLanding(); return;
+      renderLogin(); return;
     }
-  this.renderLayout();
-  this.navigate('transfer');
-  setupDragDrop();
-  setupPaste();
-  setupGlobalShortcuts();
-  document.addEventListener('click', closeContextMenu);
-   checkDownloadStatus();
-   loadTrashCount();
- },
+    this.renderLayout();
+    this.navigate('transfer');
+    setupDragDrop();
+    setupPaste();
+    setupGlobalShortcuts();
+    document.addEventListener('click', closeContextMenu);
+    checkDownloadStatus();
+    loadTrashCount();
+  },
  renderLayout() {
     document.body.classList.add('view-shell');
     const username = this.currentUser ? this.currentUser.username : '随行档';
@@ -5207,7 +5211,8 @@ const App = {
     if (currentChatAbort) currentChatAbort.abort();
     closeAccountPopover(); // session 过期/主动退出时同步关闭弹层，避免 DOM 泄漏到落地页
     this.currentView = 'transfer';
-    renderLanding();
+    // 跳独立落地页（与应用壳解耦）
+    window.location.replace('/welcome');
     // 清服务端 cookie + 吊销会话：后台执行，不阻塞落地页渲染
     fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   }
