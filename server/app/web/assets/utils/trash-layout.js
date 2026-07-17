@@ -20,7 +20,7 @@ export function trashShellHTML() {
     </div>
     <div class="trash-body">
       <div id="trash-banner" class="trash-banner"></div>
-      <div id="trash-batch-bar" class="batch-bar" style="display:none"></div>
+      <div id="trash-batch-bar" class="batch-bar" role="toolbar" aria-label="回收站批量操作" style="display:none"></div>
       <div id="trash-content">加载中...</div>
     </div>`;
 }
@@ -49,7 +49,7 @@ export function trashRowHTML(item) {
   const size = formatSize(item.size);
   const delTime = new Date(item.deleted_at).toLocaleString('zh-CN', { hour12: false });
   return `<tr class="trash-row" data-file-id="${escapeHtml(item.file_id)}" data-name="${escapeHtml(item.name)}">
-    <td><div class="file-check" title="选择"></div></td>
+    <td role="checkbox" aria-checked="false" aria-label="选择" class="file-check-wrap"><div class="file-check" title="选择"></div></td>
     <td style="font-weight:500">${escapeHtml(item.name)}</td>
     <td style="color:var(--text-muted);font-size:12px">${escapeHtml(item.path)}</td>
     <td style="font-size:12px">${size}</td>
@@ -74,7 +74,7 @@ export function trashTableHTML(items, retentionDays) {
     <table class="data-table trash-table">
       <col class="col-check"><col class="col-name"><col class="col-path"><col class="col-size"><col class="col-deleted"><col class="col-remaining"><col class="col-actions">
       <thead><tr>
-        <th class="th-check"></th>
+        <th class="th-check"><input type="checkbox" id="th-check-box" aria-label="全选当前列表"></th>
         <th>文件名</th><th>原路径</th><th>大小</th><th>删除时间</th><th>剩余天数</th><th>操作</th>
       </tr></thead>
       <tbody>

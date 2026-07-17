@@ -17,6 +17,7 @@ import { ICONS, getFileIcon } from './utils/icons.js?v=60';
 import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=60';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
+import { createTrashSelection } from './utils/trash-selection.js?v=66';
 
 // ============ API 层 ============
 const API = {
@@ -3004,17 +3005,24 @@ async function loadTrashCount() {
   } catch {}
 }
 
-let trashSelection = new Set();     // 当前回收站批量选中的 file_id
-let trashSelectMode = false;        // 回收站批量选择模式
 let _trashItems = [];               // 当前渲染的回收站原始数据(供批量/预览复用)
+const trashSel = createTrashSelection(); // 选择状态机（单一来源）
+let trashBatchBusy = false;         // 批量操作防连点锁
+let trashEscBound = false;          // ESC 退出监听只绑一次
+
+function enterTrashSelectMode() { trashSel.enterMode(); syncTrashSelectUI(); }
+function exitTrashSelectMode() { trashSel.exitMode(); syncTrashSelectUI(); }
+function toggleTrashSelectMode() { trashSel.toggleMode(); syncTrashSelectUI(); }
+
+// 全选 / 取消全选（当前列表）
+function toggleTrashSelectAll() { trashSel.toggleAll(_trashItems); syncTrashSelectUI(); }
+
+// 分块工具（>200 时分批调用批量接口）
+function _chunk(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
 
 async function renderTrash() {
   document.getElementById('main-content').innerHTML = trashShellHTML();
-  document.getElementById('btn-trash-select-toggle').addEventListener('click', () => {
-    trashSelectMode = !trashSelectMode;
-    if (!trashSelectMode) trashSelection.clear();
-    syncTrashSelectUI();
-  });
+  document.getElementById('btn-trash-select-toggle').addEventListener('click', toggleTrashSelectMode);
   document.getElementById('btn-trash-purge').addEventListener('click', async () => {
     try {
       const res = await API.post('/api/files/trash/purge');
@@ -3032,7 +3040,11 @@ async function renderTrash() {
       else { const d = await r.json(); Toast.show(d.detail || '清空失败', 'error'); }
     } catch { Toast.show('清空失败', 'error'); }
   });
-  trashSelection.clear(); trashSelectMode = false;
+  trashSel.exitMode();
+  if (!trashEscBound) {
+    trashEscBound = true;
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && trashSel.mode) exitTrashSelectMode(); });
+  }
   await loadTrash();
 }
 
@@ -3050,17 +3062,24 @@ async function loadTrash() {
     }
     if (!d.items.length) {
       el.innerHTML = trashEmptyStateHTML(d.retention_days);
+      // 列表变空：强制退出选择模式，避免批量栏悬浮在空态上方
+      if (trashSel.mode || trashSel.size) trashSel.exitMode();
+      syncTrashSelectUI();
       return;
     }
     el.innerHTML = trashTableHTML(d.items, d.retention_days);
+    // 表头全选复选框（若存在）
+    const thCb = document.getElementById('th-check-box');
+    if (thCb) {
+      thCb.addEventListener('click', (e) => { e.stopPropagation(); toggleTrashSelectAll(); });
+    }
     el.querySelectorAll('.trash-row').forEach(row => {
       const fid = row.dataset.fileId;
       const name = row.dataset.name;
       const item = d.items.find(x => x.file_id === fid);
       row.querySelector('.file-check').addEventListener('click', (e) => {
         e.stopPropagation();
-        if (!trashSelectMode) trashSelectMode = true;
-        if (trashSelection.has(fid)) trashSelection.delete(fid); else trashSelection.add(fid);
+        trashSel.toggleOne(fid);
         syncTrashSelectUI();
       });
       row.querySelector('[data-action="trash-preview"]').addEventListener('click', () => previewTrashFile(fid, name));
@@ -3076,47 +3095,125 @@ async function loadTrash() {
   } catch { el.innerHTML = '<p>加载失败</p>'; }
 }
 
+// 同步回收站选择 UI：行高亮 → 切换按钮 → 表头三态 → 批量栏
+// 行高亮同步始终执行（不被批量栏显隐阻塞），修复「取消选择后高亮残留」
 function syncTrashSelectUI() {
-  const toggle = document.getElementById('btn-trash-select-toggle');
-  if (toggle) { toggle.classList.toggle('is-active', trashSelectMode); toggle.querySelector('span').textContent = trashSelectMode ? '取消选择' : '批量选择'; }
-  const bar = document.getElementById('trash-batch-bar');
-  if (bar) {
-    if (!trashSelectMode || !trashSelection.size) { bar.style.display = 'none'; return; }
-    bar.style.display = 'flex';
-    bar.innerHTML = `<span class="batch-count">已选 ${trashSelection.size} 项</span><span class="batch-spacer"></span>
-      <span style="margin-right:8px">回收站内:</span>
-      <button class="btn btn-primary btn-sm" id="tb-restore">恢复所选</button>
-      <button class="btn btn-danger btn-sm" id="tb-purge">彻底删除</button>
-      <button class="btn btn-secondary btn-sm" id="tb-lock">锁存所选</button>`;
-    document.getElementById('tb-restore').addEventListener('click', async () => {
-      if (!await confirmDialog({ title: '批量恢复', message: `恢复所选 ${trashSelection.size} 个文件至原位置?`, confirmText: '恢复' })) return;
-      const res = await API.post('/api/files/trash/restore-batch', { file_ids: [...trashSelection] });
-      const d = await res.json();
-      Toast.show(`已恢复 ${d.succeeded} 个${d.failed ? `, ${d.failed} 个失败` : ''}`, d.failed ? 'warning' : 'success');
-      trashSelection.clear(); trashSelectMode = false; syncTrashSelectUI(); loadTrash(); loadTrashCount();
-    });
-    document.getElementById('tb-purge').addEventListener('click', async () => {
-      if (!await confirmDialog({ title: '彻底删除', message: `将永久删除所选 ${trashSelection.size} 个未锁存文件,不可恢复。(锁存文件会被跳过)`, confirmText: '删除', danger: true })) return;
-      const res = await API.post('/api/files/trash/purge-batch', { file_ids: [...trashSelection] });
-      const d = await res.json();
-      Toast.show(`已删除 ${d.succeeded} 个${d.skipped_locked ? `, 跳过 ${d.skipped_locked} 个锁存` : ''}`, 'success');
-      trashSelection.clear(); trashSelectMode = false; syncTrashSelectUI(); loadTrash(); loadTrashCount();
-    });
-    document.getElementById('tb-lock').addEventListener('click', async () => {
-      let ok = 0, fail = 0;
-      for (const fid of [...trashSelection]) {
-        const r = await API.post('/api/files/trash/lock', { file_id: fid, locked: true });
-        if (r.ok) ok++; else fail++;
-      }
-      Toast.show(`已锁存 ${ok} 个${fail ? `, ${fail} 个失败(达上限)` : ''}`, 'success');
-      trashSelection.clear(); trashSelectMode = false; syncTrashSelectUI(); loadTrash(); loadTrashCount();
-    });
-  }
   document.querySelectorAll('.trash-row').forEach(row => {
-    row.classList.toggle('is-selected', trashSelection.has(row.dataset.fileId));
+    const on = trashSel.has(row.dataset.fileId);
+    row.classList.toggle('is-selected', on);
     const cb = row.querySelector('.file-check');
-    if (cb) cb.classList.toggle('is-checked', trashSelection.has(row.dataset.fileId));
+    if (cb) cb.classList.toggle('is-checked', on);
+    const wrap = row.querySelector('.file-check-wrap');
+    if (wrap) wrap.setAttribute('aria-checked', on ? 'true' : 'false');
   });
+  const toggle = document.getElementById('btn-trash-select-toggle');
+  if (toggle) {
+    toggle.classList.toggle('is-active', trashSel.mode);
+    const sp = toggle.querySelector('span');
+    if (sp) sp.textContent = trashSel.mode ? '取消选择' : '批量选择';
+    toggle.disabled = _trashItems.length === 0;
+  }
+  const hdr = document.getElementById('th-check-box');
+  if (hdr) {
+    hdr.checked = _trashItems.length > 0 && trashSel.size === _trashItems.length;
+    hdr.indeterminate = trashSel.size > 0 && trashSel.size < _trashItems.length;
+  }
+  const bar = document.getElementById('trash-batch-bar');
+  if (!bar) return;
+  if (!trashSel.mode || !trashSel.size) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  ensureTrashBatchBarBuilt();
+  updateTrashBatchBarState();
+}
+
+// 批量栏只构建一次（按钮 + 监听），后续只更新计数与禁用态
+function ensureTrashBatchBarBuilt() {
+  const bar = document.getElementById('trash-batch-bar');
+  if (!bar || bar.querySelector('#tb-restore')) return;
+  bar.innerHTML = `<span class="batch-count"></span><span class="batch-spacer"></span>
+    <button class="btn btn-primary btn-sm" id="tb-restore">恢复所选</button>
+    <button class="btn btn-danger btn-sm" id="tb-purge">彻底删除</button>
+    <button class="btn btn-secondary btn-sm" id="tb-lock">锁存所选</button>
+    <button class="btn btn-secondary btn-sm" id="tb-toggle-all">全选当前列表</button>
+    <button class="btn btn-secondary btn-sm" id="tb-cancel">退出选择</button>`;
+  document.getElementById('tb-restore').addEventListener('click', trashBatchRestore);
+  document.getElementById('tb-purge').addEventListener('click', trashBatchPurge);
+  document.getElementById('tb-lock').addEventListener('click', trashBatchLock);
+  document.getElementById('tb-toggle-all').addEventListener('click', toggleTrashSelectAll);
+  document.getElementById('tb-cancel').addEventListener('click', exitTrashSelectMode);
+}
+
+function updateTrashBatchBarState() {
+  const bar = document.getElementById('trash-batch-bar');
+  if (!bar) return;
+  const cnt = bar.querySelector('.batch-count');
+  if (cnt) cnt.textContent = `已选 ${trashSel.size} 项 / 共 ${_trashItems.length} 项`;
+  const dis = trashSel.size === 0 || trashBatchBusy;
+  bar.querySelector('#tb-restore').disabled = dis;
+  bar.querySelector('#tb-purge').disabled = dis;
+  bar.querySelector('#tb-lock').disabled = dis;
+  const allBtn = bar.querySelector('#tb-toggle-all');
+  if (allBtn) allBtn.textContent = (_trashItems.length > 0 && trashSel.size === _trashItems.length) ? '取消全选' : '全选当前列表';
+}
+
+async function trashBatchRestore() {
+  if (trashBatchBusy) return;
+  const ids = trashSel.ids();
+  if (!ids.length) return;
+  if (!await confirmDialog({ title: '批量恢复', message: `恢复所选 ${ids.length} 个文件至原位置?`, confirmText: '恢复' })) return;
+  trashBatchBusy = true; updateTrashBatchBarState();
+  let ok = 0, fail = 0;
+  try {
+    for (const c of _chunk(ids, 200)) {
+      const res = await API.post('/api/files/trash/restore-batch', { file_ids: c });
+      const d = await res.json();
+      ok += d.succeeded || 0; fail += d.failed || 0;
+      (d.results || []).filter(r => r.ok).forEach(r => trashSel.remove(r.file_id));
+    }
+    Toast.show(`已恢复 ${ok} 个${fail ? `, ${fail} 个失败` : ''}`, fail ? 'warning' : 'success');
+  } catch { Toast.show('恢复失败', 'error'); }
+  finally { trashBatchBusy = false; }
+  await loadTrash(); loadTrashCount();
+  syncTrashSelectUI();
+  if (trashSel.size === 0) exitTrashSelectMode();
+}
+
+async function trashBatchPurge() {
+  if (trashBatchBusy) return;
+  const ids = trashSel.ids();
+  if (!ids.length) return;
+  if (!await confirmDialog({ title: '彻底删除', message: `将永久删除所选 ${ids.length} 个未锁存文件,不可恢复。(锁存文件会被跳过)`, confirmText: '删除', danger: true })) return;
+  trashBatchBusy = true; updateTrashBatchBarState();
+  let ok = 0, skip = 0;
+  try {
+    for (const c of _chunk(ids, 200)) {
+      const res = await API.post('/api/files/trash/purge-batch', { file_ids: c });
+      const d = await res.json();
+      ok += d.succeeded || 0; skip += d.skipped_locked || 0;
+      (d.results || []).filter(r => r.ok).forEach(r => trashSel.remove(r.file_id));
+    }
+    Toast.show(ok > 0 ? `已删除 ${ok} 个${skip ? `, 跳过 ${skip} 个锁存` : ''}` : (skip > 0 ? '所选文件均已锁存,无需删除' : '删除失败'), ok > 0 ? 'success' : 'warning');
+  } catch { Toast.show('删除失败', 'error'); }
+  finally { trashBatchBusy = false; }
+  await loadTrash(); loadTrashCount();
+  syncTrashSelectUI();
+  if (trashSel.size === 0) exitTrashSelectMode();
+}
+
+async function trashBatchLock() {
+  if (trashBatchBusy) return;
+  const ids = trashSel.ids();
+  if (!ids.length) return;
+  trashBatchBusy = true; updateTrashBatchBarState();
+  let ok = 0, fail = 0;
+  try {
+    const results = await Promise.all(ids.map(fid => API.post('/api/files/trash/lock', { file_id: fid, locked: true }).then(r => r.ok).catch(() => false)));
+    ok = results.filter(Boolean).length; fail = results.length - ok;
+  } catch { /* 单条已 catch,忽略 */ }
+  trashBatchBusy = false;
+  Toast.show(`已锁存 ${ok} 个${fail ? `, ${fail} 个失败(达上限)` : ''}`, 'success');
+  await loadTrash();
+  updateTrashBatchBarState();
 }
 
 async function previewTrashFile(fileId, name) {
@@ -3157,7 +3254,10 @@ async function trashRestore(fileId) {
     if (res.ok) {
       const d = await res.json();
       Toast.show(d.renamed ? `已恢复为「${d.path.split('/').pop()}」` : '已恢复', 'success');
-      loadTrash(); loadTrashCount();
+      trashSel.remove(fileId);
+      await loadTrash(); loadTrashCount();
+      syncTrashSelectUI();
+      if (trashSel.mode && trashSel.size === 0) exitTrashSelectMode();
     } else {
       const d = await res.json();
       Toast.show(d.detail || '恢复失败', 'error');
@@ -3169,7 +3269,7 @@ async function trashPurge(fileId) {
   if (!await confirmDialog({ title: '彻底删除', message: '将永久删除该文件，不可恢复。', confirmText: '删除', danger: true })) return;
   try {
     const res = await API.del(`/api/files/trash?file_id=${fileId}`);
-    if (res.ok) { Toast.show('已彻底删除', 'success'); loadTrash(); loadTrashCount(); }
+    if (res.ok) { Toast.show('已彻底删除', 'success'); trashSel.remove(fileId); await loadTrash(); loadTrashCount(); syncTrashSelectUI(); if (trashSel.mode && trashSel.size === 0) exitTrashSelectMode(); }
     else { Toast.show('删除失败', 'error'); }
   } catch { Toast.show('删除出错', 'error'); }
 }

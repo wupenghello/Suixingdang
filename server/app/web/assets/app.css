@@ -428,6 +428,7 @@ body.view-shell { overflow: hidden; }
   border: 2px solid var(--border-light); background: var(--bg);
   flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   cursor: pointer; margin-right: 10px; transition: background .15s, border-color .15s;
+  user-select: none; -webkit-user-select: none; outline: none; color: transparent;
 }
 .file-check.is-checked { background: var(--primary); border-color: var(--primary); color: var(--bg-surface); }
 .file-check.is-checked svg { width: 13px; height: 13px; }
@@ -442,6 +443,8 @@ body.view-shell { overflow: hidden; }
 }
 .batch-count { font-weight: 600; color: var(--primary); font-family: var(--font-mono); letter-spacing: 0.02em; }
 .batch-spacer { flex: 1; }
+/* 批量栏按钮高度与表格行对齐（td padding 10px 14px + line-height ≈ 50px） */
+.batch-bar .btn-sm { padding: 11px 16px; }
 
 /* 旧 .file-row 兼容（无 file-cell 时由 flex 兜底） */
 .file-row .file-icon { margin-right: 0; }
@@ -1764,16 +1767,20 @@ html { scroll-behavior: smooth; }
 .trash-row.is-selected:hover > td { background: var(--primary-light) !important; }
 
 /* 回收站表格固定列宽 */
-.trash-table { table-layout: fixed; width: 100%; }
+.trash-table { table-layout: fixed; width: 100%; min-width: 960px; }
 .trash-table .col-check { width: 36px; }
-.trash-table .col-name { width: auto; }
+.trash-table .col-name { width: 220px; }
 .trash-table .col-path { width: 16%; }
 .trash-table .col-size { width: 70px; }
 .trash-table .col-deleted { width: 150px; }
 .trash-table .col-remaining { width: 80px; }
 .trash-table .col-actions { width: 260px; }
 .trash-table .th-check { text-align: center; }
+/* 文件名列最小宽度：作用在 th/td（table-layout:fixed 下 col 的 min-width 不被尊重） */
+.trash-table th:nth-child(2), .trash-table td:nth-child(2) { min-width: 220px; }
 .trash-table td:last-child { text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+/* 回收站表格横向滚动容器：填满宽度，表格超宽时滚动 */
+.table-scroll { width: 100%; overflow-x: auto; }
 
 .trash-preview-badge {
   font-family: var(--font-mono);
