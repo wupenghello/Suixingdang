@@ -1105,6 +1105,10 @@ async function renderNotes() {
     const pinHtml = item.pinned ? `<span class="note-card-pin">${ICONS.pin}置顶</span>` : '';
     return `<div class="note-card" data-path="${escapeHtml(item.path)}" data-file-id="${escapeHtml(item.file_id || '')}" data-name="${escapeHtml(item.name)}">
       ${pinHtml}
+      <div class="note-card-actions">
+        <button class="note-card-action" data-action="edit" title="编辑" aria-label="编辑 ${escapeHtml(stripExt(item.name))}">${ICONS.edit}</button>
+        <button class="note-card-action danger" data-action="delete" title="删除" aria-label="删除 ${escapeHtml(stripExt(item.name))}">${ICONS.trash}</button>
+      </div>
       <div class="note-card-title">${title}</div>
       ${excerpt ? `<div class="note-card-excerpt">${excerpt}</div>` : ''}
       ${tagsHtml}
@@ -1118,9 +1122,62 @@ async function renderNotes() {
       </div>
     </div>`;
   }).join('')}</div>`;
+  // 卡片操作：操作按钮 / 右键菜单 / 长按 走删除等次要操作；点击卡片空白区打开编辑器
   content.querySelectorAll('.note-card').forEach(card => {
-    card.addEventListener('click', () => openNoteEditor({ path: card.dataset.path, fileId: card.dataset.fileId, name: card.dataset.name }));
+    const cardPath = card.dataset.path;
+    const cardName = card.dataset.name;
+    const cardFileId = card.dataset.fileId;
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.note-card-action')) return; // 点击操作按钮不打开
+      openNoteEditor({ path: cardPath, fileId: cardFileId, name: cardName });
+    });
+    card.querySelectorAll('.note-card-action').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (btn.dataset.action === 'edit') openNoteEditor({ path: cardPath, fileId: cardFileId, name: cardName });
+        else if (btn.dataset.action === 'delete') deleteNote(cardPath, cardName);
+      });
+    });
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showNotesCardMenu(e.clientX, e.clientY, { path: cardPath, name: cardName, fileId: cardFileId });
+    });
+    // 移动端长按 → 菜单（500ms，不触发单击打开）
+    let pressTimer = null;
+    let longPressed = false;
+    const startPress = (x, y) => {
+      longPressed = false;
+      pressTimer = setTimeout(() => { longPressed = true; showNotesCardMenu(x, y, { path: cardPath, name: cardName, fileId: cardFileId }); }, 500);
+    };
+    const cancelPress = () => clearTimeout(pressTimer);
+    card.addEventListener('touchstart', (e) => { const t = e.touches[0]; startPress(t.clientX, t.clientY); }, { passive: true });
+    card.addEventListener('touchend', (e) => { cancelPress(); if (longPressed) e.preventDefault(); });
+    card.addEventListener('touchmove', cancelPress);
   });
+}
+
+// 笔记卡片右键/长按菜单（hover 按钮已覆盖编辑/删除，此菜单作完整入口：含重命名/置顶/标签）
+function showNotesCardMenu(x, y, note) {
+  const items = [];
+  items.push({ action: 'edit', label: '编辑', icon: ICONS.edit, onClick: () => openNoteEditor({ path: note.path, name: note.name, fileId: note.fileId }) });
+  items.push({ action: 'rename', label: '重命名', icon: ICONS.rename, onClick: () => renameFile(note.path, note.name) });
+  items.push({ action: 'toggle-pin', label: '置顶/取消置顶', icon: ICONS.pin, onClick: () => togglePinFile(note.path) });
+  items.push({ action: 'tags', label: '编辑标签', icon: ICONS.tag, onClick: () => editFileTags(note.path, note.name) });
+  items.push({ divider: true });
+  items.push({ action: 'delete', label: '删除', icon: ICONS.trash, danger: true, onClick: () => deleteNote(note.path, note.name) });
+  showContextMenu(x, y, items);
+}
+
+// 笔记删除（卡片/菜单）：无确认框，直接软删除 + 撤销 Toast（含 [[链接]] 引用计数提示）
+async function deleteNote(path, name) {
+  if (!path) return;
+  // 异步预查引用计数（不影响删除主流程，仅用于 Toast 提示）
+  let hint = '';
+  try {
+    const res = await API.get('/api/files/backlinks?path=' + encodeURIComponent(path));
+    if (res && res.ok) { const n = (await res.json()).backlinks?.length || 0; if (n > 0) hint = `有 ${n} 篇笔记通过 [[链接]] 引用了本文`; }
+  } catch { /* 查询失败静默降级 */ }
+  await softDeleteFile(path, hint ? { hint } : undefined);
 }
 
 function showNoteEditor() { openNoteEditor(); }
@@ -1157,6 +1214,7 @@ async function openNoteEditor(opts = {}) {
         <button class="tb-icon-btn" id="btn-note-pin" title="置顶/收藏">${ICONS.pin}</button>
         <button class="tb-icon-btn" id="btn-note-export" title="导出 HTML">${ICONS.export}</button>
         <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理">${ICONS.ai}<span>AI 整理</span></button>
+        <button class="btn btn-danger btn-sm" id="btn-note-delete" title="删除笔记">${ICONS.trash}<span>删除</span></button>
       </div>
     </div>
     <input type="text" class="note-title-input" placeholder="笔记标题" maxlength="80" value="${escapeHtml(stripExt(editName))}">
@@ -1247,6 +1305,7 @@ async function openNoteEditor(opts = {}) {
   const aiBtn = modal.querySelector('#btn-note-ai');
   const pinBtn = modal.querySelector('#btn-note-pin');
   const exportBtn = modal.querySelector('#btn-note-export');
+  const deleteBtn = modal.querySelector('#btn-note-delete');
   const tocBtn = modal.querySelector('#btn-note-toc');
   const tocList = modal.querySelector('#note-toc-list');
   const editorBody = modal.querySelector('#note-editor-body');
@@ -1392,7 +1451,22 @@ ${r.html}
     Toast.show('已导出 HTML', 'success');
   });
 
-  // ---- 工具栏：插入 Markdown 语法 ----
+  // ---- 编辑器内删除当前笔记：无确认框，关闭编辑器 → 直接软删除 + 撤销 Toast（含引用计数提示）----
+  deleteBtn.addEventListener('click', () => deleteNoteInEditor());
+
+  async function deleteNoteInEditor() {
+    // 新建笔记（尚未保存、无 path）不可删除
+    if (!editPath && !lastSavedPath) { Toast.show('笔记尚未保存，无需删除', 'info'); return; }
+    const targetPath = lastSavedPath || editPath;
+    // 异步预查引用计数（仅用于 Toast 提示，不影响主流程）
+    let hint = '';
+    try {
+      const res = await API.get('/api/files/backlinks?path=' + encodeURIComponent(targetPath));
+      if (res && res.ok) { const n = (await res.json()).backlinks?.length || 0; if (n > 0) hint = `有 ${n} 篇笔记通过 [[链接]] 引用了本文`; }
+    } catch { /* 静默降级 */ }
+    await closeEditor();
+    await softDeleteFile(targetPath, hint ? { hint } : undefined);
+  }
   function wrapSelection(before, after, placeholder) {
     const start = ta.selectionStart, end = ta.selectionEnd;
     const sel = ta.value.slice(start, end) || placeholder || '';
@@ -1757,6 +1831,7 @@ ${r.html}
       const res = await API.post('/api/files/note', {
         name: titleEl.value.trim(), content,
         directory: currentDir || '', group_id: selectedGroup || '',
+        file_id: editFileId || '',  // 编辑已有笔记时传入，后端据此原地更新（含重命名）并排除去重自检
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); Toast.show(d.detail || '保存失败', 'error'); return false; }
       const data = await res.json();
@@ -3307,21 +3382,25 @@ async function downloadFile(path, opts = {}) {
 
 async function deleteFile(path) {
   if (!await confirmDialog({ title: '删除文件', message: `确定删除 "${path.split('/').pop()}"？将移入回收站，保留一段时间后彻底删除。`, confirmText: '删除', danger: true })) return;
+  await softDeleteFile(path);
+}
+
+// 软删除核心（无确认框，供 deleteFile 与 deleteNote 共用）：调 API → 撤销/回收站 Toast → 刷新。
+// opts.hint 为可选的补充说明（如笔记的 [[链接]] 引用计数），拼接在主文案后。
+async function softDeleteFile(path, opts = {}) {
   try {
     const res = await API.del(`/api/files?path=${encodeURIComponent(path)}`);
     if (res.ok) {
       const data = await res.json();
-      Toast.show(`已移入回收站`, 'success', 6000, {
-        action: [
+      const msg = opts.hint ? `已移入回收站 · ${opts.hint}` : '已移入回收站';
+      Toast.show(msg, 'success', 6000, [
           { label: '撤销', onClick: async () => {
             const r = await API.post(`/api/files/trash/restore?file_id=${encodeURIComponent(data.file_id)}`);
             if (r.ok) { Toast.show('已恢复', 'success'); await loadTrashCount(); refreshCurrentView(); }
             else { Toast.show('恢复失败', 'error'); }
           }},
           { label: '查看', onClick: () => App.navigate('trash') }
-        ]
-      });
-      // 刷新回收站角标与列表
+        ]);
       await loadTrashCount();
       refreshCurrentView();
     }

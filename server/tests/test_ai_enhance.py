@@ -167,3 +167,56 @@ def test_set_ai_tags(client, make_user):
     r = client.post("/api/files/ai-tags", headers=headers,
                     params={"path": "不存在.md"}, json={"tags": []})
     assert r.status_code == 404, r.text
+
+
+def _create_note(client, headers, name="我的笔记", content="这是笔记内容"):
+    """建一篇笔记，返回 (path, file_id)。"""
+    r = client.post("/api/files/note", headers=headers,
+                    json={"name": name, "content": content})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    return d["path"], d["id"]
+
+
+def test_rename_note_same_content(client, make_user):
+    """重命名笔记（内容不变）不应误报「文件内容已存在」——这是核心回归用例。"""
+    token, _uid, _name = make_user()
+    headers = _h(token)
+    path, fid = _create_note(client, headers, "原笔记", "保持不变的内容")
+
+    # 用 file_id 改名（内容不变）→ 200，而非 409 重复
+    r = client.post("/api/files/note", headers=headers,
+                    json={"name": "新名字", "content": "保持不变的内容", "file_id": fid})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "新名字.md"
+    # 旧路径已被替代，新路径可访问
+    nc = client.get("/api/files/note-content", headers=headers, params={"file_id": fid})
+    assert nc.status_code == 200, nc.text
+
+
+def test_rename_note_no_orphan(client, make_user):
+    """重命名后旧路径记录应被清除，不应留下重复的活跃记录。"""
+    token, _uid, _name = make_user()
+    headers = _h(token)
+    path, fid = _create_note(client, headers, "旧名", "唯一内容XYZ")
+
+    r = client.post("/api/files/note", headers=headers,
+                    json={"name": "新名", "content": "唯一内容XYZ", "file_id": fid})
+    assert r.status_code == 200, r.text
+
+    # 用 /notes 数量断言：改前后始终只有 1 篇活跃笔记
+    notes = client.get("/api/files/notes", headers=headers).json()["notes"]
+    assert len(notes) == 1, f"应仅有 1 篇活跃笔记，实际 {len(notes)}"
+    assert notes[0]["name"] == "新名.md"
+
+
+def test_dedup_still_blocks_real_duplicate(client, make_user):
+    """去重仍应拦截两篇全新笔记写入完全相同内容的场景（无 file_id = 纯新建，不触发自身排除）。"""
+    token, _uid, _name = make_user()
+    headers = _h(token)
+    _create_note(client, headers, "笔记甲", "完全相同的内容")
+
+    # 全新第二篇（不传 file_id）写同样内容 → 409 重复
+    r = client.post("/api/files/note", headers=headers,
+                    json={"name": "笔记乙", "content": "完全相同的内容"})
+    assert r.status_code == 409, r.text

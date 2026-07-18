@@ -73,6 +73,7 @@ class NoteRequest(BaseModel):
     content: str
     directory: str = ""
     group_id: str = ""
+    file_id: str = ""  # 编辑已有笔记时传入，用于原地更新（含重命名时删旧文件/旧索引）
 
 
 def _check_quota(db: Session, user: User, file_size: int):
@@ -301,13 +302,24 @@ def create_note(
         storage.delete_file(user.id, rel_path)
         raise
 
-    # 自动去重（回收站文件不参与去重）
-    dup = db.query(FileModel).filter(
+    # 编辑模式：定位当前用户持有的该笔记（用于原地更新 / 重命名）
+    editing = None
+    if req.file_id:
+        editing = db.query(FileModel).filter(
+            FileModel.id == req.file_id, FileModel.owner_id == user.id,
+            FileModel.deleted_at.is_(None),
+        ).first()
+
+    # 自动去重（回收站文件不参与去重；编辑时排除自身，避免重命名误报）
+    dup_q = db.query(FileModel).filter(
         FileModel.owner_id == user.id,
         FileModel.content_hash == meta["content_hash"],
         FileModel.path != meta["path"],
         FileModel.deleted_at.is_(None),
-    ).first()
+    )
+    if editing:
+        dup_q = dup_q.filter(FileModel.id != editing.id)
+    dup = dup_q.first()
     if dup:
         storage.delete_file(user.id, rel_path)
         raise HTTPException(409, f"文件内容已存在（重复）: {dup.path}")
@@ -320,27 +332,46 @@ def create_note(
 
     final_status = c_status if c_status != "safe" else status
     final_reason = c_reason if c_reason else reason
-    existing = db.query(FileModel).filter(
-        FileModel.owner_id == user.id, FileModel.path == meta["path"],
-        FileModel.deleted_at.is_(None),
-    ).first()
-    if existing:
-        existing.size = meta["size"]
-        existing.content_hash = meta["content_hash"]
-        existing.modified_at = datetime.utcnow()
-        existing.guard_status = final_status
-        existing.guard_reason = final_reason
-        existing.group_id = req.group_id or None
-        f = existing
+    if editing:
+        # 原地更新：重命名时 path 改变，需删除旧物理文件与旧索引条目
+        old_path = editing.path
+        editing.path = meta["path"]
+        editing.name = meta["name"]
+        editing.size = meta["size"]
+        editing.content_hash = meta["content_hash"]
+        editing.modified_at = datetime.utcnow()
+        editing.guard_status = final_status
+        editing.guard_reason = final_reason
+        editing.group_id = req.group_id or None
+        f = editing
+        if old_path != meta["path"]:
+            storage.delete_file(user.id, old_path)
+            try:
+                indexer.remove_from_index(user.id, old_path)
+            except Exception:
+                pass
     else:
-        # 该路径曾有文件但被软删除，恢复同名新笔记时需新建记录
-        f = FileModel(
-            owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
-            content_hash=meta["content_hash"], mime_type=meta["mime_type"],
-            source="note", guard_status=final_status, guard_reason=final_reason,
-            group_id=req.group_id or None,
-        )
-        db.add(f)
+        existing = db.query(FileModel).filter(
+            FileModel.owner_id == user.id, FileModel.path == meta["path"],
+            FileModel.deleted_at.is_(None),
+        ).first()
+        if existing:
+            existing.size = meta["size"]
+            existing.content_hash = meta["content_hash"]
+            existing.modified_at = datetime.utcnow()
+            existing.guard_status = final_status
+            existing.guard_reason = final_reason
+            existing.group_id = req.group_id or None
+            f = existing
+        else:
+            # 该路径曾有文件但被软删除，恢复同名新笔记时需新建记录
+            f = FileModel(
+                owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
+                content_hash=meta["content_hash"], mime_type=meta["mime_type"],
+                source="note", guard_status=final_status, guard_reason=final_reason,
+                group_id=req.group_id or None,
+            )
+            db.add(f)
     db.commit()
     db.refresh(f)
 

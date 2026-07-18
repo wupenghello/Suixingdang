@@ -1853,6 +1853,45 @@ html { scroll-behavior: smooth; }
   color: var(--text-muted);
 }
 
+/* ---- 笔记卡片 hover 操作区（桌面）/ 长按（移动） ---- */
+.note-card-actions {
+  position: absolute;
+  top: 10px;
+  right: 36px; /* 避开置顶徽章 */
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s;
+  z-index: 2;
+}
+.note-card:hover .note-card-actions,
+.note-card:focus-within .note-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.note-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: background .12s, color .12s, transform .1s;
+  backdrop-filter: blur(2px);
+}
+.note-card-action:hover { background: var(--bg-surface-hover); color: var(--text); }
+.note-card-action:active { transform: scale(0.94); }
+.note-card-action.danger:hover { background: var(--danger-light); color: var(--danger); }
+.note-card-action svg { width: 15px; height: 15px; }
+html.dark .note-card-action { background: rgba(40, 44, 52, 0.85); }
+
 /* ---- Notes: Empty State ---- */
 .notes-empty {
   display: flex;
@@ -1944,6 +1983,9 @@ html { scroll-behavior: smooth; }
   align-items: center;
   gap: 6px;
 }
+/* 编辑器内红色删除按钮：与 AI 整理(btn-secondary) 并列，危险操作视觉区分 */
+.note-editor-top-actions .btn-danger { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; padding: 5px 12px; }
+.note-editor-top-actions .btn-danger svg { width: 14px; height: 14px; }
 
 /* Editor Toolbar */
 .note-toolbar {
