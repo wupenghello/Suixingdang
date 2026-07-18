@@ -10,8 +10,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User, AccessToken, get_db, get_trash_retention_days, DEFAULT_TRASH_LOCK_LIMIT
+from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User, AccessToken, get_db, get_trash_retention_days, DEFAULT_TRASH_LOCK_LIMIT, rate_limit_acquire
 from ..core import storage, indexer, guard
+from ..core.llm_service import chat_complete
 from ..core.security import verify_password
 from ..config import settings
 from .auth import get_current_user, get_current_session, _log
@@ -42,6 +43,20 @@ def _parse_tags(raw):
         return v if isinstance(v, list) else []
     except Exception:
         return []
+
+
+def clean_tags(raw, max_len=30, max_count=20):
+    """标签清洗：去空白、去重、限长、限量。/tags 与 ai_enhance 共用同一套规则。"""
+    seen = set()
+    out = []
+    for t in raw or []:
+        t = str(t).strip()
+        if t and t not in seen and len(t) <= max_len:
+            seen.add(t)
+            out.append(t)
+        if len(out) >= max_count:
+            break
+    return out
 
 
 def _file_meta(f):
@@ -435,16 +450,8 @@ def set_tags(req: TagsRequest, db: Session = Depends(get_db), user=Depends(get_c
     ).first()
     if not f:
         raise HTTPException(404, "文件不存在")
-    # 清洗：去重、去空白、限长、最多 20 个
-    seen = set()
-    cleaned = []
-    for t in req.tags:
-        t = str(t).strip()
-        if t and t not in seen and len(t) <= 30:
-            seen.add(t)
-            cleaned.append(t)
-        if len(cleaned) >= 20:
-            break
+    # 清洗：去重、去空白、限长、最多 20 个（与 ai_enhance 同一套 clean_tags）
+    cleaned = clean_tags(req.tags)
     f.tags = json.dumps(cleaned, ensure_ascii=False)
     db.commit()
     return {"path": f.path, "tags": cleaned}
@@ -485,50 +492,86 @@ def toggle_pin(req: PinRequest, db: Session = Depends(get_db), user=Depends(get_
     return {"path": f.path, "pinned": bool(f.pinned)}
 
 
+@router.get("/ai-status")
+def ai_status(user=Depends(get_current_user)):
+    """轻量探测当前用户 AI 可用性，供前端决定是否展示 AI 入口（不触发 LLM 调用）。"""
+    from ..core.llm_service import check_ai_access
+    ok, msg = check_ai_access(user.id)
+    return {"available": ok, "reason": msg}
+
+
 @router.post("/ai-enhance")
 def ai_enhance(path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """对笔记内容调用 LLM 生成摘要与建议标签，结果落库并返回。"""
+    """对笔记内容调用 LLM 生成摘要与建议标签，结果落库并返回。
+
+    校验顺序：404 文件 → 400 内容 → 403 AI 配置 → 429 限流 → LLM 调用。
+    这样 404/400/403 不消耗 LLM 配额；fallback 第 2 次调用前再次限流，
+    使「一次点击最多消耗配额等量的 LLM 调用」。每次 LLM 调用 timeout=15s、
+    max_retries=0，最坏 primary+fallback ≈ 30s < 前端 AbortController 35s。
+    """
     from ..core.llm_service import get_llm_config, AiDisabled, NoLlmConfigured
+    import openai
+
+    # 1. 文件存在校验（404）—— 限流之前，避免无效请求消耗 LLM 配额
     f = db.query(FileModel).filter(
         FileModel.owner_id == user.id, FileModel.path == path,
         FileModel.deleted_at.is_(None),
     ).first()
     if not f:
         raise HTTPException(404, "文件不存在")
+
+    # 2. 内容提取（400）
     try:
         text = indexer._extract_text(user.id, path)
     except Exception:
         text = ""
     if not text:
         raise HTTPException(400, "无法提取内容（空文件或不支持的格式）")
+
+    # 3. AI 配置校验（403）
     try:
         cfg = get_llm_config(user.id)
     except (AiDisabled, NoLlmConfigured) as e:
         raise HTTPException(403, str(e))
-    from openai import OpenAI
-    client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
+
+    # 4. 限流（429）—— 在真正调用 LLM 之前
+    locked = rate_limit_acquire(db, key=f"airl:{user.id}", max_requests=10, window=60, lock_seconds=60)
+    if locked:
+        raise HTTPException(429, f"操作过于频繁，请 {locked} 秒后再试")
+
+    # max_retries=0：不依赖 SDK 内置重试，超时由 chat_complete 的 timeout 控制
+    client = openai.OpenAI(api_key=cfg.api_key, base_url=cfg.base_url, max_retries=0)
     snippet = text[:8000]
-    prompt = (
-        "请阅读以下笔记内容，用中文输出：\n"
-        "1. 一句话摘要（不超过 120 字）\n"
-        "2. 3-5 个标签（每个标签 2-6 字，反映主题）\n"
-        "严格按 JSON 格式返回，不要 markdown 代码块："
-        '{"summary":"...","tags":["..."]}'
-        f"\n\n笔记内容：\n{snippet}"
-    )
+    primary_messages = [
+        {"role": "system", "content": "你是笔记整理专家，擅长提炼摘要和打标签。输出严格 JSON。"},
+        {"role": "user", "content": (
+            "请阅读以下笔记内容，用中文输出：\n"
+            "1. 一句话摘要（不超过 80 字，提炼核心观点或结论，不要复述标题）\n"
+            "2. 3-5 个标签（每个 2-6 字，覆盖主题/类型/状态，如「工作」「待办」「技术」「灵感」）\n"
+            "严格按 JSON 格式返回，不要 markdown 代码块，不要任何其他文字："
+            '{"summary":"...","tags":["..."]}'
+            f"\n\n笔记内容：\n{snippet}"
+        )},
+    ]
+    fallback_messages = [
+        {"role": "user", "content": f"用中文阅读下面笔记，输出 JSON {{\"summary\":\"80字内摘要\",\"tags\":[\"3-5个2-6字标签\"]}}：\n{snippet}"},
+    ]
+
+    # 5. LLM 调用；openai.APIError → 502；其它异常（含 ValueError）冒泡为 500
     try:
-        resp = client.chat.completions.create(
-            model=cfg.model,
-            messages=[
-                {"role": "system", "content": "你是笔记整理助手，擅长提炼摘要和打标签。"},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.3,
-            max_tokens=512,
-        )
-        raw = resp.choices[0].message.content or ""
-    except Exception as e:
+        raw = chat_complete(client, cfg.model, primary_messages, timeout=15.0)
+        # 空响应兜底：部分模型对冗长中文 prompt 偶发返回空，精简 prompt 重试一次
+        if not raw:
+            # 第 2 次调用前再 acquire 一次配额（fallback 也算一次 LLM 调用）
+            locked = rate_limit_acquire(db, key=f"airl:{user.id}", max_requests=10, window=60, lock_seconds=60)
+            if locked:
+                raise HTTPException(502, "AI 未返回内容，请稍后重试")
+            raw = chat_complete(client, cfg.model, fallback_messages, timeout=15.0)
+    except openai.APIError as e:
         raise HTTPException(502, f"AI 调用失败: {e}")
+    if not raw:
+        raise HTTPException(502, "AI 未返回内容，请重试")
+
     # 容错解析：LLM 可能包代码块或多余文字
     summary = ""
     ai_tags = []
@@ -544,16 +587,80 @@ def ai_enhance(path: str = Query(...), db: Session = Depends(get_db), user=Depen
             m = m[start:end + 1]
         obj = json.loads(m)
         summary = str(obj.get("summary", "")).strip()
-        ai_tags = [str(t).strip() for t in obj.get("tags", []) if str(t).strip()]
+        ai_tags = list(obj.get("tags", []))
     except Exception:
         summary = raw.strip()[:200]
+    # 标签清洗：去重、限长、限量（复用 clean_tags，AI 建议上限 5 个）
+    cleaned_tags = clean_tags(ai_tags, max_count=5)
     if summary:
-        f.summary = summary
-    if ai_tags:
-        f.ai_tags = json.dumps(ai_tags, ensure_ascii=False)
+        f.summary = summary[:300]
+    if cleaned_tags:
+        f.ai_tags = json.dumps(cleaned_tags, ensure_ascii=False)
     db.commit()
-    return {"summary": summary, "tags": ai_tags}
+    return {"summary": summary, "tags": cleaned_tags}
 
+
+@router.get("/notes")
+def list_notes(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """列出当前用户所有 .md 笔记（含子目录与分组），pinned 优先、其次 modified_at 倒序。
+
+    /list 仅返回单层目录，会漏掉子目录与其它分组里的笔记；本端点一次性拉齐，
+    供前端 renderNotes 使用。只取 source='note' 且未软删除的 markdown 文件。
+    """
+    ext_cond = (
+        FileModel.name.like("%.md")
+        | FileModel.name.like("%.markdown")
+        | FileModel.name.like("%.mdown")
+        | FileModel.name.like("%.mkd")
+    )
+    rows = db.query(FileModel).filter(
+        FileModel.owner_id == user.id,
+        FileModel.source == "note",
+        FileModel.deleted_at.is_(None),
+        ext_cond,
+    ).order_by(FileModel.pinned.desc(), FileModel.modified_at.desc()).all()
+    group_map = {g.id: g.name for g in db.query(FileGroup).filter_by(owner_id=user.id).all()}
+    notes = []
+    for f in rows:
+        meta = _file_meta(f)
+        notes.append({
+            "file_id": f.id,
+            "path": f.path,
+            "name": f.name,
+            "summary": meta["summary"],
+            "tags": meta["tags"],
+            "ai_tags": meta["ai_tags"],
+            "pinned": meta["pinned"],
+            "modified": f.modified_at.timestamp() if f.modified_at else 0,
+            "size": f.size,
+            "group_id": f.group_id or "",
+            "group_name": group_map.get(f.group_id, "") if f.group_id else "",
+        })
+    return {"notes": notes}
+
+
+class AiTagsRequest(BaseModel):
+    tags: list
+
+
+@router.post("/ai-tags")
+def set_ai_tags(req: AiTagsRequest, path: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """整体覆盖笔记的 AI 建议标签（owner 隔离，不存在 404）。
+
+    用于前端在「接受/忽略建议标签」后持久化剩余建议，避免重开时被忽略的标签复活。
+    """
+    f = db.query(FileModel).filter(
+        FileModel.owner_id == user.id, FileModel.path == path,
+        FileModel.deleted_at.is_(None),
+    ).first()
+    if not f:
+        raise HTTPException(404, "文件不存在")
+    cleaned = clean_tags(req.tags)
+    f.ai_tags = json.dumps(cleaned, ensure_ascii=False)
+    db.commit()
+    db.add(AccessLog(user_id=user.id, action="note_ai_tags", detail=path))
+    db.commit()
+    return {"ok": True, "tags": cleaned}
 
 
 def _resolve_file_path(db: Session, user_id: str, path: str = None, file_id: str = None) -> tuple[str, FileModel]:
