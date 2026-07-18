@@ -9,11 +9,11 @@ if (window.mermaid) {
 // ============ Utils（已抽离到 ./utils/，便于单测；生产仍零构建）============
 // import 带 ?v=（与 index.html 的 app.js?v= 同步）：改 utils 后需同步升这里 + index.html 的 ?v=，
 // 否则浏览器命中缓存的旧 utils。check-cache-busting.mjs 在 CI 兜底检测漏改。
-import { formatSize, formatDate, formatDateTime } from './utils/format.js?v=60';
+import { formatSize, formatDate, formatDateTime, stripExt } from './utils/format.js?v=61';
 import { parseServerTs } from './utils/time.js?v=60';
 import { escapeHtml } from './utils/dom.js?v=60';
-import { getPreviewType } from './utils/file-classify.js?v=60';
-import { ICONS, getFileIcon } from './utils/icons.js?v=60';
+import { getPreviewType, fileTypeBadge } from './utils/file-classify.js?v=60';
+import { ICONS, getFileIcon } from './utils/icons.js?v=62';
 import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=60';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
@@ -625,6 +625,9 @@ window.renderForgotPassword = renderForgotPassword;
 // 未登录访问根路径时展示的产品官网:顶栏 + Hero + 特性 + 安全/多端 + CTA + Footer。
 // 纯静态渲染,右上角"登录"跳 renderLogin;注册 CTA 随 register-status 开关,失败降级为仅"登录"。
 function renderLanding() {
+  // 双落地页已合并（Q2A）：统一跳静态 landing.html，消除 .sx-page #2B5FFF 与静态页 #3370FF 的双源色差
+  window.location.href = '/';
+  return; // 以下旧 SPA 内落地页（.sx-page）已废弃，保留以避免大段删除风险；永不执行
   document.body.classList.remove('view-shell');
   const ic = {
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
@@ -996,11 +999,15 @@ async function renderFiles() {
        <button class="btn btn-secondary btn-icon-only" id="btn-export" title="导出全部">${ICONS.export}</button>
        <button class="btn btn-secondary btn-icon-only" id="btn-refresh" title="刷新">${ICONS.refresh}</button>
       </div>
+      <div id="quota-ring-slot" class="quota-ring" style="display:none"></div>
     </div>
     <div class="files-body">
-      <div id="batch-bar" class="batch-bar" style="display:none"></div>
-      <div class="breadcrumb" id="breadcrumb"></div>
-      <div id="file-content"></div>
+      <aside class="files-groups" id="files-groups" aria-label="档案室分组"></aside>
+      <div class="files-main">
+        <div id="batch-bar" class="batch-bar" style="display:none"></div>
+        <div class="breadcrumb" id="breadcrumb"></div>
+        <div id="file-content"></div>
+      </div>
     </div>
     <input type="file" id="file-input" style="display:none" multiple>
   `;
@@ -1026,6 +1033,18 @@ async function renderFiles() {
     if (fileSelectMode) exitSelectMode(); else enterSelectMode();
   });
 
+  // 存储配额环：异步取 /api/files/stats 渲染到 header 右端（失败静默）
+  (async () => {
+    try {
+      const s = await API.get('/api/files/stats'); if (!s.ok) return;
+      const d = await s.json();
+      const slot = document.getElementById('quota-ring-slot');
+      if (!slot || !d.quota_mb) return;
+      slot.innerHTML = _quotaRing(d.total_size_mb, d.quota_mb);
+      slot.style.display = '';
+    } catch { /* 配额环不影响主功能 */ }
+  })();
+
   const searchInput = document.getElementById('search-input');
   let debounceTimer;
   searchInput.addEventListener('input', (e) => {
@@ -1037,6 +1056,53 @@ async function renderFiles() {
   loadFiles();
 }
 
+
+// 笔记视图：只列出 .md 笔记（对齐落地页 nav 的「笔记」入口，笔记不再混在文件库）
+async function renderNotes() {
+  document.getElementById('main-content').innerHTML = `
+    <div class="files-header">
+      <div class="files-title"><h1>笔记</h1><span class="files-count" id="files-count"></span></div>
+      <div class="files-controls"><button class="btn btn-primary" id="btn-note-new">${ICONS.note}<span>新建笔记</span></button></div>
+    </div>
+    <div class="files-body"><div class="files-main"><div id="file-content"></div></div></div>`;
+  document.getElementById('btn-note-new').addEventListener('click', showNoteEditor);
+  const content = document.getElementById('file-content');
+  const cntEl = document.getElementById('files-count');
+  content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.refresh}<div class="empty-title">加载中…</div></div></div>`;
+  let notes = [];
+  try {
+    const res = await API.get('/api/files?limit=500');
+    if (res && res.ok) {
+      const data = await res.json();
+      const list = data.items || data.files || data || [];
+      notes = list.filter(f => f && /\.(md|markdown|mdown|mkd)$/i.test(f.name || ''));
+    }
+  } catch { notes = []; }
+  if (cntEl) cntEl.textContent = notes.length ? `${notes.length} 篇` : '';
+  if (!notes.length) {
+    content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.note}<div class="empty-title">还没有笔记</div><div class="empty-desc">点击「新建笔记」开始记录，用 [[页面名]] 建立双向链接</div></div></div>`;
+    return;
+  }
+  content.innerHTML = `<div class="notes-grid">${notes.map(item => {
+    const title = escapeHtml(stripExt(item.name) || '未命名笔记');
+    const excerpt = escapeHtml(item.summary || item.excerpt || '');
+    const dateStr = item.modified ? formatDate(item.modified) : '';
+    const sizeStr = (!item.is_dir && item.size != null && item.size > 0) ? formatSize(item.size) : '';
+    const meta = [sizeStr, dateStr].filter(Boolean).join(' · ') || '—';
+    const pinHtml = item.pinned ? '<span class="note-card-pin">${ICONS.pin}置顶</span>' : '';
+    const tags = Array.isArray(item.tags) ? item.tags.slice(0, 3) : [];
+    const tagsHtml = tags.length ? '<div class="note-card-tags">' + tags.map(t => '<span class="note-card-tag">' + escapeHtml(t) + '</span>').join('') + '</div>' : '';
+    return `<div class="note-card" data-path="${escapeHtml(item.path)}" data-file-id="${escapeHtml(item.file_id || '')}" data-name="${escapeHtml(item.name)}">
+      <div class="note-card-title">${title}</div>
+      ${excerpt ? '<div class="note-card-excerpt">' + excerpt + '</div>' : ''}
+      ${tagsHtml}
+      <div class="note-card-meta"><div class="note-card-meta-left">${pinHtml}<span>${meta}</span></div></div>
+    </div>`;
+  }).join('')}</div>`;
+  content.querySelectorAll('.note-card').forEach(card => {
+    card.addEventListener('click', () => openNoteEditor({ path: card.dataset.path, fileId: card.dataset.fileId, name: card.dataset.name }));
+  });
+}
 
 function showNoteEditor() { openNoteEditor(); }
 
@@ -1062,7 +1128,7 @@ async function openNoteEditor(opts = {}) {
         <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理：自动摘要+标签">${ICONS.ai}<span>AI 整理</span></button>
       </div>
     </div>
-    <input type="text" class="form-input note-title-input" placeholder="笔记标题（可选，默认「未命名笔记」）" maxlength="80" value="${escapeHtml(editName.replace(/\.(md|markdown|mdown|mkd)$/i, ''))}">
+    <input type="text" class="form-input note-title-input" placeholder="笔记标题（可选，默认「未命名笔记」）" maxlength="80" value="${escapeHtml(stripExt(editName))}">
     <div class="input-error-msg" id="note-error"></div>
     <div class="note-editor-body" id="note-editor-body">
       <aside class="note-toc-pane" id="note-toc-pane">
@@ -1112,6 +1178,10 @@ async function openNoteEditor(opts = {}) {
       </div>
     </div>
     <div class="note-editor-meta">
+      <div class="note-backlinks-row" id="note-backlinks-row" style="display:none">
+        ${ICONS.link}<span class="note-backlinks-label">反向链接</span>
+        <div class="note-backlinks-list" id="note-backlinks"></div>
+      </div>
       <div class="note-tags-row">
         ${ICONS.tag}<span class="note-tags-label">标签</span>
         <div class="note-tags-input" id="note-tags-input"></div>
@@ -1148,6 +1218,25 @@ async function openNoteEditor(opts = {}) {
   const summaryText = modal.querySelector('#note-summary-text');
   const draftHint = modal.querySelector('#note-draft-hint');
 
+  // 反向链接（编辑已有笔记时加载"谁链接了我"，对齐落地页双链核心卖点）
+  const backlinksRow = modal.querySelector('#note-backlinks-row');
+  const backlinksEl = modal.querySelector('#note-backlinks');
+  if (editPath && backlinksEl) {
+    API.get('/api/files/backlinks?path=' + encodeURIComponent(editPath)).then(async (res) => {
+      if (!res || !res.ok) return;
+      const data = await res.json();
+      const links = data.backlinks || [];
+      if (!links.length) return;
+      backlinksRow.style.display = '';
+      backlinksEl.innerHTML = links.map((b) =>
+        `<div class="backlink-item" data-path="${escapeHtml(b.path || '')}"><span class="backlink-name">${ICONS.note}${escapeHtml(stripExt(b.name || '') || '未命名笔记')}</span>${b.snippet ? `<span class="backlink-snippet">${escapeHtml(b.snippet)}</span>` : ''}</div>`
+      ).join('');
+      backlinksEl.querySelectorAll('.backlink-item').forEach((el) => {
+        el.addEventListener('click', () => { const p = el.dataset.path; close(); openNoteEditor({ path: p, name: p.split('/').pop() }); });
+      });
+    }).catch(() => {});
+  }
+
   const nsbWords = modal.querySelector('#nsb-words');
   const nsbChars = modal.querySelector('#nsb-chars');
   const nsbReading = modal.querySelector('#nsb-reading');
@@ -1179,10 +1268,9 @@ async function openNoteEditor(opts = {}) {
     const text = ta.value;
     const words = countWords(text);
     const chars = text.length;
-    const minutes = Math.max(1, Math.round(words / 300));
     if (nsbWords) nsbWords.textContent = words + ' 字';
     if (nsbChars) nsbChars.textContent = chars + ' 字符';
-    if (nsbReading) nsbReading.textContent = '约 ' + minutes + ' 分钟';
+    if (nsbReading) nsbReading.textContent = words === 0 ? '不足 1 分钟' : '约 ' + Math.max(1, Math.round(words / 300)) + ' 分钟';
   }
 
   // ---- 视图模式：编辑 / 分屏 / 预览 ----
@@ -1246,20 +1334,20 @@ async function openNoteEditor(opts = {}) {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
 <style>
-body{max-width:760px;margin:40px auto;padding:0 20px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Segoe UI',system-ui,sans-serif;line-height:1.8;color:#1a1a2e;font-size:16px}
-h1{font-size:2em;border-bottom:2px solid #eee;padding-bottom:.3em}
-h2{font-size:1.5em;border-bottom:1px solid #eee;padding-bottom:.3em}
+body{max-width:760px;margin:40px auto;padding:0 20px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Segoe UI',system-ui,sans-serif;line-height:1.8;color:#1F2329;font-size:16px}
+h1{font-size:2em;border-bottom:2px solid #E5E6EB;padding-bottom:.3em}
+h2{font-size:1.5em;border-bottom:1px solid #E5E6EB;padding-bottom:.3em}
 h3{font-size:1.25em}
-pre{background:#f6f8fa;padding:14px;border-radius:6px;overflow-x:auto}
+pre{background:#F2F3F5;padding:14px;border-radius:6px;overflow-x:auto}
 code{font-family:ui-monospace,SF Mono,monospace}
-p code,li code{background:#f6f8fa;padding:2px 6px;border-radius:3px;font-size:.9em}
-blockquote{border-left:4px solid #2B5FFF;margin:0;padding:8px 16px;background:#f8f9ff;border-radius:0 6px 6px 0}
+p code,li code{background:#F2F3F5;padding:2px 6px;border-radius:3px;font-size:.9em}
+blockquote{border-left:4px solid #3370FF;margin:0;padding:8px 16px;background:#E8F1FF;border-radius:0 6px 6px 0}
 table{border-collapse:collapse;width:100%}
-th,td{border:1px solid #ddd;padding:8px 12px}
-th{background:#f6f8fa}
+th,td{border:1px solid #E5E6EB;padding:8px 12px}
+th{background:#F2F3F5}
 img{max-width:100%;border-radius:6px}
-a{color:#2B5FFF}
-hr{border:none;border-top:1px solid #eee;margin:24px 0}
+a{color:#3370FF}
+hr{border:none;border-top:1px solid #E5E6EB;margin:24px 0}
 </style></head><body>
 <h1>${escapeHtml(title)}</h1>
 ${r.html}
@@ -1506,7 +1594,7 @@ ${r.html}
       const res = await API.post('/api/files/ai-enhance?path=' + encodeURIComponent(targetPath));
       if (!res.ok) { const d = await res.json().catch(() => ({})); Toast.show(d.detail || 'AI 整理失败', 'error'); return; }
       const data = await res.json();
-      if (data.summary) { summaryRow.style.display = ''; summaryText.textContent = data.summary; }
+      if (data.summary) { summaryRow.style.display = ''; summaryText.textContent = data.summary || ''; }
       if (data.tags && data.tags.length) {
         data.tags.forEach(t => { if (!noteTags.includes(t)) noteTags.push(t); });
         renderTags();
@@ -1628,11 +1716,15 @@ ${r.html}
       if (!res.ok) { errEl.textContent = '加载笔记失败'; return; }
       const data = await res.json();
       ta.value = data.content || '';
-      titleEl.value = (data.name || editName).replace(/\.(md|markdown|mdown|mkd)$/i, '');
+      titleEl.value = stripExt(data.name || editName);
       noteTags = data.tags || [];
       notePinned = !!data.pinned;
       if (notePinned) pinBtn.classList.add('is-active');
-      if (data.summary) { summaryRow.style.display = ''; summaryText.textContent = data.summary; }
+      if (data.summary) { summaryRow.style.display = ''; summaryText.textContent = data.summary || ''; }
+      noteTags = data.tags || [];
+      notePinned = !!data.pinned;
+      if (notePinned) pinBtn.classList.add('is-active');
+      if (data.summary) { summaryRow.style.display = ''; summaryText.textContent = data.summary || ''; }
       renderTags(); updatePreview(); updateToc(); ta.focus();
     } catch (err) { errEl.textContent = '加载失败: ' + err.message; }
   }
@@ -1676,7 +1768,7 @@ async function loadBacklinks(filePath, containerId) {
       <div class="backlinks-title">反向链接 (${links.length})</div>
       <div class="backlinks-list">${links.map(bl => `
         <div class="backlink-item" data-backlink-path="${escapeHtml(bl.path)}" data-backlink-file-id="${escapeHtml(bl.file_id)}" data-backlink-name="${escapeHtml(bl.name)}">
-          <span class="backlink-name">${ICONS.note}${escapeHtml(bl.name.replace(/\.(md|markdown|mdown|mkd)$/i, ''))}</span>
+          <span class="backlink-name">${ICONS.note}${escapeHtml(stripExt(bl.name) || '未命名笔记')}</span>
           ${bl.snippet ? `<span class="backlink-snippet">${escapeHtml(bl.snippet)}</span>` : ''}
         </div>
       `).join('')}</div>`;
@@ -1716,12 +1808,21 @@ function openCommandPalette() {
   const resultsEl = overlay.querySelector('#cmd-results');
   let results = [];
   let selectedIdx = 0;
+  let lastQuery = '';
   let debounceTimer = null;
 
   function closePalette() {
     _cmdPaletteOpen = false;
     overlay.remove();
     document.body.style.overflow = '';
+  }
+
+  function hl(text, q) {
+    if (!text) return '';
+    const esc = escapeHtml(text);
+    if (!q) return esc;
+    const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    return esc.replace(re, '<mark class="search-hit">$1</mark>');
   }
 
   function renderResults() {
@@ -1733,13 +1834,15 @@ function openCommandPalette() {
       const isAction = r.type === 'action';
       const displayIcon = isAction ? (r.icon || ICONS.file) : getFileIcon(r.name || r.path || '', false).icon;
       const displayName = r.label || r.name || r.path || '';
-      const detail = r.snippet || r.detail || '';
+      const detail = r.snippet ? hl(r.snippet, lastQuery) : escapeHtml(r.detail || '');
+      const score = (!isAction && r.score != null) ? `<span class="cmd-item-score">${Number(r.score).toFixed(2)}</span>` : '';
       return `<div class="cmd-item${i === selectedIdx ? ' is-selected' : ''}" data-idx="${i}">
         <span class="cmd-item-icon">${displayIcon}</span>
         <span class="cmd-item-info">
           <span class="cmd-item-name">${escapeHtml(displayName)}</span>
-          ${detail ? `<span class="cmd-item-detail">${escapeHtml(detail)}</span>` : ''}
+          ${detail ? `<span class="cmd-item-detail">${detail}</span>` : ''}
         </span>
+        ${score}
       </div>`;
     }).join('');
     resultsEl.querySelectorAll('.cmd-item').forEach(el => {
@@ -1761,7 +1864,8 @@ function openCommandPalette() {
   }
 
   async function doSearch(q) {
-    if (!q.trim()) { results = getQuickActions(); selectedIdx = 0; renderResults(); return; }
+    lastQuery = q.trim();
+    if (!lastQuery) { results = getQuickActions(); selectedIdx = 0; renderResults(); return; }
     try {
       const res = await API.get('/api/files/search?q=' + encodeURIComponent(q) + '&limit=15');
       if (!res.ok) { results = []; renderResults(); return; }
@@ -2057,6 +2161,27 @@ async function loadGroups() {
   return userGroups;
 }
 
+// 档案室分组侧栏：左侧持久分组导航（对齐落地页 Hero 的档案室侧栏）
+function renderGroupsSidebar() {
+  const el = document.getElementById('files-groups');
+  if (!el) return;
+  const allActive = !selectedGroup && !currentDir && !searchQuery;
+  const allItem = `<button class="group-item${allActive ? ' active' : ''}" data-action="group-all" aria-label="全部文件">${ICONS.files}<span class="group-item-name">全部文件</span></button>`;
+  const groupItems = userGroups.map(g =>
+    `<button class="group-item${selectedGroup === g.id ? ' active' : ''}" data-gid="${escapeHtml(g.id)}" aria-label="分组 ${escapeHtml(g.name)}"><span class="group-item-name">${escapeHtml(g.name)}</span><span class="group-count">${g.file_count || 0}</span></button>`
+  ).join('');
+  el.innerHTML = `<div class="group-item-h">档案室</div>${allItem}${groupItems}`;
+  el.querySelectorAll('.group-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.action === 'group-all') { selectedGroup = ''; currentDir = ''; }
+      else { selectedGroup = btn.dataset.gid || ''; currentDir = ''; }
+      searchQuery = '';
+      const si = document.getElementById('search-input'); if (si) si.value = '';
+      loadFiles();
+    });
+  });
+}
+
 function showGroupManager() {
   if (document.querySelector('[data-group-manager]')) return; // 避免重复打开导致重复 id
   const overlay = document.createElement('div');
@@ -2112,8 +2237,8 @@ function renderGroupManagerList() {
       <td>${g.file_count}</td>
       <td>${formatSize(g.size)}</td>
       <td>
-        <button class="btn btn-secondary btn-sm" data-action="rename" data-id="${escapeHtml(g.id)}">重命名</button>
-        <button class="btn btn-danger btn-sm" data-action="delete" data-id="${escapeHtml(g.id)}">删除</button>
+        <button class="btn btn-secondary btn-sm" data-action="rename" data-id="${escapeHtml(g.id)}" aria-label="重命名分组 ${escapeHtml(g.name)}">重命名</button>
+        <button class="btn btn-danger btn-sm" data-action="delete" data-id="${escapeHtml(g.id)}" aria-label="删除分组 ${escapeHtml(g.name)}">删除</button>
       </td>
     </tr>`).join('')}
   </tbody></table>`;
@@ -2330,23 +2455,12 @@ function sortItems(items) {
 
 function renderFileList(items) {
   currentFileItems = items;
+  renderGroupsSidebar();
   const content = document.getElementById('file-content');
   if (!content) return;
+  // 分组已迁移到左侧档案室侧栏（renderGroupsSidebar）；列表只显示文件/目录
   const isRoot = !currentDir && !selectedGroup && !searchQuery;
-
-  // 根目录：把分组作为虚拟文件夹插入列表顶部，并隐藏已分组文件（它们在分组文件夹里）
-  let displayItems = items;
-  if (isRoot) {
-    const groupFolders = userGroups.map(g => ({
-      name: g.name, path: '__group__:' + g.id, is_dir: true, is_group: true,
-      group_id: g.id, file_count: g.file_count, size: g.size, modified: 0,
-    }));
-    // 已分组的根级文件不重复显示（通过分组文件夹访问）
-    const ungrouped = items.filter(i => i.is_dir || !i.group_id);
-    displayItems = groupFolders.concat(sortItems(ungrouped));
-  } else {
-    displayItems = sortItems(items);
-  }
+  const displayItems = sortItems(items);
 
   const realItems = displayItems.filter(i => !i.is_group);
   const bytes = displayItems.filter(i => !i.is_dir && !i.is_group).reduce((s, i) => s + (i.size || 0), 0);
@@ -2354,12 +2468,34 @@ function renderFileList(items) {
   if (cntEl) cntEl.textContent = realItems.length ? `${realItems.length} 项${bytes ? ' · ' + formatSize(bytes) : ''}` : '';
 
   if (!displayItems.length) {
-    const emptyMsg = selectedGroup
-      ? '<div class="empty-title">该分组暂无文件</div><div class="empty-desc">点击"上传"将文件加入此分组</div>'
-      : isRoot
-        ? `${ICONS.groups}<div class="empty-title">还没有分组或文件</div><div class="empty-desc">点击分组图标创建分组，或直接「上传」文件</div>`
-        : '<div class="empty-title">这个目录是空的</div><div class="empty-desc">拖拽文件到此或点击「上传」</div>';
-    content.innerHTML = `<div class="file-table"><div class="empty-state">${emptyMsg}</div></div>`;
+    let card;
+    if (selectedGroup) {
+      card = `<div class="empty-card" role="status">
+        <div class="empty-illust">${ICONS.groups}</div>
+        <div class="empty-title">该分组暂无文件</div>
+        <div class="empty-desc">点击下方按钮将文件加入「${escapeHtml(selectedGroup ? '' : '')}」分组</div>
+        <div class="empty-actions"><button class="btn btn-primary" id="btn-empty-upload">${ICONS.upload}<span>上传文件到本组</span></button></div>
+      </div>`;
+    } else if (isRoot) {
+      card = `<div class="empty-card" role="status">
+        <div class="empty-illust">${ICONS.files}</div>
+        <div class="empty-title">还没有分组或文件</div>
+        <div class="empty-desc">上传文件开始归档，或先写一篇笔记记录灵感</div>
+        <div class="empty-actions"><button class="btn btn-primary" id="btn-empty-upload">${ICONS.upload}<span>上传文件</span></button><button class="btn btn-secondary" id="btn-empty-note">${ICONS.note}<span>新建笔记</span></button></div>
+      </div>`;
+    } else {
+      card = `<div class="empty-card" role="status">
+        <div class="empty-illust">${ICONS.folder}</div>
+        <div class="empty-title">这个目录是空的</div>
+        <div class="empty-desc">拖拽文件到这里，或点击下方按钮上传</div>
+        <div class="empty-actions"><button class="btn btn-primary" id="btn-empty-upload">${ICONS.upload}<span>上传文件</span></button></div>
+      </div>`;
+    }
+    content.innerHTML = `<div class="file-table">${card}</div>`;
+    const up = content.querySelector('#btn-empty-upload');
+    if (up) up.addEventListener('click', () => document.getElementById('file-input').click());
+    const note = content.querySelector('#btn-empty-note');
+    if (note) note.addEventListener('click', showNoteEditor);
     updateBatchBar();
     return;
   }
@@ -2379,8 +2515,39 @@ function renderFileList(items) {
   updateBatchBar();
 }
 
+// badge 行折叠：pin + group + guard + tags 最多共 3 个，超出为 +N；避免一行被徽章挤爆（P0 L0.1 / S9）
+function _badgeCap(pinHtml, groupHtml, guardHtml, tagsHtml, _isDir) {
+  const parts = [pinHtml, groupHtml, guardHtml].filter(Boolean);
+  const tags = tagsHtml ? [tagsHtml] : [];
+  if (parts.length <= 2) return parts.concat(tags).join('');
+  const shown = parts.slice(0, 2);
+  const rest = parts.length - 2 + (tagsHtml ? 1 : 0);
+  return shown.join('') + `<span class="badge badge-more" title="更多徽章">+${rest}</span>` + (tagsHtml ? tagsHtml : '');
+}
+
+function _sourceBadge(source) {
+  const map = { sync: '同步', note: '笔记', transfer: '传输' };
+  const label = map[String(source || '').toLowerCase()];
+  return label ? `<span class="source-badge">${label}</span>` : '';
+}
+
+// 存储配额环 SVG（顶部 header 右端，P0 F）
+function _quotaRing(usedMb, quotaMb) {
+  if (!quotaMb || quotaMb <= 0) return '';
+  const pct = Math.min(100, Math.round((usedMb / quotaMb) * 100));
+  const R = 15, C = 2 * Math.PI * R;
+  const offset = C * (1 - pct / 100);
+  const cls = pct >= 90 ? 'is-danger' : pct >= 70 ? 'is-warn' : '';
+  return `<div class="quota-ring ${cls}" title="${usedMb.toFixed(1)}/${quota_mb_mb(quotaMb)} (${pct}%)" aria-label="存储已用 ${pct}%">
+    <svg viewBox="0 0 36 36"><circle class="q-bg" cx="18" cy="18" r="${R}"/><circle class="q-fg" cx="18" cy="18" r="${R}" stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"/></svg>
+    <div class="q-text">${pct}%</div>
+  </div>`;
+}
+function quota_mb_mb(mb) { return mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb + 'MB'; }
+
 function fileItemHTML(item) {
   const isSel = fileSelection.has(item.path);
+  const tb = fileTypeBadge(item.name);
   if (item.is_group) {
     const cnt = item.file_count > 0 ? `${item.file_count} 项` : '空';
     if (fileView === 'grid') {
@@ -2390,14 +2557,15 @@ function fileItemHTML(item) {
         <div class="file-card-meta"><span class="badge badge-group">${cnt}</span></div>
       </div>`;
     }
-    return `<div class="file-row group-folder" data-gid="${escapeHtml(item.group_id)}" data-isgroup="true" data-name="${escapeHtml(item.name)}">
-      <div class="file-cell file-cell--name">
+    return `<div class="file-row group-folder" data-gid="${escapeHtml(item.group_id)}" data-isgroup="true" data-name="${escapeHtml(item.name)}" role="row" aria-label="分组 ${escapeHtml(item.name)}">
+      <div class="file-cell file-cell--name" role="gridcell">
         <span class="file-icon folder">${ICONS.groups}</span>
         <span class="file-name">${escapeHtml(item.name)}</span>
       </div>
-      <div class="file-cell file-cell--size">${cnt}</div>
-      <div class="file-cell file-cell--date">—</div>
-      <div class="file-cell file-cell--actions file-actions"><button class="icon-btn" data-action="group-menu" title="更多">${ICONS.more}</button></div>
+      <div class="file-cell file-cell--type" role="gridcell"><span class="type-badge type-md">分组</span></div>
+      <div class="file-cell file-cell--size" role="gridcell">${cnt}</div>
+      <div class="file-cell file-cell--date" role="gridcell">—</div>
+      <div class="file-cell file-cell--actions file-actions" role="gridcell"><button class="icon-btn" data-action="group-menu" title="更多" aria-label="分组更多操作">${ICONS.more}</button></div>
     </div>`;
   }
   const icon = getFileIcon(item.name, item.is_dir);
@@ -2406,32 +2574,35 @@ function fileItemHTML(item) {
   const pinHtml = item.pinned ? '<span class="badge badge-pin" title="已置顶">★</span>' : '';
   const tagsHtml = (item.tags && item.tags.length) ? item.tags.slice(0, 3).map(t => `<span class="badge badge-tag">#${escapeHtml(t)}</span>`).join('') + (item.tags.length > 3 ? `<span class="badge badge-tag">+${item.tags.length - 3}</span>` : '') : '';
   const isNote = /\.(md|markdown|mdown|mkd)$/i.test(item.name);
-  const checkHtml = (fileSelectMode && !item.is_dir) ? `<div class="file-check ${isSel ? 'is-checked' : ''}" data-action="toggle-select">${isSel ? CHECK_ICON : ''}</div>` : '';
+  const checkHtml = (fileSelectMode && !item.is_dir) ? `<input type="checkbox" class="file-check ${isSel ? 'is-checked' : ''}" data-action="toggle-select" role="checkbox" aria-checked="${isSel ? 'true' : 'false'}" aria-label="选择 ${escapeHtml(item.name)}" ${isSel ? 'checked' : ''}>` : '';
   const selCls = isSel ? ' is-selected' : '';
+  const ariaLabel = `${escapeHtml(item.name)}, 类型 ${tb.label}${item.is_dir ? ' 文件夹' : ''}${item.pinned ? ' 已置顶' : ''}`;
+  const snippetHtml = item._snippetHighlight ? `<div class="file-snippet">${item._snippetHighlight}</div>` : '';
   if (fileView === 'grid') {
-    return `<div class="file-card${selCls}${item.pinned ? ' is-pinned' : ''}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}" data-pinned="${item.pinned ? 'true' : 'false'}">
+    return `<div class="file-card${selCls}${item.pinned ? ' is-pinned' : ''}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}" data-file-id="${escapeHtml(item._fileId || item.file_id || '')}" data-pinned="${item.pinned ? 'true' : 'false'}" role="gridcell" aria-label="${ariaLabel}">
       ${checkHtml}
       ${pinHtml ? `<span class="file-card-pin">${ICONS.pin}</span>` : ''}
       <div class="file-icon ${icon.cls}">${icon.icon}</div>
       <div class="file-name">${escapeHtml(item.name)}</div>
-      <div class="file-card-meta"><span>${item.is_dir ? '文件夹' : formatSize(item.size)}</span>${tagsHtml}</div>
+      <div class="file-card-meta"><span>${item.is_dir ? '文件夹' : formatSize(item.size)}</span>${_sourceBadge(item.source)}${tagsHtml}</div>
     </div>`;
   }
-  return `<div class="file-row${selCls}${item.pinned ? ' is-pinned' : ''}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}" data-pinned="${item.pinned ? 'true' : 'false'}">
-    <div class="file-cell file-cell--name">
+  return `<div class="file-row${selCls}${item.pinned ? ' is-pinned' : ''}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}" data-file-id="${escapeHtml(item._fileId || item.file_id || '')}" data-pinned="${item.pinned ? 'true' : 'false'}" role="row" aria-label="${ariaLabel}">
+    <div class="file-cell file-cell--name" role="gridcell">
       ${checkHtml}
       <span class="file-icon ${icon.cls}">${icon.icon}</span>
-      <span class="file-name">${escapeHtml(item.name)}</span>
-      ${pinHtml}${groupHtml}${guardHtml}${tagsHtml}
+      <div class="file-name-info"><span class="file-name">${escapeHtml(item.name)}</span>${snippetHtml}</div>
+      ${_badgeCap(pinHtml, groupHtml, guardHtml, tagsHtml, item.is_dir)}
     </div>
-    <div class="file-cell file-cell--size">${item.is_dir ? '-' : formatSize(item.size)}</div>
-    <div class="file-cell file-cell--date">${item.modified ? formatDate(item.modified) : '-'}</div>
-    <div class="file-cell file-cell--actions file-actions">
-      ${isNote ? `<button class="icon-btn" data-action="edit" title="编辑">${ICONS.edit}</button>` : ''}
-      ${!item.is_dir ? `<button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>` : ''}
-      ${!item.is_dir ? `<button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>` : ''}
-      <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
-      <button class="icon-btn" data-action="menu" title="更多">${ICONS.more}</button>
+    <div class="file-cell file-cell--type" role="gridcell">${item.is_dir ? `<span class="type-badge type-md">文件夹</span>` : `<span class="type-badge ${tb.cls}" title="${tb.label}">${tb.label}</span>`}</div>
+    <div class="file-cell file-cell--size" role="gridcell">${item.is_dir ? '-' : formatSize(item.size)}</div>
+    <div class="file-cell file-cell--date" role="gridcell">${item.modified ? formatDate(item.modified) : '-'}</div>
+    <div class="file-cell file-cell--actions file-actions" role="gridcell">
+      ${isNote ? `<button class="icon-btn" data-action="edit" title="编辑" aria-label="编辑 ${escapeHtml(item.name)}">${ICONS.edit}</button>` : ''}
+      ${!item.is_dir ? `<button class="icon-btn" data-action="preview" title="预览" aria-label="预览 ${escapeHtml(item.name)}">${ICONS.eye}</button>` : ''}
+      ${!item.is_dir ? `<button class="icon-btn" data-action="download" title="下载" aria-label="下载 ${escapeHtml(item.name)}">${ICONS.download}</button>` : ''}
+      <button class="icon-btn danger" data-action="delete" title="删除" aria-label="删除 ${escapeHtml(item.name)}">${ICONS.trash}</button>
+      <button class="icon-btn" data-action="menu" title="更多" aria-label="${escapeHtml(item.name)} 更多操作">${ICONS.more}</button>
     </div>
   </div>`;
 }
@@ -2489,7 +2660,11 @@ function toggleSelect(path) {
   document.querySelectorAll(sel).forEach(el => {
     el.classList.toggle('is-selected', !had);
     const chk = el.querySelector('.file-check');
-    if (chk) { chk.classList.toggle('is-checked', !had); chk.innerHTML = !had ? CHECK_ICON : ''; }
+    if (chk) {
+      chk.classList.toggle('is-checked', !had);
+      chk.setAttribute('aria-checked', !had ? 'true' : 'false');
+      if (chk.checked !== undefined) chk.checked = !had;
+    }
   });
   updateBatchBar();
 }
@@ -2556,14 +2731,23 @@ function selectAllFiles() {
 async function batchDeleteSelected() {
   const paths = [...fileSelection];
   if (!paths.length) return;
-  if (!await confirmDialog({ title: '批量删除', message: `确定删除选中的 ${paths.length} 个文件？删除后无法恢复。`, confirmText: '删除', danger: true })) return;
+  // 批量删除二次确认：≥5 项需键入「永久删除」（P0 E / 对齐回收站清空确认词）
+  const needType = paths.length >= 5;
+  const ok = await confirmDialog({
+    title: '批量删除',
+    message: needType ? `确定删除选中的 ${paths.length} 个文件？删除后将移入回收站（保留期内可恢复）。` : `确定删除选中的 ${paths.length} 个文件？删除后将移入回收站（保留期内可恢复）。`,
+    confirmText: '删除', danger: true,
+    inputConfirm: needType ? '永久删除' : '',
+    inputConfirmLabel: '请输入「永久删除」以确认',
+  });
+  if (!ok) return;
   // 各文件删除互相独立，并发执行以缩短总耗时
   const results = await Promise.all(paths.map(p =>
     API.del(`/api/files?path=${encodeURIComponent(p)}`).then(r => r.ok).catch(() => false)
   ));
-  const ok = results.filter(Boolean).length;
-  const fail = results.length - ok;
-  Toast.show(`已删除 ${ok} 项${fail ? `，失败 ${fail} 项` : ''}`, fail ? 'warning' : 'success');
+  const okN = results.filter(Boolean).length;
+  const fail = results.length - okN;
+  Toast.show(`已删除 ${okN} 项${fail ? `，失败 ${fail} 项` : ''}`, fail ? 'warning' : 'success');
   exitSelectMode();
   await loadGroups();
   loadFiles();
@@ -2671,16 +2855,9 @@ async function showTagFilterMenu(e) {
 }
 
 function showFileMenu(eventOrX, path, name, isDir) {
-  let x, y;
-  if (eventOrX.clientX !== undefined) { x = eventOrX.clientX; y = eventOrX.clientY; }
-  else { x = eventOrX; y = arguments[3] || 100; name = arguments[2]; isDir = false; path = arguments[1]; }
-
-  // Handle the case where called from onclick with (event, path, name, isDir)
-  if (typeof eventOrX === 'object' && eventOrX.stopPropagation) {
-    x = eventOrX.clientX; y = eventOrX.clientY;
-  }
-
-const items = [];
+  // 统一签名：(event, path, name, isDir)。所有调用点（contextmenu / 行内「更多」按钮）均已收敛到此形态。
+  const x = eventOrX.clientX, y = eventOrX.clientY;
+  const items = [];
 if (!isDir) {
   items.push({ action: 'preview', label: '预览', icon: ICONS.eye, onClick: () => previewFile(path, name) });
   // 笔记（.md）可编辑
@@ -2704,9 +2881,10 @@ if (!isDir) {
 function renderSearchResults(results) {
   const content = document.getElementById('file-content');
   if (!results.length) {
-    content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.search}<div class="empty-title">没有找到匹配的文件</div></div></div>`;
+    content.innerHTML = `<div class="search-results-empty">${ICONS.search}<div class="empty-title">没有找到匹配的文件</div></div>`;
     return;
   }
+  // 搜索结果复用主列表组件体系（P0 L0.5 / S4）：顶部轻量 head + 用 renderFileList 渲染行
   function highlightSnippet(text, q) {
     if (!text) return '';
     const escaped = escapeHtml(text);
@@ -2714,52 +2892,72 @@ function renderSearchResults(results) {
     const re = new RegExp('(' + ql.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
     return '<mark class="search-hit">' + escaped.replace(re, '</mark>$1<mark class="search-hit">').replace(/<\/mark>(<mark class="search-hit">)/g, '$1') + '</mark>';
   }
-  content.innerHTML = `<div class="file-table">
-    <div class="file-table-head">
-      <span class="file-cell file-cell--name">搜索结果 · ${results.length} 项</span>
-      <span class="file-cell file-cell--size">大小</span>
-      <span class="file-cell file-cell--date">匹配</span>
-      <span class="file-cell file-cell--actions"></span>
-   </div>${results.map(r => {
-     const icon = getFileIcon(r.name || r.path, false);
-      const score = r.score ? Math.round(r.score * 100) + '%' : '-';
-      const hasSnippet = r.snippet && r.snippet.trim();
-      return `<div class="file-row${hasSnippet ? ' file-row--snippet' : ''}" data-path="${escapeHtml(r.path)}" data-name="${escapeHtml(r.name || r.path)}" data-file-id="${escapeHtml(r.file_id || '')}">
-        <div class="file-cell file-cell--name">
-          <span class="file-icon ${icon.cls}">${icon.icon}</span>
-          <div class="file-name-info">
-            <span class="file-name">${escapeHtml(r.name || r.path)}</span>
-            ${hasSnippet ? `<span class="file-snippet">${highlightSnippet(r.snippet, searchQuery)}</span>` : ''}
-          </div>
-        </div>
-        <div class="file-cell file-cell--size">${formatSize(r.size)}</div>
-        <div class="file-cell file-cell--date">${score}</div>
-        <div class="file-cell file-cell--actions file-actions">
-          ${/\.(md|markdown|mdown|mkd)$/i.test(r.name || r.path) ? `<button class="icon-btn" data-action="edit" title="编辑">${ICONS.edit}</button>` : ''}
-          <button class="icon-btn" data-action="preview" title="预览">${ICONS.eye}</button>
-          <button class="icon-btn" data-action="download" title="下载">${ICONS.download}</button>
-          <button class="icon-btn danger" data-action="delete" title="删除">${ICONS.trash}</button>
-          <button class="icon-btn" data-action="menu" title="更多">${ICONS.more}</button>
-        </div>
-      </div>`;
-    }).join('')}
-  </div>`;
- content.querySelectorAll('.file-row').forEach(row => {
-  row.addEventListener('click', () => previewFile(row.dataset.path, row.dataset.name));
-   row.querySelectorAll('[data-action]').forEach(btn => {
-     btn.addEventListener('click', (e) => {
-       e.stopPropagation();
-       const a = btn.dataset.action;
-       const { path, name } = row.dataset;
-       const fid = row.dataset.fileId || '';
-       if (a === 'preview') previewFile(path, name);
-       else if (a === 'edit') openNoteEditor({ path, name, fileId: fid });
-       else if (a === 'menu') showFileMenu(e, path, name, false);
-       else if (a === 'download') downloadFile(path);
-       else if (a === 'delete') deleteFile(path);
-     });
-   });
- });
+  const items = results.map(r => ({
+    name: r.name || r.path, path: r.path, is_dir: false, size: r.size || 0,
+    modified: r.modified || 0, file_id: r.file_id || '', guard_status: r.guard_status || 'safe',
+    group_id: r.group_id || '', group_name: r.group_name || '',
+    is_note: /\.(md|markdown|mdown|mkd)$/i.test(r.name || r.path),
+    tags: r.tags || [], pinned: false, summary: r.summary || '', ai_tags: [],
+    _snippet: r.snippet || '', _fileId: r.file_id || '',
+  }));
+  // snippet 注入：把摘要高亮后挂到每组 item 的 summary，下接在 .file-name-info 内行内
+  if (searchQuery) {
+    items.forEach(it => { if (it._snippet) it._snippetHighlight = highlightSnippet(it._snippet, searchQuery); });
+  }
+  const head = `<div class="search-results-head" role="status" aria-live="polite"><span class="search-results-head-title">${ICONS.search}<span>语义检索 · ${results.length} 项命中</span></span><span class="spacer"></span></div>`;
+  content.innerHTML = head;
+  const listWrap = document.createElement('div');
+  content.appendChild(listWrap);
+  // 用 sortItems 保持排序一致，再走统一渲染；结果不显示骨架屏（已在 loadFiles 前置空）
+  const displayItems = sortItems(items);
+  if (fileView === 'grid') {
+    listWrap.innerHTML = `<div class="file-grid">${displayItems.map(item => fileItemHTML(item)).join('')}</div>`;
+  } else {
+    listWrap.innerHTML = `<div class="file-table">
+      <div class="file-table-head">
+        <span class="file-cell file-cell--name">名称</span>
+        <span class="file-cell file-cell--type">类型</span>
+        <span class="file-cell file-cell--size">大小</span>
+        <span class="file-cell file-cell--date">修改</span>
+        <span class="file-cell file-cell--actions"></span>
+      </div>${displayItems.map(item => fileItemHTML(item)).join('')}
+    </div>`;
+  }
+  bindFileItemsToContainer(listWrap);
+}
+
+function bindFileItemsToContainer(root) {
+  // 为搜索结果容器单独绑定：行点击→预览/编辑笔记；行内同上复用 data-action 委托
+  root.querySelectorAll('.file-row, .file-card').forEach(row => {
+    row.addEventListener('click', () => {
+      if (fileSelectMode) {
+        if (row.dataset.isgroup !== 'true' && row.dataset.isdir !== 'true') toggleSelect(row.dataset.path);
+        return;
+      }
+      if (row.dataset.isdir === 'true') {
+        currentDir = row.dataset.path; selectedGroup = ''; searchQuery = ''; selectedTag = '';
+        const si = document.getElementById('search-input'); if (si) si.value = '';
+        loadFiles();
+      } else {
+        previewFile(row.dataset.path, row.dataset.name, { fileId: row.dataset.fileId || row.dataset.file_id || '' });
+      }
+    });
+    row.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showFileMenu(e, row.dataset.path, row.dataset.name, row.dataset.isdir === 'true');
+    });
+    row.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const a = btn.dataset.action;
+        const { path, name } = row.dataset;
+        if (a === 'toggle-select') toggleSelect(path);
+        else if (a === 'preview') previewFile(path, name);
+        else if (a === 'edit') openNoteEditor({ path, name });
+        else if (a === 'menu') showFileMenu(e, path, name, row.dataset.isdir === 'true');
+      });
+    });
+  });
 }
 
 // ============ Upload with Progress ============
@@ -3564,6 +3762,20 @@ function updateToolsInMessage(msgEl, toolCalls) {
 }
 
 // 构造单条消息 DOM 节点（assistant 用 markdown，含复制按钮与工具区）
+// 从工具调用结果提取引用文件名（对齐 landing figure 的药丸文件来源 chip）
+function extractCiteFiles(toolCalls) {
+  const files = [];
+  (toolCalls || []).forEach(tc => {
+    if (!/search_files|qa|summarize_file|read_file/.test(tc.tool || '')) return;
+    try {
+      const data = typeof tc.result === 'string' ? JSON.parse(tc.result) : tc.result;
+      const arr = Array.isArray(data) ? data : (data && (data.results || data.files || data.items)) || [];
+      arr.forEach(f => { if (f && f.name) files.push(f.name); });
+    } catch { /* result 非预期格式则跳过 */ }
+  });
+  return [...new Set(files)].slice(0, 5);
+}
+
 function messageElement(msg) {
   const wrap = document.createElement('div');
   wrap.className = `chat-message ${msg.role}`;
@@ -3579,6 +3791,13 @@ function messageElement(msg) {
   }
   wrap.appendChild(bubble);
   if (msg.role === 'assistant') {
+    const citeFiles = extractCiteFiles(msg.tool_calls);
+    if (citeFiles.length) {
+      const chips = document.createElement('div');
+      chips.className = 'chat-cite-files';
+      chips.innerHTML = citeFiles.map(n => `<span class="chat-cite-chip">${ICONS.file}<span class="chat-cite-name">${escapeHtml(n)}</span></span>`).join('');
+      wrap.appendChild(chips);
+    }
     if (msg.tool_calls && msg.tool_calls.length) updateToolsInMessage(wrap, msg.tool_calls);
     const actions = document.createElement('div');
     actions.className = 'chat-msg-actions';
@@ -4374,6 +4593,36 @@ async function renderSettings(initialTab) {
         <div class="settings-panel-desc">设备令牌可单条或一键吊销；浏览器默认禁止下载（零痕迹），需要时开临时窗口；建议在公用设备上开启双因子验证。</div>
         <div class="settings-section">
           <div class="setting-head">
+            <div class="setting-head-icon icon-neutral">${ICONS.shield}</div>
+            <div class="setting-head-text"><h3>PII 服务端脱敏</h3><p class="section-desc">AI 回复中的手机、邮箱、身份证、API Key、银行卡在送达浏览器前自动遮罩，真实值不落前端；需要时可点睛临时揭示。</p></div>
+          </div>
+          <div class="setting-body">
+            <figure class="sx-compare" role="figure" aria-label="PII 服务端脱敏对比：原始回答含明文，送达前端时已遮罩">
+              <figcaption class="sx-compare-cap">${ICONS.shield}PII 服务端脱敏 · 原文 → 前端</figcaption>
+              <div class="sx-compare-panes">
+                <div class="sx-pane">
+                  <span class="sx-pane-tag">服务端 · 原始回答</span>
+                  <ul class="sx-pane-list">
+                    <li><span class="sx-pane-key">手机</span><span class="sx-raw">13800000815</span></li>
+                    <li><span class="sx-pane-key">邮箱</span><span class="sx-raw">wangzhiqiang@example.com</span></li>
+                    <li><span class="sx-pane-key">身份证</span><span class="sx-raw">110101199003071234</span></li>
+                  </ul>
+                </div>
+                <div class="sx-compare-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+                <div class="sx-pane">
+                  <span class="sx-pane-tag">前端可见</span>
+                  <ul class="sx-pane-list">
+                    <li><span class="sx-pane-key">手机</span><span class="sx-redact">138****0815</span></li>
+                    <li><span class="sx-pane-key">邮箱</span><span class="sx-redact">w***@example.com</span></li>
+                    <li><span class="sx-pane-key">身份证</span><span class="sx-redact">110***********1234</span></li>
+                  </ul>
+                </div>
+              </div>
+            </figure>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="setting-head">
             <div class="setting-head-icon icon-success">${ICONS.key}</div>
             <div class="setting-head-text"><h3>访问令牌与会话</h3><p class="section-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。</p></div>
             <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
@@ -5136,6 +5385,7 @@ const App = {
               <button class="nav-item active" data-view="transfer">${ICONS.transfer}<span class="nav-item-label">传输助手</span></button>
               ${aiEnabled ? `<button class="nav-item" data-view="chat">${ICONS.chat}<span class="nav-item-label">AI 助手</span></button>` : ''}
               <button class="nav-item" data-view="files">${ICONS.files}<span class="nav-item-label">文件库</span></button>
+              <button class="nav-item" data-view="notes">${ICONS.note}<span class="nav-item-label">笔记</span></button>
               <button class="nav-item" data-view="trash">${ICONS.trash}<span class="nav-item-label">回收站</span><span class="nav-badge" id="trash-count" hidden>0</span></button>
             </div>
             <div class="nav-section">
@@ -5201,6 +5451,7 @@ const App = {
     else if (view === 'chat') renderChat();
     else if (view === 'transfer') renderTransfer();
     else if (view === 'settings') renderSettings(opts.tab);
+    else if (view === 'notes') renderNotes();
   },
   openSettings(tab) {
     // 校验 tab 值，避免非法值经 renderTab 被持久化到偏好（修复：openSettings tab 未校验）

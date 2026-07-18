@@ -2,52 +2,7 @@
    随行档 · 管理后台（蓝色现代风 · 与用户端/首页统一）
    冷灰画布 + 白卡 + 蓝主色 + Geist + 小圆角 7/10/12
    ============================================================ */
-:root {
-  /* -- 背景层：冷灰画布 + 白卡 -- */
-  --bg: #F7F7F5;
-  --bg-surface: #FFFFFF;
-  --bg-surface-hover: #F0F0EC;
-  --bg-elevated: #FFFFFF;
-  --bg-secondary: #FFFFFF;   /* 兼容 admin.js 内联引用 */
-  --bg-sunken: #F0F0EC;
-  /* -- 文字层 -- */
-  --text: #15161A;
-  --text-secondary: #4A4D57;
-  --text-muted: #8A8E99;
-  /* -- 细线（冷灰）-- */
-  --border: #E6E8EC;
-  --border-light: #D8DBE2;
-  /* -- 品牌主色：蓝（与用户端统一）-- */
-  --primary: #2B5FFF;
-  --primary-hover: #1A47E6;
-  --primary-light: rgba(43, 95, 255, 0.08);
-  --primary-ring: rgba(43, 95, 255, 0.16);  /* 聚焦光晕 · Notion 式 3px 环 */
-  --seal: #2B5FFF;           /* 兼容旧名 */
-  --seal-2: #1A47E6;
-  --seal-soft: rgba(43, 95, 255, 0.08);
-  --brand: #2B5FFF;
-  /* -- 墨色 -- */
-  --ink: #15161A;
-  --ink-hover: #2A2C33;
-  /* -- 语义色 -- */
-  --success: #16A34A;
-  --warning: #D97706;
-  --danger: #DC2626;
-  --danger-light: rgba(220, 38, 38, 0.09);
-  /* -- 圆角（= 用户端）-- */
-  --radius-sm: 7px;
-  --radius: 10px;
-  --radius-lg: 12px;
-  /* -- 分层投影（卡近平靠描边、浮层有空气感，飞书/Notion 式）-- */
-  --shadow-xs: 0 1px 2px rgba(16,24,40,.04);
-  --shadow-sm: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.04);
-  --shadow: 0 1px 3px rgba(16,24,40,.05), 0 6px 16px rgba(16,24,40,.06);
-  --shadow-lg: 0 2px 8px rgba(16,24,40,.06), 0 24px 56px rgba(16,24,40,.14);
-  /* -- 字体（= 用户端 Geist）-- */
-  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
-  --font-serif: 'Songti SC', 'STSong', 'SimSun', 'Noto Serif SC', serif;
-  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-}
+/* 设计 token 见 tokens.css（四端单一真源）；admin 不再重复定义 */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { overflow-x: hidden; }

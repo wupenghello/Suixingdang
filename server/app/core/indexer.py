@@ -157,6 +157,31 @@ def remove_text_from_index(user_id: str, message_id: str):
         pass
 
 
+def _query_snippet(doc: str, query: str, window: int = 120) -> str:
+    """返回围绕查询命中的文本窗口；未命中则退回文档前 500 字。
+
+    对齐落地页演示的「…尾款 ¥62,400 应于验收后 15 日内结清…」式命中段落，
+    而非机械截取文档头部（doc[:500]）。
+    """
+    if not doc:
+        return ""
+    q = (query or "").strip()
+    if q:
+        idx = doc.lower().find(q.lower())
+        if idx < 0:
+            # 整句未命中时退到单字符/词片段匹配，取首个命中位置
+            for ch in q:
+                ci = doc.lower().find(ch.lower())
+                if ci >= 0:
+                    idx = ci
+                    break
+        if idx >= 0:
+            start = max(0, idx - window // 2)
+            end = min(len(doc), idx + len(q) + window // 2)
+            return ("…" if start > 0 else "") + doc[start:end] + ("…" if end < len(doc) else "")
+    return doc[:500]
+
+
 def semantic_search(user_id: str, query: str, n_results: int = 10) -> list:
     results = _get_collection(user_id).query(
         query_texts=[query], n_results=n_results,
@@ -168,12 +193,15 @@ def semantic_search(user_id: str, query: str, n_results: int = 10) -> list:
             meta = results["metadatas"][0][i] if results["metadatas"] else {}
             dist = results["distances"][0][i] if results["distances"] else 0
             doc = results["documents"][0][i] if results.get("documents") else ""
+            score = round(1 - dist, 4)
+            if score < 0.1:
+                continue  # 相关度阈值：丢弃负分/极低相关，避免空库或无关查询返回垃圾结果
             item_type = meta.get("type", "file")
             item = {
                 "type": item_type,
                 "name": meta.get("name", ""),
-                "score": round(1 - dist, 4),
-                "snippet": doc[:500] if doc else "",
+                "score": score,
+                "snippet": _query_snippet(doc, query),
             }
             if item_type == "text":
                 item["message_id"] = meta.get("message_id")
@@ -182,6 +210,20 @@ def semantic_search(user_id: str, query: str, n_results: int = 10) -> list:
                 item["path"] = meta.get("path")
             files.append(item)
     return files
+
+
+def _scan_hash(user_id: str, rel_path: str) -> str:
+    """计算扫描入库文件的 sha256，参与去重（对齐上传/同步路径，避免空 hash 漏去重）。"""
+    try:
+        from . import storage
+        p = storage.read_file(user_id, rel_path)
+        h = hashlib.sha256()
+        with open(p, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
 
 
 def index_all(user_id: str):
@@ -196,7 +238,7 @@ def index_all(user_id: str):
                 f = File(
                     owner_id=user_id, path=rel_path, name=Path(rel_path).name,
                     size=storage.get_file_size(user_id, rel_path),
-                    content_hash="", source="scan",
+                    content_hash=_scan_hash(user_id, rel_path), source="scan",
                 )
                 db.add(f)
                 db.commit()

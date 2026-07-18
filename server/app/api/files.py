@@ -622,7 +622,6 @@ def grant_download(req: DownloadGrantRequest, request: Request, db: Session = De
     allowed_minutes = {0: settings.DOWNLOAD_GRANT_MINUTES, 5: 5, 15: 15, 30: 30}
     minutes = allowed_minutes.get(req.minutes, settings.DOWNLOAD_GRANT_MINUTES)
     now = datetime.utcnow()
-    until = datetime.utcnow() + timedelta(minutes=settings.DOWNLOAD_GRANT_MINUTES)
     until = now + timedelta(minutes=minutes)
     session.download_granted_until = until
     session.download_granted_at = now
@@ -920,13 +919,18 @@ def get_backlinks(
         for wl in wikilinks:
             wl_name = wl.split("|")[0].split("#")[0].strip()  # 支持 [[name|alias]] 和 [[name#anchor]]
             if wl_name in target_variants or wl_name.lower() in target_variants:
-                # 找到匹配行作为上下文
-                for line in content.split("\n"):
-                    if f"[[{wl}" in line:
-                        snippet = line.strip()[:200]
-                        break
-                else:
+                # 围绕 wikilink 的上下文窗口（~60 字），对齐落地页反链摘录
+                wl_pos = content.find(f"[[{wl}")
+                if wl_pos < 0:
                     snippet = ""
+                else:
+                    _start = max(0, wl_pos - 30)
+                    _end = min(len(content), wl_pos + len(wl) + 32)
+                    snippet = content[_start:_end].replace("\n", " ").strip()
+                    if _start > 0:
+                        snippet = "…" + snippet
+                    if _end < len(content):
+                        snippet = snippet + "…"
                 backlinks.append({
                     "file_id": f.id, "path": f.path, "name": f.name,
                     "modified_at": str(f.modified_at) if f.modified_at else "",
@@ -1041,12 +1045,13 @@ def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
             "file_id": f.id, "path": f.path, "name": f.name, "size": f.size,
             "score": 1.0, "snippet": "",
         }
-    # 2) 正文内容匹配（文本/笔记文件）
-    text_files = db.query(FileModel).filter(
+    # 2) 正文内容匹配（所有文本类文件：md/txt/markdown/rst/text，不限 source）
+    _text_exts = ('.md', '.markdown', '.mdown', '.mkd', '.txt', '.rst', '.text')
+    _candidates = db.query(FileModel).filter(
         FileModel.owner_id == user_id,
-        FileModel.source == "note",
         FileModel.deleted_at.is_(None),
-    ).limit(200).all()
+    ).limit(500).all()
+    text_files = [f for f in _candidates if f.name.lower().endswith(_text_exts)][:200]
     for f in text_files:
         if f.id in matched:
             continue
