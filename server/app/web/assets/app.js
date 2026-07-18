@@ -1168,16 +1168,18 @@ function showNotesCardMenu(x, y, note) {
   showContextMenu(x, y, items);
 }
 
-// 笔记删除（卡片/菜单）：无确认框，直接软删除 + 撤销 Toast（含 [[链接]] 引用计数提示）
+// 笔记删除（卡片/菜单）：单次确认（含 [[链接]] 引用计数）→ 软删除 → 撤销 Toast
 async function deleteNote(path, name) {
   if (!path) return;
-  // 异步预查引用计数（不影响删除主流程，仅用于 Toast 提示）
-  let hint = '';
+  let backlinks = 0;
   try {
     const res = await API.get('/api/files/backlinks?path=' + encodeURIComponent(path));
-    if (res && res.ok) { const n = (await res.json()).backlinks?.length || 0; if (n > 0) hint = `有 ${n} 篇笔记通过 [[链接]] 引用了本文`; }
+    if (res && res.ok) { const d = await res.json(); backlinks = (d.backlinks || []).length; }
   } catch { /* 查询失败静默降级 */ }
-  await softDeleteFile(path, hint ? { hint } : undefined);
+  const baseMsg = `确定删除笔记「${escapeHtml(stripExt(name) || path.split('/').pop())}」？将移入回收站，保留一段时间后彻底删除。`;
+  const msg = backlinks > 0 ? baseMsg + `\n有 ${backlinks} 篇笔记通过 [[链接]] 引用了本文。` : baseMsg;
+  if (!await confirmDialog({ title: '删除笔记', message: msg, confirmText: '删除', danger: true })) return;
+  await softDeleteFile(path);
 }
 
 function showNoteEditor() { openNoteEditor(); }
@@ -1451,21 +1453,24 @@ ${r.html}
     Toast.show('已导出 HTML', 'success');
   });
 
-  // ---- 编辑器内删除当前笔记：无确认框，关闭编辑器 → 直接软删除 + 撤销 Toast（含引用计数提示）----
+  // ---- 编辑器内删除当前笔记：单次确认（含引用计数）→ 关闭编辑器 → 软删除 ----
   deleteBtn.addEventListener('click', () => deleteNoteInEditor());
 
   async function deleteNoteInEditor() {
     // 新建笔记（尚未保存、无 path）不可删除
     if (!editPath && !lastSavedPath) { Toast.show('笔记尚未保存，无需删除', 'info'); return; }
     const targetPath = lastSavedPath || editPath;
-    // 异步预查引用计数（仅用于 Toast 提示，不影响主流程）
-    let hint = '';
+    const targetName = titleEl.value.trim() || editName;
+    let backlinks = 0;
     try {
       const res = await API.get('/api/files/backlinks?path=' + encodeURIComponent(targetPath));
-      if (res && res.ok) { const n = (await res.json()).backlinks?.length || 0; if (n > 0) hint = `有 ${n} 篇笔记通过 [[链接]] 引用了本文`; }
+      if (res && res.ok) { const d = await res.json(); backlinks = (d.backlinks || []).length; }
     } catch { /* 静默降级 */ }
+    const baseMsg = `确定删除笔记「${escapeHtml(stripExt(targetName) || targetPath.split('/').pop())}」？将移入回收站，保留一段时间后彻底删除。`;
+    const msg = backlinks > 0 ? baseMsg + `\n有 ${backlinks} 篇笔记通过 [[链接]] 引用了本文。` : baseMsg;
+    if (!await confirmDialog({ title: '删除笔记', message: msg, confirmText: '删除', danger: true })) return;
     await closeEditor();
-    await softDeleteFile(targetPath, hint ? { hint } : undefined);
+    await softDeleteFile(targetPath);
   }
   function wrapSelection(before, after, placeholder) {
     const start = ta.selectionStart, end = ta.selectionEnd;
