@@ -86,12 +86,24 @@ def _mask_id_for(user_id: str, real_value: str) -> str:
 # --------------------------------------------------------------------------- #
 
 def _mask_display(value: str) -> str:
-    """Show first <=5 chars, rest as asterisks (capped at 6)."""
+    """按类型自适应的脱敏展示，与落地页 / settings PII 对比面板格式一致。
+
+    - 邮箱：用户名首字符 + *** + @域名（w***@example.com）
+    - 手机 / 身份证 / 银行卡（≥11 位）：前 3 + 星 + 后 4，星数随长度
+      （138****0815 / 110***********1234）
+    - 较短值：首 + ** + 尾
+    """
     if not value:
         return "****"
-    show = min(5, max(1, len(value) - 1))
-    dots = min(len(value) - show, 6)
-    return value[:show] + "*" * dots
+    s = str(value)
+    if "@" in s:
+        at = s.index("@")
+        return (s[0] + "***" + s[at:]) if at > 0 else "****"
+    if len(s) >= 11:
+        return s[:3] + "*" * max(4, len(s) - 7) + s[-4:]
+    if len(s) >= 4:
+        return s[0] + "**" + s[-1]
+    return "****"
 
 
 def _mask_filename(filename: str) -> str:

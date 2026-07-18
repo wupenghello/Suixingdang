@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, LlmProvider, get_db, get_setting, set_setting, get_trash_retention_days, DEFAULT_TRASH_RETENTION_DAYS
 from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password, verify_password
-from ..core import storage
+from ..core import storage, indexer
 from ..config import settings
 from .auth import get_current_admin, _log, _bump_password_version
 

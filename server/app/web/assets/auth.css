@@ -4,8 +4,8 @@
    ============================================================ */
 /* ---- Login（分屏：品牌面板 + 表单 · Notion / 飞书 式）---- */
 .login-container {
-  --ink: #F7F7F5; --ink-2: #FFFFFF; --bone: #15161A; --bone-2: #4A4D57; --bone-3: #8A8E99;
-  --rule: #E6E8EC; --amber: #2B5FFF; --amber-2: #1A47E6; --amber-soft: rgba(43,95,255,0.10);
+  --ink: #F7F7F5; --ink-2: #FFFFFF; --bone: var(--text); --bone-2: var(--text-secondary); --bone-3: var(--text-muted);
+  --rule: #E6E8EC; --amber: var(--primary); --amber-2: var(--primary-hover); --amber-soft: var(--primary-light);
   min-height: 100vh; min-height: 100dvh; display: grid; grid-template-columns: 1.08fr 1fr;
   background: var(--ink-2); color: var(--bone);
   font-family: var(--font-sans);
@@ -14,7 +14,7 @@
 /* 左：品牌面板 */
 .login-brand {
   position: relative; overflow: hidden;
-  background: #2B5FFF;
+  background: var(--primary);
   color: #fff;
   padding: 44px 52px; display: flex; flex-direction: column; justify-content: space-between; gap: 32px;
 }
@@ -51,7 +51,7 @@
   display: none; align-items: center; justify-content: center;
   font-family: var(--font-sans); font-size: 19px; font-weight: 700; color: #fff;
   border: none; border-radius: var(--radius-sm);
-  background: #2B5FFF;
+  background: var(--primary);
 }
 .login-card h1 {
   text-align: center; font-family: var(--font-sans);

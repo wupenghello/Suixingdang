@@ -1,0 +1,145 @@
+/* ============================================================
+   tokens.css · 随行档四端共享设计 token 单一真源
+   用户端 SPA / 管理端 / 落地页 / 登录页 共用
+   飞书蓝 #3370FF + Geist 无衬线 + Arco 语义色 + 统一灰阶/边框/投影/圆角
+   命名规范：--primary 系（品牌）/ --text 系（文字）/ --border 系（边框）
+            --bg 系（背景）/ --success|warning|danger（语义）/ --radius 系 / --shadow 系
+   禁止在他处重复定义同名 token；新色不经此文件入库不得使用
+   ============================================================ */
+:root {
+  /* —— 背景层 —— */
+  --bg: #F7F8FA;
+  --bg-surface: #FFFFFF;
+  --bg-sidebar: #FFFFFF;
+  --bg-surface-hover: #F2F3F5;
+  --bg-surface-active: #E8EBF0;
+  --bg-elevated: #FFFFFF;
+  --bg-sunken: #F2F3F5;
+
+  /* —— 文字层 —— */
+  --text: #1F2329;
+  --text-secondary: #4E5969;
+  --text-muted: #86909C;
+
+  /* —— 边框 —— */
+  --border: #E5E6EB;
+  --border-light: #F2F3F5;
+  --border-strong: #C9CDD4;
+
+  /* —— 品牌主色 · 飞书蓝 —— */
+  --primary: #3370FF;
+  --primary-hover: #2860E8;
+  --primary-active: #1D54D1;
+  --primary-light: rgba(51, 112, 255, 0.10);
+  --primary-lighter: rgba(51, 112, 255, 0.05);
+  --primary-ring: rgba(51, 112, 255, 0.16);
+  --primary-bg: #E8F1FF;
+  --primary-soft: #E8F1FF;
+  --brand: #3370FF;          /* 别名，指向 primary */
+  --brand-soft: #E8F1FF;
+
+  /* —— 飞书标志青（点缀色）—— */
+  --teal: #00D6B9;
+  --teal-light: rgba(0, 214, 185, 0.10);
+
+  /* —— 墨色别名 —— */
+  --ink: #1F2329;
+  --ink-hover: #2A2D35;
+
+  /* —— 语义色 · Arco Design（飞书同源）—— */
+  --success: #00B42A;
+  --success-light: rgba(0, 180, 42, 0.10);
+  --warning: #FF7D00;
+  --warning-light: rgba(255, 125, 0, 0.10);
+  --danger: #F53F3F;
+  --danger-light: rgba(245, 63, 63, 0.08);
+
+  /* —— 圆角 —— */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  /* —— 投影 · 柔和分层（偏蓝灰）—— */
+  --shadow-xs: 0 1px 2px rgba(31, 35, 41, 0.04);
+  --shadow-sm: 0 1px 3px rgba(31, 35, 41, 0.06), 0 1px 2px rgba(31, 35, 41, 0.04);
+  --shadow: 0 4px 12px rgba(31, 35, 41, 0.08), 0 1px 3px rgba(31, 35, 41, 0.04);
+  --shadow-lg: 0 12px 32px rgba(31, 35, 41, 0.12), 0 2px 8px rgba(31, 35, 41, 0.06);
+
+  /* —— 字体（Geist + 系统 CJK；复古宋体已否决，不留 serif）—— */
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  /* —— 兼容别名（admin/auth/旧组件过渡用，新代码勿引用）—— */
+  --seal: #3370FF;
+  --seal-2: #2860E8;
+  --seal-soft: rgba(51, 112, 255, 0.10);
+  --bg-secondary: #FFFFFF;     /* admin.js 内联引用兼容 */
+  --bg-soft: #F7F7F5;          /* 旧 .sx-page 兼容 */
+  --accent-bg: rgba(51, 112, 255, 0.06);
+  --amber: #3370FF;            /* auth.css 旧名 */
+  --amber-2: #2860E8;
+  --amber-soft: rgba(51, 112, 255, 0.10);
+
+  /* —— 文件类型语义色 · 仅图标彩度用；文本 label 走 type-badge（色觉无障碍）—— */
+  --type-pdf: #F53F3F;        /* danger · 合同/PDF */
+  --type-doc: #3370FF;        /* primary · Word/文档 */
+  --type-xls: #00B42A;        /* success · 表格 */
+  --type-ppt: #FF7D00;        /* warning · 演示 */
+  --type-md:  #1F2329;        /* ink · 笔记文本（身份识别）*/
+  --type-img: #00B42A;        /* success · 图片 */
+  --type-video: #B37FEB;      /* 紫 · 媒体 */
+  --type-audio: #B37FEB;      /* 紫 · 媒体 */
+  --type-archive: #86909C;    /* muted · 压缩 */
+  --type-code: #86909C;       /* muted · 代码 */
+  --type-text: #86909C;       /* muted · 配置/数据 */
+  --type-app: #86909C;        /* muted · 应用安装包 */
+  --type-design: #86909C;     /* muted · 设计稿 */
+  --type-other: #86909C;      /* muted · 其他 */
+}
+
+/* —— 暗色模式：仅追加变量到 [prefers-color-scheme:dark]；浅色规则 0 反转 —— */
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg: #0F1115;
+    --bg-surface: #181B20;
+    --bg-sidebar: #181B20;
+    --bg-surface-hover: #22262E;
+    --bg-surface-active: #2A2F38;
+    --bg-elevated: #22262E;
+    --bg-sunken: #0F1115;
+
+    --text: #E6E8EB;
+    --text-secondary: #A0A6B0;
+    --text-muted: #6B7280;
+
+    --border: #2A2F38;
+    --border-light: #22262E;
+    --border-strong: #3A4048;
+
+    --primary: #4D82FF;
+    --primary-hover: #5C8DFF;
+    --primary-active: #3D72E8;
+    --primary-light: rgba(77, 130, 255, 0.16);
+    --primary-lighter: rgba(77, 130, 255, 0.08);
+    --primary-ring: rgba(77, 130, 255, 0.22);
+    --primary-bg: #1B2436;
+    --brand: #4D82FF;
+    --brand-soft: #1B2436;
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.5);
+
+    /* 暗色模式下类型色略提饱和，保持辨识度 */
+    --type-pdf: #FF6B6B;
+    --type-doc: #6E9BFF;
+    --type-xls: #46C97E;
+    --type-ppt: #FF9F38;
+    --type-md: #E6E8EB;
+    --type-img: #46C97E;
+    --type-video: #C89BFF;
+    --type-audio: #C89BFF;
+  }
+}

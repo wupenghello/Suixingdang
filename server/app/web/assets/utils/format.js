@@ -22,3 +22,9 @@ export function formatDateTime(ts) {
   if (!ms) return escapeHtml(ts ? String(ts) : '');
   return new Date(ms).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
+
+const NOTE_EXT = /\.(md|markdown|mdown|mkd)$/i;
+
+export function stripExt(name) {
+  return (name || '').replace(NOTE_EXT, '');
+}

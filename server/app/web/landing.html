@@ -15,9 +15,34 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/app.css">
-  <link rel="stylesheet" href="/landing.css">
+  <link rel="stylesheet" href="/assets/tokens.css?v=1">
+  <link rel="stylesheet" href="/landing.css?v=5">
 </head>
 <body class="sx-landing">
+  <!-- ============ 线性图标集（viewBox 24 / stroke 1.5 / currentColor） ============ -->
+  <svg width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true"><defs>
+    <symbol id="sx-ico-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="sx-ico-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="sx-ico-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
+    <symbol id="sx-ico-note" viewBox="0 0 24 24"><path d="M14 3v5h5"/><path d="M19 8v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7z"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></symbol>
+    <symbol id="sx-ico-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="sx-ico-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="sx-ico-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></symbol>
+    <symbol id="sx-ico-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>
+    <symbol id="sx-ico-package" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></symbol>
+    <symbol id="sx-ico-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="sx-ico-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 12 12 17 22 12"/><polyline points="2 17 12 22 22 17"/></symbol>
+    <symbol id="sx-ico-eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></symbol>
+    <symbol id="sx-ico-shield-check" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5z"/><polyline points="9 12 11 14 15 10"/></symbol>
+    <symbol id="sx-ico-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 9.2-9.2"/><path d="m16 6 3 3"/><path d="m18.5 3.5 2 2"/></symbol>
+    <symbol id="sx-ico-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+    <symbol id="sx-ico-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+    <symbol id="sx-ico-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
+    <symbol id="sx-ico-file" viewBox="0 0 24 24"><path d="M14 3v5h5"/><path d="M19 8v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7z"/></symbol>
+    <symbol id="sx-ico-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></symbol>
+    <symbol id="sx-ico-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><line x1="7" y1="7" x2="7.01" y2="7"/><line x1="7" y1="17" x2="7.01" y2="17"/></symbol>
+  </defs></svg>
+
   <!-- ============ Top bar ============ -->
   <header class="sx-bar">
     <a class="sx-brand" href="#top" title="随行档">
@@ -48,8 +73,8 @@
           <a class="sx-btn sx-btn--ghost" href="#features">了解功能</a>
         </div>
 
-        <!-- App mockup -->
-        <div class="sx-mockup" aria-hidden="true">
+        <!-- Showcase：全页唯一整窗 -->
+        <figure class="sx-mockup sx-mockup--showcase" role="figure" aria-label="随行档主界面：左侧档案室分组、自然语言提问、AI 直接给出带文件来源的回答">
           <div class="sx-mockup-bar"><span class="sx-mockup-dot"></span><span class="sx-mockup-dot"></span><span class="sx-mockup-dot"></span></div>
           <div class="sx-mockup-body">
             <aside class="sx-mockup-side">
@@ -63,13 +88,13 @@
               <div class="sx-mockup-q">上个月哪份报价最高？</div>
               <div class="sx-mockup-a">在已归档文件中，<strong>报价单_2026Q2.xlsx</strong> 金额最高，为 ¥182,400。</div>
               <div class="sx-mockup-files">
-                <span class="sx-mockup-chip">报价单_2026Q2.xlsx</span>
-                <span class="sx-mockup-chip">合同_甲方.pdf</span>
-                <span class="sx-mockup-chip">身份证.jpg</span>
+                <span class="sx-mockup-chip"><svg class="sx-ico"><use href="#sx-ico-file"/></svg>报价单_2026Q2.xlsx</span>
+                <span class="sx-mockup-chip"><svg class="sx-ico"><use href="#sx-ico-file"/></svg>合同_甲方.pdf</span>
+                <span class="sx-mockup-chip"><svg class="sx-ico"><use href="#sx-ico-file"/></svg>身份证.jpg</span>
               </div>
             </div>
           </div>
-        </div>
+        </figure>
       </div>
     </section>
 
@@ -115,6 +140,13 @@
             </ul>
           </div>
         </div>
+        <div class="sx-metric" role="group" aria-label="三条差异化的可量化证据">
+          <span class="sx-metric-cell"><b>0</b>个文件落盘（公司端默认）</span>
+          <span class="sx-metric-sep"></span>
+          <span class="sx-metric-cell"><b>5</b>类 PII 服务端遮罩</span>
+          <span class="sx-metric-sep"></span>
+          <span class="sx-metric-cell"><code>[[wiki]]</code>双向链接串联知识</span>
+        </div>
       </div>
     </section>
 
@@ -127,45 +159,117 @@
         </div>
         <div class="sx-bento">
           <div class="sx-cell sx-cell--wide sx-cell--tint">
-            <div class="sx-cell-ico">🔍</div>
+            <div class="sx-cell-ico"><svg class="sx-ico"><use href="#sx-ico-search"/></svg></div>
             <h3>语义检索</h3>
             <p>不用记文件名。搜"甲方合同条款"、"体检结论"，按内容匹配。Word、Excel、PDF、PPT 都能读。</p>
           </div>
           <div class="sx-cell">
-            <div class="sx-cell-ico">💬</div>
+            <div class="sx-cell-ico"><svg class="sx-ico"><use href="#sx-ico-message"/></svg></div>
             <h3>AI 对话</h3>
             <p>问"尾款什么时候付"、"合同到期了吗"，Agent 在你的文件里找答案再回答，不用自己翻。</p>
           </div>
           <div class="sx-cell">
-            <div class="sx-cell-ico">🔄</div>
+            <div class="sx-cell-ico"><svg class="sx-ico"><use href="#sx-ico-refresh"/></svg></div>
             <h3>多端同步</h3>
             <p>家里守护进程盯着文件夹，新增即加密上传；公司用浏览器，不装任何客户端。</p>
           </div>
           <div class="sx-cell">
-            <div class="sx-cell-ico">📝</div>
+            <div class="sx-cell-ico"><svg class="sx-ico"><use href="#sx-ico-note"/></svg></div>
             <h3>笔记 & 双向链接</h3>
             <p>直接写 Markdown 笔记，<code>[[wiki link]]</code> 串联知识，反向链接自动聚合。</p>
           </div>
           <div class="sx-cell">
-            <div class="sx-cell-ico">📁</div>
+            <div class="sx-cell-ico"><svg class="sx-ico"><use href="#sx-ico-folder"/></svg></div>
             <h3>分组 & 标签</h3>
             <p>自定义分组、人工标签 + AI 建议标签、置顶收藏，文件再多也不乱。</p>
           </div>
           <div class="sx-cell">
-            <div class="sx-cell-ico">🗑️</div>
+            <div class="sx-cell-ico"><svg class="sx-ico"><use href="#sx-ico-trash"/></svg></div>
             <h3>回收站</h3>
             <p>软删除 + 可配置保留期 + 锁存跳出清理 + 批量恢复 / 删除 + 清空确认词防误操作。</p>
           </div>
           <div class="sx-cell">
-            <div class="sx-cell-ico">📨</div>
+            <div class="sx-cell-ico"><svg class="sx-ico"><use href="#sx-ico-send"/></svg></div>
             <h3>传输助手</h3>
             <p>文字便签 + 文件自动入库，统一时间线，类微信文件传输助手。</p>
           </div>
           <div class="sx-cell">
-            <div class="sx-cell-ico">📦</div>
+            <div class="sx-cell-ico"><svg class="sx-ico"><use href="#sx-ico-package"/></svg></div>
             <h3>批量导出</h3>
             <p>按分组或全部一键导出 ZIP，content_hash 自动去重，相同内容不重复存储。</p>
           </div>
+        </div>
+
+        <!-- Split 深度演示（左文右图 / 左图右文 交替） -->
+        <div class="sx-features">
+          <article class="sx-feat-row">
+            <div class="sx-feat-text">
+              <span class="sx-feat-kicker">02 · 即问即得</span>
+              <h3>一句话，Agent 替你翻完所有文件</h3>
+              <p>不用记文件名、不用翻目录。按内容语义匹配，Word / Excel / PDF / PPT 都能读；语义失败自动回退关键词。</p>
+              <ul class="sx-feat-list">
+                <li>搜「甲方合同 尾款」，按内容命中相关段落</li>
+                <li>每条结果带相关度与上下文片段</li>
+                <li>语义失败自动回退关键词，不掉链子</li>
+              </ul>
+            </div>
+            <div class="sx-feat-fig">
+              <figure class="sx-frag" role="figure" aria-label="语义检索：输入关键词，按内容匹配并给出相关度">
+                <div class="sx-frag-search">
+                  <svg class="sx-ico"><use href="#sx-ico-search"/></svg>
+                  <span>甲方合同 尾款</span>
+                  <span class="sx-frag-cursor"></span>
+                </div>
+                <div class="sx-frag-results">
+                  <div class="sx-frag-result">
+                    <svg class="sx-ico"><use href="#sx-ico-file"/></svg>
+                    <div class="sx-frag-result-main">
+                      <div class="sx-frag-result-meta">合同_甲方.pdf</div>
+                      <div class="sx-frag-result-snippet">…尾款 <mark>¥62,400</mark> 应于验收后 15 日内结清…</div>
+                    </div>
+                    <span class="sx-frag-result-score">0.92</span>
+                  </div>
+                  <div class="sx-frag-result">
+                    <svg class="sx-ico"><use href="#sx-ico-file"/></svg>
+                    <div class="sx-frag-result-main">
+                      <div class="sx-frag-result-meta">报价单_2026Q2.xlsx</div>
+                      <div class="sx-frag-result-snippet">…<mark>甲方</mark>确认版本，含 <mark>尾款</mark>节点…</div>
+                    </div>
+                    <span class="sx-frag-result-score">0.81</span>
+                  </div>
+                </div>
+              </figure>
+            </div>
+          </article>
+
+          <article class="sx-feat-row sx-feat-row--rev">
+            <div class="sx-feat-text">
+              <span class="sx-feat-kicker">03 · 懂你的文件</span>
+              <h3>双向链接，把碎片笔记织成一张网</h3>
+              <p>直接写 Markdown，<code>[[wiki]]</code> 自动建链，反向链接聚合每一处提及与上下文。</p>
+              <ul class="sx-feat-list">
+                <li>[[页面]] 语法自动建链，无需手动维护</li>
+                <li>反向链接聚合每处提及与上下文摘录</li>
+                <li>文件、笔记、知识统一在同一个档案室</li>
+              </ul>
+            </div>
+            <div class="sx-feat-fig">
+              <figure class="sx-frag sx-frag-note" role="figure" aria-label="渲染态笔记与反向链接">
+                <div class="sx-toolbar">
+                  <span class="sx-tool">B</span><span class="sx-tool">I</span><span class="sx-tool">H1</span><span class="sx-tool"><svg class="sx-ico"><use href="#sx-ico-link"/></svg></span>
+                </div>
+                <div class="sx-note-body">
+                  <strong>甲方对接要点</strong><br>
+                  合同细节见 <a class="sx-wiki" href="#features">合同_甲方</a>，尾款节点参考 <a class="sx-wiki" href="#features">付款计划</a>，对接人见 <a class="sx-wiki" href="#features">甲方联系人</a>。
+                </div>
+                <div class="sx-backlinks">
+                  <div class="sx-backlinks-h">反向链接 · 2 篇笔记提及本文</div>
+                  <div class="sx-backlink"><svg class="sx-ico"><use href="#sx-ico-note"/></svg><span><span class="sx-backlink-src">付款计划</span> · 「…尾款节点参考 <a class="sx-wiki" href="#features">甲方对接要点</a>，Q2…」</span></div>
+                  <div class="sx-backlink"><svg class="sx-ico"><use href="#sx-ico-note"/></svg><span><span class="sx-backlink-src">季度复盘</span> · 「…对接进展见 <a class="sx-wiki" href="#features">甲方对接要点</a>…」</span></div>
+                </div>
+              </figure>
+            </div>
+          </article>
         </div>
       </div>
     </section>
@@ -187,6 +291,11 @@
             <div class="sx-scene-tag">公司</div>
             <h3>零安装、只看不留</h3>
             <p>打开浏览器，登录域名找文件 / 对话 / 在线预览。默认禁止下载（需临时窗口），没有客户端、配置文件或同步缓存。</p>
+            <div class="sx-scene-frag" aria-label="公司端预览：下载被禁用，关页即销毁">
+              <div class="sx-scene-file"><svg class="sx-ico"><use href="#sx-ico-file"/></svg>合同_甲方.pdf · 在线预览</div>
+              <button class="sx-scene-dl" type="button" disabled><svg class="sx-ico"><use href="#sx-ico-download"/></svg>下载（已禁用）</button>
+              <div class="sx-scene-note"><svg class="sx-ico"><use href="#sx-ico-lock"/></svg>只读预览 · 关页即销毁，本机不留缓存</div>
+            </div>
           </div>
           <div class="sx-scene">
             <div class="sx-scene-tag">管理员</div>
@@ -206,30 +315,55 @@
         </div>
         <div class="sx-sec-grid">
           <div class="sx-sec-item">
-            <h3>🔐 加密归档</h3>
+            <h3><svg class="sx-ico"><use href="#sx-ico-lock"/></svg>加密归档</h3>
             <p>文件加密存储；LLM API Key 以 Fernet（HKDF 派生）加密入库，运行时按需解密。</p>
           </div>
           <div class="sx-sec-item">
-            <h3>🧅 三重隔离</h3>
+            <h3><svg class="sx-ico"><use href="#sx-ico-layers"/></svg>三重隔离</h3>
             <p>存储按 user_id 分目录、DB 查询带 owner_id 过滤、向量库按用户独立集合。</p>
           </div>
           <div class="sx-sec-item">
-            <h3>🎭 PII 脱敏</h3>
+            <h3><svg class="sx-ico"><use href="#sx-ico-eye-off"/></svg>PII 脱敏</h3>
             <p>AI 回复中的身份证 / 手机号 / 邮箱 / API Key / 银行卡自动遮罩，真实值不落前端。</p>
           </div>
           <div class="sx-sec-item">
-            <h3>🛡️ Guard 检测</h3>
+            <h3><svg class="sx-ico"><use href="#sx-ico-shield-check"/></svg>Guard 检测</h3>
             <p>同步 / 上传前扫描文件名与内容，凭据类硬拦、隐私类告警，方向感知。</p>
           </div>
           <div class="sx-sec-item">
-            <h3>📜 全量审计</h3>
+            <h3><svg class="sx-ico"><use href="#sx-ico-note"/></svg>全量审计</h3>
             <p>登录 / 文件操作 / 管理操作 / 限流锁定 / 下载授权全量记录，含真实客户端 IP。</p>
           </div>
           <div class="sx-sec-item">
-            <h3>🔒 认证授权</h3>
+            <h3><svg class="sx-ico"><use href="#sx-ico-key"/></svg>认证授权</h3>
             <p>bcrypt + JWT access/refresh 分离 + TOTP 双因子 + 可吊销设备令牌 + 登录限流。</p>
           </div>
         </div>
+
+        <!-- PII 服务端脱敏 · before/after 自证 -->
+        <figure class="sx-compare" role="figure" aria-label="PII 服务端脱敏对比：原始回答含明文，送达前端时已遮罩">
+          <figcaption class="sx-compare-cap"><svg class="sx-ico"><use href="#sx-ico-eye-off"/></svg>PII 服务端脱敏 · 原文 → 前端</figcaption>
+          <div class="sx-compare-panes">
+            <div class="sx-pane">
+              <span class="sx-pane-tag">服务端 · 原始回答</span>
+              <ul class="sx-pane-list">
+                <li><span class="sx-pane-key">手机</span><span class="sx-raw">13800000815</span></li>
+                <li><span class="sx-pane-key">邮箱</span><span class="sx-raw">wangzhiqiang@example.com</span></li>
+                <li><span class="sx-pane-key">身份证</span><span class="sx-raw">110101199003071234</span></li>
+              </ul>
+            </div>
+            <div class="sx-compare-arrow"><svg class="sx-ico"><use href="#sx-ico-arrow-right"/></svg></div>
+            <div class="sx-pane">
+              <span class="sx-pane-tag sx-pane-tag--ok">前端可见</span>
+              <ul class="sx-pane-list">
+                <li><span class="sx-pane-key">手机</span><span class="sx-redact">138****0815</span></li>
+                <li><span class="sx-pane-key">邮箱</span><span class="sx-redact">w***@example.com</span></li>
+                <li><span class="sx-pane-key">身份证</span><span class="sx-redact">110***********1234</span></li>
+              </ul>
+              <p class="sx-pane-note">真实值不落前端，遮罩在服务端完成</p>
+            </div>
+          </div>
+        </figure>
       </div>
     </section>
 
@@ -244,12 +378,14 @@
           <div class="sx-deploy-card">
             <div class="sx-deploy-step">1</div>
             <h3>一键脚本</h3>
+            <span class="sx-pre-label"><svg class="sx-ico"><use href="#sx-ico-terminal"/></svg>shell · 一键安装</span>
             <pre><code>curl -fsSL https://raw.githubusercontent.com/wupenghello/Suixingdang/main/install.sh | bash</code></pre>
             <p>脚本交互式收集域名与密码，自动生成三把独立密钥，写 <code>.env</code>（权限 600），拉镜像启动。</p>
           </div>
           <div class="sx-deploy-card">
             <div class="sx-deploy-step">2</div>
             <h3>登录配置</h3>
+            <span class="sx-pre-label"><svg class="sx-ico"><use href="#sx-ico-globe"/></svg>浏览器 · /admin 后台</span>
             <pre><code># 打开 https://你的域名/admin
 # 账号 admin（密码见 .env）
 # 在「大模型配置」页添加 DeepSeek / OpenAI API Key</code></pre>
@@ -258,6 +394,7 @@
           <div class="sx-deploy-card">
             <div class="sx-deploy-step">3</div>
             <h3>开始使用</h3>
+            <span class="sx-pre-label"><svg class="sx-ico"><use href="#sx-ico-server"/></svg>守护进程 · 设备令牌配置</span>
             <pre><code># 用户端：https://你的域名
 # 家里守护进程：创建设备令牌后配置
 # 公司端：浏览器打开即用，零安装</code></pre>
