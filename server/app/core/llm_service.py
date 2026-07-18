@@ -19,6 +19,40 @@ class LlmConfig:
     provider_name: str = ""
 
 
+def chat_complete(client, model, messages, *, fallback_messages=None, timeout=15.0):
+    """调用 chat.completions.create，带超时；若首次返回空内容，用 fallback_messages 重试一次。
+
+    供 ai_enhance / brain / tools 复用的聊天补全 helper。
+
+    - ``max_retries=0``：内部用 ``client.with_options(max_retries=0)`` 强制关闭 SDK 内置
+      重试（openai 1.x 的 ``create()`` 不接受 per-request ``max_retries``，只能在 client 层覆盖），
+      超时完全由 ``timeout`` 控制，调用方无需自己记着设。
+    - 网络/连接/超时/上游错误：``openai.APIError`` 原样上抛（调用方决定转 502 等）。
+    - ``resp.choices`` 为空：``raise ValueError("empty choices")``。
+    - 不用 ``except Exception`` 吞掉编程错误：``AttributeError`` / ``KeyError`` /
+      ``TypeError`` 必须原样上抛，便于发现代码 bug。
+
+    返回原始文本字符串（可能为 ``''``）。首次返回空内容且给出 ``fallback_messages`` 时，
+    用 fallback 再试一次；仍为空则返回 ``''``，由调用方决定降级。
+    """
+    # 强制 max_retries=0：openai 1.x 的 create() 不接受 per-request max_retries，
+    # 需经 with_options 在 client 层覆盖；返回的是共享底层连接的轻量副本，对入参 client 无副作用。
+    client = client.with_options(max_retries=0)
+
+    def _do(msgs):
+        resp = client.chat.completions.create(
+            model=model, messages=msgs, timeout=timeout,
+        )
+        if not resp.choices:
+            raise ValueError("empty choices")
+        return (resp.choices[0].message.content or "").strip()
+
+    raw = _do(messages)
+    if not raw and fallback_messages:
+        raw = _do(fallback_messages)
+    return raw
+
+
 class NoLlmConfigured(Exception):
     """没有可用的大模型配置。"""
 

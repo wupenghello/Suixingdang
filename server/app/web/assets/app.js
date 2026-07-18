@@ -1057,7 +1057,7 @@ async function renderFiles() {
 }
 
 
-// 笔记视图：只列出 .md 笔记（对齐落地页 nav 的「笔记」入口，笔记不再混在文件库）
+// 笔记视图 v2: Bento 网格布局（对齐落地页 sx-bento）
 async function renderNotes() {
   document.getElementById('main-content').innerHTML = `
     <div class="files-header">
@@ -1068,35 +1068,54 @@ async function renderNotes() {
   document.getElementById('btn-note-new').addEventListener('click', showNoteEditor);
   const content = document.getElementById('file-content');
   const cntEl = document.getElementById('files-count');
-  content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.refresh}<div class="empty-title">加载中…</div></div></div>`;
+  content.innerHTML = `<div class="notes-empty">${ICONS.refresh}<div class="empty-title">加载中…</div></div>`;
   let notes = [];
   try {
-    const res = await API.get('/api/files?limit=500');
+    // F1: 用专用 notes 端点（递归覆盖子目录/分组），不再走非递归的 /api/files/list
+    const res = await API.get('/api/files/notes');
     if (res && res.ok) {
       const data = await res.json();
-      const list = data.items || data.files || data || [];
-      notes = list.filter(f => f && /\.(md|markdown|mdown|mkd)$/i.test(f.name || ''));
+      notes = Array.isArray(data.notes) ? data.notes : [];
     }
   } catch { notes = []; }
   if (cntEl) cntEl.textContent = notes.length ? `${notes.length} 篇` : '';
   if (!notes.length) {
-    content.innerHTML = `<div class="file-table"><div class="empty-state">${ICONS.note}<div class="empty-title">还没有笔记</div><div class="empty-desc">点击「新建笔记」开始记录，用 [[页面名]] 建立双向链接</div></div></div>`;
+    content.innerHTML = `<div class="notes-empty">
+      <div class="notes-empty-icon">${ICONS.note}</div>
+      <div class="notes-empty-title">还没有笔记</div>
+      <div class="notes-empty-desc">点击「新建笔记」开始记录，用 [[页面名]] 建立双向链接</div>
+    </div>`;
     return;
   }
+  // 后端已 pinned 优先、其次 modified 倒序；前端再排一次仅为防御（保留无妨）
+  notes.sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return 0;
+  });
   content.innerHTML = `<div class="notes-grid">${notes.map(item => {
     const title = escapeHtml(stripExt(item.name) || '未命名笔记');
-    const excerpt = escapeHtml(item.summary || item.excerpt || '');
+    const excerpt = escapeHtml(item.summary || '');
     const dateStr = item.modified ? formatDate(item.modified) : '';
-    const sizeStr = (!item.is_dir && item.size != null && item.size > 0) ? formatSize(item.size) : '';
-    const meta = [sizeStr, dateStr].filter(Boolean).join(' · ') || '—';
-    const pinHtml = item.pinned ? '<span class="note-card-pin">${ICONS.pin}置顶</span>' : '';
+    const sizeStr = (item.size != null && item.size > 0) ? formatSize(item.size) : '';
     const tags = Array.isArray(item.tags) ? item.tags.slice(0, 3) : [];
-    const tagsHtml = tags.length ? '<div class="note-card-tags">' + tags.map(t => '<span class="note-card-tag">' + escapeHtml(t) + '</span>').join('') + '</div>' : '';
+    const aiTags = Array.isArray(item.ai_tags) ? item.ai_tags.slice(0, 2) : [];
+    // C1: 旧代码拼了无用的 allTags 数组，这里直接按 (tags.length || aiTags.length) 判断
+    const tagsHtml = (tags.length || aiTags.length) ? '<div class="note-card-tags">' + tags.map(t => '<span class="note-card-tag">' + escapeHtml(t) + '</span>').join('') + aiTags.map(t => '<span class="note-card-tag ai-tag">' + escapeHtml(t) + '</span>').join('') + '</div>' : '';
+    const pinHtml = item.pinned ? `<span class="note-card-pin">${ICONS.pin}置顶</span>` : '';
     return `<div class="note-card" data-path="${escapeHtml(item.path)}" data-file-id="${escapeHtml(item.file_id || '')}" data-name="${escapeHtml(item.name)}">
+      ${pinHtml}
       <div class="note-card-title">${title}</div>
-      ${excerpt ? '<div class="note-card-excerpt">' + excerpt + '</div>' : ''}
+      ${excerpt ? `<div class="note-card-excerpt">${excerpt}</div>` : ''}
       ${tagsHtml}
-      <div class="note-card-meta"><div class="note-card-meta-left">${pinHtml}<span>${meta}</span></div></div>
+      <div class="note-card-meta">
+        <div class="note-card-meta-left">
+          <span>${dateStr || '—'}</span>
+        </div>
+        <div class="note-card-meta-right">
+          <span>${sizeStr}</span>
+        </div>
+      </div>
     </div>`;
   }).join('')}</div>`;
   content.querySelectorAll('.note-card').forEach(card => {
@@ -1106,30 +1125,41 @@ async function renderNotes() {
 
 function showNoteEditor() { openNoteEditor(); }
 
-// 笔记编辑器 v2：全屏模式 / 侧边 TOC / 扩展快捷键 / 导出 HTML / KaTeX + Mermaid / 分屏预览 / 草稿自动保存 / 标签 / AI 整理 / 置顶
+// C2: ai-status 60s 内存缓存，避免每次开编辑器都重复 decrypt/DB 探测
+let _aiStatusCache = { ts: 0, val: null };
+
+// 保存后刷新当前所在视图：收敛为单一视图路由（F7），消除两处 inline 的 if-else 分发
+function refreshCurrentView() {
+  const v = App.currentView;
+  if (v === 'notes') renderNotes();
+  else if (v === 'trash') loadTrash();
+  else if (v === 'files') loadFiles();
+  // chat/transfer/settings 无列表需刷新，no-op
+}
+
+// 笔记编辑器 v3: 沉浸式全屏布局（对齐 landing 简洁风格）
 async function openNoteEditor(opts = {}) {
   const editPath = opts.path || '';
   const editFileId = opts.fileId || '';
   const editName = opts.name || '';
   const isEdit = !!(editPath || editFileId);
   const draftKey = 'sxd_draft_note_' + (editPath || 'new');
-  const { modal, close } = openModal({ width: 1080, onDismiss: () => close() });
+  const { modal, close } = openModal({ onDismiss: () => close() });
   modal.classList.add('note-editor-modal');
   modal.innerHTML = `
     <div class="note-editor-top">
       <div class="note-editor-top-left">
-        <button class="tb-icon-btn" id="btn-note-toc" title="目录 (Ctrl+\\)">${ICONS.toc}</button>
+        <button class="tb-icon-btn" id="btn-note-close" title="关闭">${ICONS.close}</button>
         <h3>${isEdit ? '编辑笔记' : '新建笔记'}</h3>
       </div>
       <div class="note-editor-top-actions">
+        <button class="tb-icon-btn" id="btn-note-toc" title="目录">${ICONS.toc}</button>
         <button class="tb-icon-btn" id="btn-note-pin" title="置顶/收藏">${ICONS.pin}</button>
-        <button class="tb-icon-btn" id="btn-note-fullscreen" title="全屏 (F11)">${ICONS.fullscreen}</button>
         <button class="tb-icon-btn" id="btn-note-export" title="导出 HTML">${ICONS.export}</button>
-        <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理：自动摘要+标签">${ICONS.ai}<span>AI 整理</span></button>
+        <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理">${ICONS.ai}<span>AI 整理</span></button>
       </div>
     </div>
-    <input type="text" class="form-input note-title-input" placeholder="笔记标题（可选，默认「未命名笔记」）" maxlength="80" value="${escapeHtml(stripExt(editName))}">
-    <div class="input-error-msg" id="note-error"></div>
+    <input type="text" class="note-title-input" placeholder="笔记标题" maxlength="80" value="${escapeHtml(stripExt(editName))}">
     <div class="note-editor-body" id="note-editor-body">
       <aside class="note-toc-pane" id="note-toc-pane">
         <div class="note-toc-header">目录</div>
@@ -1137,8 +1167,8 @@ async function openNoteEditor(opts = {}) {
       </aside>
       <div class="note-editor-main">
         <div class="note-toolbar" id="note-toolbar">
-          <button class="tb-btn" data-md="bold" title="加粗 (Ctrl+B)">${ICONS.tbBold}</button>
-          <button class="tb-btn" data-md="italic" title="斜体 (Ctrl+I)">${ICONS.tbItalic}</button>
+          <button class="tb-btn" data-md="bold" title="加粗">${ICONS.tbBold}</button>
+          <button class="tb-btn" data-md="italic" title="斜体">${ICONS.tbItalic}</button>
           <button class="tb-btn" data-md="strike" title="删除线">${ICONS.tbStrike}</button>
           <span class="tb-sep"></span>
           <button class="tb-btn" data-md="h1" title="一级标题">${ICONS.tbH1}</button>
@@ -1152,24 +1182,16 @@ async function openNoteEditor(opts = {}) {
           <span class="tb-sep"></span>
           <button class="tb-btn" data-md="code" title="行内代码">${ICONS.tbCode}</button>
           <button class="tb-btn" data-md="codeblock" title="代码块">${ICONS.fileCode}</button>
-          <button class="tb-btn" data-md="math" title="数学公式 (Ctrl+M)">${ICONS.math}</button>
+          <button class="tb-btn" data-md="math" title="数学公式">${ICONS.math}</button>
           <span class="tb-sep"></span>
-          <button class="tb-btn" data-md="link" title="链接 (Ctrl+K)">${ICONS.tbLink}</button>
+          <button class="tb-btn" data-md="link" title="链接">${ICONS.tbLink}</button>
           <button class="tb-btn" data-md="image" title="图片">${ICONS.fileImage}</button>
           <button class="tb-btn" data-md="hr" title="分割线">${ICONS.tbHr}</button>
           <button class="tb-btn" data-md="table" title="表格">${ICONS.tbTable}</button>
         </div>
         <div class="note-editor-split" id="note-split">
           <div class="note-editor-pane">
-            <textarea class="note-content-input" id="note-textarea" placeholder="支持 Markdown 语法，回车换行…&#10;可拖拽或粘贴图片自动上传&#10;支持 $LaTeX$ 公式和 mermaid 图表" spellcheck="false"></textarea>
-            <div class="note-status-bar" id="note-status-bar">
-              <span class="nsb-item" id="nsb-words">0 字</span>
-              <span class="nsb-item" id="nsb-chars">0 字符</span>
-              <span class="nsb-item" id="nsb-reading">约 1 分钟</span>
-              <span class="nsb-spacer"></span>
-              <span class="nsb-mode" id="nsb-mode"></span>
-              <span class="nsb-draft" id="nsb-draft"></span>
-            </div>
+            <textarea class="note-content-input" id="note-textarea" placeholder="开始写作…&#10;支持 Markdown、[[wiki 链接]]、$LaTeX$ 公式" spellcheck="false"></textarea>
           </div>
           <div class="note-preview-pane" id="note-preview-pane">
             <article class="markdown-body" id="note-preview"></article>
@@ -1177,48 +1199,65 @@ async function openNoteEditor(opts = {}) {
         </div>
       </div>
     </div>
-    <div class="note-editor-meta">
-      <div class="note-backlinks-row" id="note-backlinks-row" style="display:none">
-        ${ICONS.link}<span class="note-backlinks-label">反向链接</span>
-        <div class="note-backlinks-list" id="note-backlinks"></div>
+    <div class="note-status-bar" id="note-status-bar">
+      <div class="note-status-left">
+        <span class="nsb-item" id="nsb-words">0 字</span>
+        <span class="nsb-item" id="nsb-chars">0 字符</span>
+        <span class="nsb-item" id="nsb-reading">约 0 分钟</span>
       </div>
-      <div class="note-tags-row">
-        ${ICONS.tag}<span class="note-tags-label">标签</span>
-        <div class="note-tags-input" id="note-tags-input"></div>
+      <div class="note-status-right">
+        <span class="nsb-item" id="nsb-draft"></span>
+        <span class="nsb-item nsb-draft-restore" id="nsb-draft-restore"></span>
       </div>
-      <div class="note-summary-row" id="note-summary-row" style="display:none">
-        ${ICONS.ai}<span class="note-summary-text" id="note-summary-text"></span>
-      </div>
-      <div class="note-draft-hint" id="note-draft-hint"></div>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" id="btn-note-view" title="切换视图 (Ctrl+P)">${ICONS.split}<span>分屏</span></button>
-      <span class="modal-spacer"></span>
-      <button class="btn btn-secondary" id="btn-note-cancel">取消</button>
-      <button class="btn btn-primary" id="btn-note-save">保存</button>
+    <div class="note-editor-bottom">
+      <div class="note-editor-meta">
+        <div class="note-backlinks-row" id="note-backlinks-row" style="display:none">
+          <span class="note-backlinks-label">${ICONS.tbLink}反向链接</span>
+          <div class="note-backlinks-list" id="note-backlinks"></div>
+        </div>
+        <div class="note-tags-row">
+          ${ICONS.tag}<span class="note-tags-label">标签</span>
+          <div class="note-tags-input" id="note-tags-input"></div>
+        </div>
+        <div class="note-tag-suggest-row" id="note-tag-suggest-row" style="display:none">
+          ${ICONS.ai}<span class="note-tag-suggest-label">AI 建议</span>
+          <div class="note-tag-suggest-chips" id="note-tag-suggest-chips"></div>
+          <button class="note-tag-suggest-act" id="btn-tags-accept-all">全部接受</button>
+          <button class="note-tag-suggest-act dismiss" id="btn-tags-dismiss">忽略</button>
+        </div>
+        <div class="note-summary-row" id="note-summary-row" style="display:none">
+          ${ICONS.ai}<span class="note-summary-text" id="note-summary-text"></span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-note-view" title="切换视图">${ICONS.split}<span>分屏</span></button>
+        <span class="modal-spacer"></span>
+        <button class="btn btn-secondary" id="btn-note-cancel">取消</button>
+        <button class="btn btn-primary" id="btn-note-save">保存</button>
+      </div>
     </div>`;
 
   const titleEl = modal.querySelector('.note-title-input');
   const ta = modal.querySelector('#note-textarea');
-  const errEl = modal.querySelector('#note-error');
   const saveBtn = modal.querySelector('#btn-note-save');
   const previewEl = modal.querySelector('#note-preview');
-  const splitEl = modal.querySelector('#note-split');
   const viewBtn = modal.querySelector('#btn-note-view');
   const tagsInputEl = modal.querySelector('#note-tags-input');
   const aiBtn = modal.querySelector('#btn-note-ai');
   const pinBtn = modal.querySelector('#btn-note-pin');
-  const fullscreenBtn = modal.querySelector('#btn-note-fullscreen');
   const exportBtn = modal.querySelector('#btn-note-export');
   const tocBtn = modal.querySelector('#btn-note-toc');
-  const tocPane = modal.querySelector('#note-toc-pane');
   const tocList = modal.querySelector('#note-toc-list');
   const editorBody = modal.querySelector('#note-editor-body');
   const summaryRow = modal.querySelector('#note-summary-row');
   const summaryText = modal.querySelector('#note-summary-text');
-  const draftHint = modal.querySelector('#note-draft-hint');
 
-  // 反向链接（编辑已有笔记时加载"谁链接了我"，对齐落地页双链核心卖点）
+  // Close button
+  const closeBtn = modal.querySelector('#btn-note-close');
+  closeBtn.addEventListener('click', () => close());
+
+  // 反向链接（编辑已有笔记时加载"谁链接了我"）
   const backlinksRow = modal.querySelector('#note-backlinks-row');
   const backlinksEl = modal.querySelector('#note-backlinks');
   if (editPath && backlinksEl) {
@@ -1240,8 +1279,8 @@ async function openNoteEditor(opts = {}) {
   const nsbWords = modal.querySelector('#nsb-words');
   const nsbChars = modal.querySelector('#nsb-chars');
   const nsbReading = modal.querySelector('#nsb-reading');
-  const nsbMode = modal.querySelector('#nsb-mode');
   const nsbDraft = modal.querySelector('#nsb-draft');
+  const nsbDraftRestore = modal.querySelector('#nsb-draft-restore');  // F6: 常驻「丢弃草稿」控件
 
  let saving = false;
  let autoSaveTimer = null;
@@ -1250,12 +1289,14 @@ async function openNoteEditor(opts = {}) {
  let viewMode = loadPref('noteViewMode', 'split');
   let noteTags = [];
   let notePinned = false;
+  let suggestedTags = [];  // AI 建议但尚未被用户接受的标签
   let draftTimer = null;
   let previewTimer = null;
   let tocTimer = null;
   let lastSavedPath = '';
-  let isFullscreen = false;
   let tocVisible = loadPref('noteTocVisible', false);
+  let aiReqId = 0;            // F2: 防止 stale AI 响应覆盖最新一次请求的结果
+  let currentNotePath = editPath || '';  // F4: 当前笔记路径（新建笔记首次保存后更新），用于 syncAiTags
 
   // ---- 底部状态栏：字数 / 字符 / 阅读时间 / 模式 ----
   function countWords(text) {
@@ -1275,11 +1316,10 @@ async function openNoteEditor(opts = {}) {
 
   // ---- 视图模式：编辑 / 分屏 / 预览 ----
   function applyViewMode() {
-    splitEl.classList.remove('mode-edit', 'mode-split', 'mode-preview');
-    splitEl.classList.add('mode-' + viewMode);
+    modal.classList.remove('mode-edit', 'mode-split', 'mode-preview');
+    modal.classList.add('mode-' + viewMode);
     const labels = { edit: '仅编辑', split: '分屏', preview: '仅预览' };
     viewBtn.querySelector('span').textContent = labels[viewMode];
-    if (nsbMode) nsbMode.textContent = labels[viewMode];
     if (viewMode !== 'edit') { updatePreview(); updateToc(); }
     updateStatusBar();
   }
@@ -1287,16 +1327,6 @@ async function openNoteEditor(opts = {}) {
     viewMode = viewMode === 'edit' ? 'split' : viewMode === 'split' ? 'preview' : 'edit';
     savePref('noteViewMode', viewMode);
     applyViewMode();
-  });
-
-  // ---- 全屏模式 ----
-  function applyFullscreen() {
-    modal.classList.toggle('is-fullscreen', isFullscreen);
-    fullscreenBtn.innerHTML = isFullscreen ? ICONS.fullscreenExit : ICONS.fullscreen;
-  }
-  fullscreenBtn.addEventListener('click', () => {
-    isFullscreen = !isFullscreen;
-    applyFullscreen();
   });
 
   // ---- TOC 侧边栏 ----
@@ -1512,15 +1542,48 @@ ${r.html}
     draftTimer = setTimeout(saveDraft, 1500);
   }
  function saveDraft() {
-   if (!ta.value.trim() && !titleEl.value.trim()) { localStorage.removeItem(draftKey); draftHint.textContent = ''; if (nsbDraft) nsbDraft.textContent = ''; return; }
+   if (!ta.value.trim() && !titleEl.value.trim()) { localStorage.removeItem(draftKey); if (nsbDraft) nsbDraft.textContent = ''; return; }
    try {
-     localStorage.setItem(draftKey, JSON.stringify({ title: titleEl.value, content: ta.value, tags: noteTags, pinned: notePinned, ts: Date.now() }));
-     draftHint.textContent = '草稿已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-     if (nsbDraft) nsbDraft.textContent = '已保存草稿';
+     localStorage.setItem(draftKey, JSON.stringify({ title: titleEl.value, content: ta.value, tags: noteTags, suggestedTags, pinned: notePinned, ts: Date.now() }));
+     if (nsbDraft) nsbDraft.textContent = '草稿已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
    } catch {}
  }
  function loadDraft() {
    try { const raw = localStorage.getItem(draftKey); return raw ? JSON.parse(raw) : null; } catch { return null; }
+ }
+
+ // F6: 状态栏常驻「已恢复草稿 · 丢弃」控件。与 Toast 并存——错过 6s Toast 仍可丢弃。
+ // 用独立元素 #nsb-draft-restore，避免 saveDraft 写 nsbDraft 时被覆盖。
+ function showDraftDiscardControl(onDiscard) {
+   if (!nsbDraftRestore) return;
+   nsbDraftRestore.innerHTML = '';
+   nsbDraftRestore.classList.add('has-discard');
+   const label = document.createElement('span');
+   label.className = 'nsb-draft-restore-label';
+   label.textContent = '已恢复草稿';
+   const btn = document.createElement('button');
+   btn.type = 'button';
+   btn.className = 'nsb-discard-btn';
+   btn.textContent = '丢弃';
+   btn.title = '丢弃已恢复的草稿';
+   btn.addEventListener('click', () => { onDiscard(); });
+   nsbDraftRestore.appendChild(label);
+   nsbDraftRestore.appendChild(btn);
+ }
+ function clearDraftDiscardControl() {
+   if (!nsbDraftRestore) return;
+   nsbDraftRestore.innerHTML = '';
+   nsbDraftRestore.classList.remove('has-discard');
+ }
+
+ // F4: 把当前剩余 suggestedTags 整体覆盖写回后端 f.ai_tags（owner 隔离）。
+ // 接受/忽略/AI 整理后均调用，使重开笔记时不再复活已处理的建议。
+ // async 不阻塞 UI；新建未保存笔记（currentNotePath 为空）跳过，待首次保存后再同步。
+ async function syncAiTags() {
+   if (!currentNotePath) return;
+   try {
+     await API.post('/api/files/ai-tags?path=' + encodeURIComponent(currentNotePath), { tags: suggestedTags });
+   } catch { Toast.show('建议标签同步失败', 'info', 2500); }
  }
 
   // ---- 自动保存到服务器 ----
@@ -1584,53 +1647,135 @@ ${r.html}
     pinBtn.classList.toggle('is-active', notePinned);
   });
 
-  // ---- AI 整理：摘要 + 标签 ----
-  aiBtn.addEventListener('click', async () => {
-    if (!ta.value.trim()) { Toast.show('请先输入内容', 'info'); return; }
-    let targetPath = editPath;
-    if (!targetPath) { const ok = await doSave(true); if (!ok) return; targetPath = lastSavedPath; }
-    aiBtn.disabled = true; aiBtn.querySelector('span').textContent = '分析中…';
+  // ---- AI 可用性预判：不可用时禁用按钮并在 hover 展示原因（F5），60s 内存缓存复用（C2）----
+  function applyAiStatus(st) {
+    if (!st || st.available) return;
+    aiBtn.disabled = true;
+    aiBtn.classList.add('is-disabled');
+    // title 是文本属性（非 HTML 插值），DOM 已天然防 XSS，直接用原文；escapeHtml 会导致 tooltip 出现 &amp; 等字面量
+    aiBtn.title = st.reason || 'AI 未启用';
+  }
+  (async () => {
     try {
-      const res = await API.post('/api/files/ai-enhance?path=' + encodeURIComponent(targetPath));
-      if (!res.ok) { const d = await res.json().catch(() => ({})); Toast.show(d.detail || 'AI 整理失败', 'error'); return; }
+      const now = Date.now();
+      if (_aiStatusCache.val && (now - _aiStatusCache.ts) < 60000) {
+        applyAiStatus(_aiStatusCache.val);
+        return;
+      }
+      const res = await API.get('/api/files/ai-status');
+      if (!res || !res.ok) return;
+      const st = await res.json();
+      _aiStatusCache = { ts: now, val: st };
+      applyAiStatus(st);
+    } catch { /* 探测失败时保留按钮，点击时再报错 */ }
+  })();
+
+  // ---- AI 建议标签：渲染与交互 ----
+  const suggestRow = modal.querySelector('#note-tag-suggest-row');
+  const suggestChips = modal.querySelector('#note-tag-suggest-chips');
+  function renderTagSuggestions() {
+    const pending = suggestedTags.filter(t => !noteTags.includes(t));
+    if (!pending.length) { suggestRow.style.display = 'none'; return; }
+    suggestRow.style.display = '';
+    suggestChips.innerHTML = pending.map(t =>
+      '<button class="note-tag-suggest-chip" data-tag="' + escapeHtml(t) + '" title="点击接受此标签">' + escapeHtml(t) + '</button>'
+    ).join('');
+    suggestChips.querySelectorAll('.note-tag-suggest-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const t = chip.dataset.tag;
+        if (!noteTags.includes(t) && noteTags.length < 20) { noteTags.push(t); renderTags(); scheduleDraft(); }
+        suggestedTags = suggestedTags.filter(x => x !== t);
+        renderTagSuggestions();
+        syncAiTags();  // F4: 持久化剩余建议
+      });
+    });
+  }
+  modal.querySelector('#btn-tags-accept-all').addEventListener('click', () => {
+    suggestedTags.forEach(t => { if (!noteTags.includes(t) && noteTags.length < 20) noteTags.push(t); });
+    suggestedTags = [];
+    renderTags(); renderTagSuggestions(); scheduleDraft();
+    syncAiTags();  // F4
+    Toast.show('已接受全部建议标签', 'success');
+  });
+  modal.querySelector('#btn-tags-dismiss').addEventListener('click', () => {
+    suggestedTags = [];
+    renderTagSuggestions();
+    syncAiTags();  // F4: 忽略即清空后端 ai_tags
+  });
+
+  // ---- AI 整理：摘要 + 标签（35s 超时对齐后端最坏 primary+fallback≈30s，消除前端先超时、后端仍在写的竞态）----
+  async function runAiEnhance() {
+    if (!ta.value.trim()) { Toast.show('请先输入内容', 'info'); return; }
+    // F2: requestId 守卫——重复点击/重试时只采纳最新一次结果
+    const myId = ++aiReqId;
+    let targetPath = currentNotePath;
+    if (!targetPath) { const ok = await doSave(true); if (!ok) return; targetPath = currentNotePath; }
+    if (myId !== aiReqId) return;  // 保存期间用户又触发了一次
+    aiBtn.disabled = true; aiBtn.querySelector('span').textContent = '分析中…';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 35000);
+    try {
+      const res = await API.request('/api/files/ai-enhance?path=' + encodeURIComponent(targetPath), { method: 'POST', signal: controller.signal });
+      clearTimeout(timer);
+      if (myId !== aiReqId) return;  // 已有更新的请求在途，丢弃本次 stale 响应
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        // F3: 429/「频繁」立即重试必失败（时间锁未到），不提供「重试」入口；其它错误保留重试
+        const isRateLimit = res.status === 429 || (d.detail && d.detail.includes('频繁'));
+        if (isRateLimit) Toast.show(d.detail || 'AI 操作过于频繁，请稍后再试', 'error', 5000);
+        else Toast.show(d.detail || 'AI 整理失败', 'error', 5000, { label: '重试', onClick: runAiEnhance });
+        return;
+      }
       const data = await res.json();
+      if (myId !== aiReqId) return;  // json 解析期间可能又发起新请求，再次校验
       if (data.summary) { summaryRow.style.display = ''; summaryText.textContent = data.summary || ''; }
       if (data.tags && data.tags.length) {
-        data.tags.forEach(t => { if (!noteTags.includes(t)) noteTags.push(t); });
-        renderTags();
+        suggestedTags = [...new Set([...suggestedTags, ...data.tags])];
+        renderTagSuggestions();
+        syncAiTags();  // F4: 累加新建议后同步后端 ai_tags，保持一致
       }
       Toast.show('AI 整理完成', 'success');
-    } catch (err) { Toast.show('AI 整理出错: ' + err.message, 'error'); }
-    finally { aiBtn.disabled = false; aiBtn.querySelector('span').textContent = 'AI 整理'; }
-  });
+    } catch (err) {
+      if (myId !== aiReqId) return;  // stale：不弹旧错误，避免覆盖新请求的「分析中…」态
+      clearTimeout(timer);
+      const msg = err.name === 'AbortError' ? 'AI 响应超时，请重试' : 'AI 整理出错: ' + err.message;
+      Toast.show(msg, 'error', 5000, { label: '重试', onClick: runAiEnhance });
+    } finally {
+      // 仅当本次为最新请求时才恢复按钮态，避免 stale 的 finally 把新请求的「分析中…」重置掉
+      if (myId === aiReqId) { aiBtn.disabled = false; aiBtn.querySelector('span').textContent = 'AI 整理'; }
+    }
+  }
+  aiBtn.addEventListener('click', runAiEnhance);
 
   // ---- 保存 ----
   async function doSave(silent) {
     if (saving) return false;
     const content = ta.value;
-    if (!content.trim()) { if (!silent) errEl.textContent = '内容不能为空'; return false; }
-    errEl.textContent = '';
+    if (!content.trim()) { if (!silent) Toast.show('内容不能为空', 'warning'); return false; }
     saving = true; saveBtn.disabled = true; saveBtn.textContent = '保存中…';
     try {
       const res = await API.post('/api/files/note', {
         name: titleEl.value.trim(), content,
         directory: currentDir || '', group_id: selectedGroup || '',
       });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); errEl.textContent = d.detail || '保存失败'; return false; }
+      if (!res.ok) { const d = await res.json().catch(() => ({})); Toast.show(d.detail || '保存失败', 'error'); return false; }
       const data = await res.json();
       lastSavedPath = data.path;
+      currentNotePath = data.path;  // F4: 新建笔记首次保存后也更新 currentNotePath，使后续 syncAiTags 可用
       await Promise.all([
         API.put('/api/files/tags', { path: data.path, tags: noteTags }),
         API.put('/api/files/pin', { path: data.path, pinned: notePinned }),
       ]);
      localStorage.removeItem(draftKey);
      isDirty = false;
+     clearDraftDiscardControl();  // F6: 已保存到服务端，无需再丢弃草稿
+     if (suggestedTags.length) syncAiTags();  // F4: 首次保存后补一次，把待处理建议落库
      if (!silent) Toast.show(data.guard_status === 'warning' ? '笔记已保存（Guard 提醒：可能含敏感内容）' : '笔记已保存', 'success');
       return true;
-    } catch (err) { errEl.textContent = '保存失败: ' + (err.message || '未知错误'); return false; }
+    } catch (err) { Toast.show('保存失败: ' + (err.message || '未知错误'), 'error'); return false; }
     finally { saving = false; saveBtn.disabled = false; saveBtn.textContent = '保存'; }
   }
- async function save() { const ok = await doSave(false); if (ok) { closeEditor(); loadFiles(); } }
+ async function save() { const ok = await doSave(false); if (ok) { closeEditor(); refreshCurrentView(); } }
  
   modal.querySelector('#btn-note-cancel').addEventListener('click', confirmClose);
   saveBtn.addEventListener('click', save);
@@ -1652,9 +1797,8 @@ ${r.html}
     else if (mod && e.key === 'k') { e.preventDefault(); wrapSelection('[', '](https://)', '链接文字'); }
     else if (mod && e.key === 'm') { e.preventDefault(); wrapSelection('$$', '$$', 'E=mc^2'); }
     else if (mod && e.key === 'p') { e.preventDefault(); viewBtn.click(); }
-    else if (mod && e.key === 's') { e.preventDefault(); doSave(false).then(ok => { if (ok) loadFiles(); }); }
+    else if (mod && e.key === 's') { e.preventDefault(); doSave(false).then(ok => { if (ok) refreshCurrentView(); }); }
     else if (mod && e.key === '/') { e.preventDefault(); insertBlock('\n```\n代码\n```\n'); }
-    else if (e.key === 'Escape' && isFullscreen) { e.stopPropagation(); isFullscreen = false; applyFullscreen(); }
     else if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -1670,38 +1814,48 @@ ${r.html}
       }
     }
   });
-  // F11 切换全屏
-  modal.addEventListener('keydown', (e) => {
-    if (e.key === 'F11') { e.preventDefault(); isFullscreen = !isFullscreen; applyFullscreen(); }
-  });
 
   // ---- 初始化加载 ----
+  // F8: isEdit 与 new-note 两分支共用 restoreDraft，差异通过 { isNew } 与 discard 回调处理
+  function restoreDraft(draft, { isNew }) {
+    titleEl.value = isNew ? (draft.title || '') : (draft.title || titleEl.value);
+    ta.value = draft.content || '';
+    noteTags = draft.tags || [];
+    suggestedTags = draft.suggestedTags || [];
+    if (!isNew) {
+      notePinned = !!draft.pinned;
+      if (notePinned) pinBtn.classList.add('is-active');
+      renderTags(); renderTagSuggestions(); updatePreview(); updateToc();
+    } else {
+      renderTags(); renderTagSuggestions();
+    }
+    const onDiscard = () => discardRestoredDraft(isNew);
+    showDraftDiscardControl(onDiscard);  // F6: 常驻丢弃控件
+    Toast.show('已恢复未保存草稿（' + new Date(draft.ts).toLocaleString('zh-CN') + '）', 'info', 6000, {
+      label: '丢弃草稿', onClick: onDiscard
+    });
+  }
+  function discardRestoredDraft(isNew) {
+    localStorage.removeItem(draftKey);
+    if (isNew) {
+      titleEl.value = ''; ta.value = ''; noteTags = []; suggestedTags = [];
+      renderTags(); renderTagSuggestions(); updatePreview();
+    } else {
+      loadRemote();  // 编辑态丢弃后回退到服务端最新内容
+    }
+    clearDraftDiscardControl();
+  }
+
   applyViewMode();
   applyTocVisible();
   if (isEdit) {
     const draft = loadDraft();
     if (draft) {
-      titleEl.value = draft.title || titleEl.value;
-      ta.value = draft.content || '';
-      noteTags = draft.tags || [];
-      notePinned = !!draft.pinned;
-      if (notePinned) pinBtn.classList.add('is-active');
-      renderTags(); updatePreview(); updateToc();
-      draftHint.innerHTML = '已恢复未保存草稿（' + new Date(draft.ts).toLocaleString('zh-CN') + '） <a href="#" id="draft-discard">丢弃草稿</a>';
-      const disc = modal.querySelector('#draft-discard');
-      if (disc) disc.addEventListener('click', (e) => { e.preventDefault(); localStorage.removeItem(draftKey); loadRemote(); });
+      restoreDraft(draft, { isNew: false });
     } else { await loadRemote(); }
   } else {
     const draft = loadDraft();
-    if (draft) {
-      titleEl.value = draft.title || '';
-      ta.value = draft.content || '';
-      noteTags = draft.tags || [];
-      renderTags();
-      draftHint.innerHTML = '已恢复未保存草稿（' + new Date(draft.ts).toLocaleString('zh-CN') + '） <a href="#" id="draft-discard">丢弃草稿</a>';
-      const disc = modal.querySelector('#draft-discard');
-      if (disc) disc.addEventListener('click', (e) => { e.preventDefault(); localStorage.removeItem(draftKey); titleEl.value = ''; ta.value = ''; noteTags = []; renderTags(); updatePreview(); draftHint.textContent = ''; });
-    }
+    if (draft) restoreDraft(draft, { isNew: true });
     titleEl.focus();
   }
   updatePreview();
@@ -1713,7 +1867,7 @@ ${r.html}
         ? 'file_id=' + encodeURIComponent(editFileId)
         : 'path=' + encodeURIComponent(editPath);
       const res = await API.get('/api/files/note-content?' + noteQuery);
-      if (!res.ok) { errEl.textContent = '加载笔记失败'; return; }
+      if (!res.ok) { Toast.show('加载笔记失败', 'error'); return; }
       const data = await res.json();
       ta.value = data.content || '';
       titleEl.value = stripExt(data.name || editName);
@@ -1721,12 +1875,10 @@ ${r.html}
       notePinned = !!data.pinned;
       if (notePinned) pinBtn.classList.add('is-active');
       if (data.summary) { summaryRow.style.display = ''; summaryText.textContent = data.summary || ''; }
-      noteTags = data.tags || [];
-      notePinned = !!data.pinned;
-      if (notePinned) pinBtn.classList.add('is-active');
-      if (data.summary) { summaryRow.style.display = ''; summaryText.textContent = data.summary || ''; }
-      renderTags(); updatePreview(); updateToc(); ta.focus();
-    } catch (err) { errEl.textContent = '加载失败: ' + err.message; }
+      // 历史 AI 建议标签（未接受的部分）恢复为待选建议
+      suggestedTags = (data.ai_tags || []).filter(t => !noteTags.includes(t));
+      renderTags(); renderTagSuggestions(); updatePreview(); updateToc(); ta.focus();
+    } catch (err) { Toast.show('加载失败: ' + err.message, 'error'); }
   }
 }
 
@@ -3163,7 +3315,7 @@ async function deleteFile(path) {
         action: [
           { label: '撤销', onClick: async () => {
             const r = await API.post(`/api/files/trash/restore?file_id=${encodeURIComponent(data.file_id)}`);
-            if (r.ok) { Toast.show('已恢复', 'success'); await loadTrashCount(); if (App.currentView === 'trash') loadTrash(); else loadFiles(); }
+            if (r.ok) { Toast.show('已恢复', 'success'); await loadTrashCount(); refreshCurrentView(); }
             else { Toast.show('恢复失败', 'error'); }
           }},
           { label: '查看', onClick: () => App.navigate('trash') }
@@ -3171,7 +3323,7 @@ async function deleteFile(path) {
       });
       // 刷新回收站角标与列表
       await loadTrashCount();
-      if (App.currentView === 'trash') loadTrash(); else loadFiles();
+      refreshCurrentView();
     }
     else { const data = await res.json(); Toast.show(data.detail || '删除失败', 'error'); }
   } catch (err) { Toast.show('删除出错: ' + err.message, 'error'); }

@@ -1,0 +1,117 @@
+# 随行档 · 笔记 AI 整理评测
+# 用法：
+#   1. 在 .env 中配置 DEEPSEEK_API_KEY（或 OPENAI_API_KEY）
+#   2. npx promptfoo@latest eval
+#   3. npx promptfoo@latest view 查看结果
+#
+# 对应后端实现：server/app/api/files.py ai_enhance()
+# Prompt 与线上一致；改 prompt 时此处需同步，并用本评测回归。
+
+description: 笔记 AI 整理（摘要 + 标签）质量评测
+
+prompts:
+  - id: note-enhance-v2
+    raw: |
+      请阅读以下笔记内容，用中文输出：
+      1. 一句话摘要（不超过 80 字，提炼核心观点或结论，不要复述标题）
+      2. 3-5 个标签（每个 2-6 字，覆盖主题/类型/状态，如「工作」「待办」「技术」「灵感」）
+      严格按 JSON 格式返回，不要 markdown 代码块，不要任何其他文字：
+      {"summary":"...","tags":["..."]}
+
+      笔记内容：
+      {{content}}
+
+providers:
+  - id: deepseek:deepseek-chat
+    label: DeepSeek
+    config:
+      temperature: 0.3
+      max_tokens: 512
+
+defaultTest:
+  assert:
+    # 输出必须是可解析的 JSON，且含 summary/tags 字段
+    - type: javascript
+      value: |
+        try {
+          const m = output.replace(/```json|```/g, '');
+          const start = m.indexOf('{');
+          const end = m.lastIndexOf('}');
+          const obj = JSON.parse(m.slice(start, end + 1));
+          return typeof obj.summary === 'string' && obj.summary.length > 0 && Array.isArray(obj.tags);
+        } catch { return false; }
+    # 摘要 ≤ 80 字（允许 10 字浮动，LLM 偶尔超一点）
+    - type: javascript
+      value: |
+        try {
+          const m = output.replace(/```json|```/g, '');
+          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+          return obj.summary.length <= 90;
+        } catch { return false; }
+    # 标签 3-5 个，每个 2-6 字
+    - type: javascript
+      value: |
+        try {
+          const m = output.replace(/```json|```/g, '');
+          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+          return obj.tags.length >= 3 && obj.tags.length <= 5 &&
+            obj.tags.every(t => t.length >= 2 && t.length <= 6);
+        } catch { return false; }
+
+tests:
+  - description: 技术调研笔记
+    vars:
+      content: |
+        今天调研了 FastAPI 的依赖注入系统，发现 Depends 配合异步路由非常适合我们的场景。
+        相比 Flask 的手动传参，FastAPI 的声明式依赖能减少 30% 的样板代码。
+        下一步：把文件模块的 DB session 管理改造成 Depends 注入，预计两天完成。
+    assert:
+      - type: javascript
+        value: |
+          const m = output.replace(/```json|```/g, '');
+          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+          const all = obj.summary + obj.tags.join('');
+          return all.includes('FastAPI') || all.includes('依赖注入') || all.includes('技术');
+
+  - description: 工作待办笔记
+    vars:
+      content: |
+        本周待办：
+        1. 周三前给甲方发报价单终稿（注意含 15% 折扣条款）
+        2. 周五和产品对齐 Q3 需求优先级
+        3. 跟进合同盖章进度，法务说预计下周二
+        提醒：报价单发出去前先让总监过目。
+    assert:
+      - type: javascript
+        value: |
+          const m = output.replace(/```json|```/g, '');
+          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+          const all = obj.summary + obj.tags.join('');
+          return all.includes('报价') || all.includes('待办') || all.includes('工作');
+
+  - description: 灵感碎片笔记（短内容）
+    vars:
+      content: |
+        想法：能不能做一个"文件时间机"？
+        每次保存笔记都留一个快照，可以拖动时间轴回看任意历史版本。
+        类似 macOS Time Machine 的交互。
+    assert:
+      - type: javascript
+        value: |
+          const m = output.replace(/```json|```/g, '');
+          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+          return obj.summary.length >= 10;  // 短内容也要产出有意义摘要
+
+  - description: 会议纪要（含人名与数字）
+    vars:
+      content: |
+        Q2 复盘会 2026-07-15
+        参会：张总、李产品、王研发
+        结论：Q2 营收 182 万，超预期 12%；Q3 重点押注企业客户。
+        行动项：王研发两周内出企业版方案初稿。
+    assert:
+      - type: javascript
+        value: |
+          const m = output.replace(/```json|```/g, '');
+          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+          return obj.summary.includes('Q2') || obj.summary.includes('营收') || obj.summary.includes('复盘');
