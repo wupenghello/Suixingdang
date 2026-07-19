@@ -26,6 +26,12 @@
   --border-light: #F2F3F5;
   --border-strong: #C9CDD4;
 
+  /* —— 代码表面 · 始终浅色（highlight-github 仅浅色主题；深色模式下代码块也浅底深字，保证可读）—— */
+  --code-bg: #f6f8fa;
+  --code-text: #24292f;
+  --code-chrome-text: #57606a;   /* 语言标签 / 复制按钮默认色 */
+  --code-chrome-hover: #eaeef2;  /* 复制按钮 hover 底色 */
+
   /* —— 品牌主色 · 飞书蓝 —— */
   --primary: #3370FF;
   --primary-hover: #2860E8;
