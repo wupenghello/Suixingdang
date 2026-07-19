@@ -4176,23 +4176,29 @@ async function sendChatMessage() {
   const statusEl = document.createElement('div');
   statusEl.className = 'typing-indicator';
   statusEl.setAttribute('aria-live', 'polite');
-  statusEl.innerHTML = '正在思考<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
-  assistantEl.appendChild(statusEl);
-  scrollChat(container);
 
   setSendButtonState('stop');
   const controller = new AbortController();
   currentChatAbort = controller;
   const bubble = assistantEl.querySelector('.chat-bubble');
 
+  // 在气泡为空时，状态在气泡内作为占位（不再"空白"）；有实质内容时移到气泡外
   const setStatus = (msg, opts = {}) => {
     if (!statusEl.isConnected) return;
     const dot = opts.busy === false ? '' : '<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
-    // 转义避免 XSS（tool 名可能含异常字符）
     const safe = String(msg).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
     statusEl.innerHTML = safe + dot;
     if (opts.error) statusEl.classList.add('is-error'); else statusEl.classList.remove('is-error');
+    // 判断气泡内是否有实质文本/节点（排除状态文本自身），有则状态移到气泡外，无则留在气泡内
+    const hasRealContent = Array.from(bubble.childNodes).some(n => n !== statusEl && n.textContent.trim());
+    const target = hasRealContent ? assistantEl : bubble;
+    if (statusEl.parentElement !== target) target.appendChild(statusEl);
   };
+
+  // 初始状态：空气泡 → 状态放进气泡内作为占位
+  bubble.appendChild(statusEl);
+  setStatus('正在思考…');
+  scrollChat(container);
 
   try {
     const res = await fetch('/api/chat/stream', {
