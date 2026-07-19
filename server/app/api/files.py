@@ -1181,7 +1181,7 @@ def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
     for f in name_hits:
         matched[f.id] = {
             "file_id": f.id, "path": f.path, "name": f.name, "size": f.size,
-            "score": 1.0, "snippet": "",
+            "score": 1.0, "snippet": "", "modified": f.modified_at.isoformat() if f.modified_at else None,
         }
     # 2) 正文内容匹配（所有文本类文件：md/txt/markdown/rst/text，不限 source）
     _text_exts = ('.md', '.markdown', '.mdown', '.mkd', '.txt', '.rst', '.text')
@@ -1213,6 +1213,7 @@ def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
         matched[f.id] = {
             "file_id": f.id, "path": f.path, "name": f.name, "size": f.size,
             "score": 0.8, "snippet": snippet,
+            "modified": f.modified_at.isoformat() if f.modified_at else None,
         }
     return list(matched.values())[:limit]
 

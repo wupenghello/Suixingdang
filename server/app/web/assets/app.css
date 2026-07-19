@@ -1610,13 +1610,12 @@ html { scroll-behavior: smooth; }
 
 /* ---- 搜索结果卡片（对齐 landing figure 的语义检索碎片）---- */
 .search-results { display: flex; flex-direction: column; gap: 8px; }
-.search-results-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); padding: 0 4px 6px; }
-.search-results-head svg { width: 16px; height: 16px; }
 .search-results-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px 20px; color: var(--text-muted); }
 .search-results-empty .empty-title { font-size: 15px; }
 .search-result { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); transition: border-color .15s, box-shadow .15s, transform .1s; cursor: pointer; }
 .search-result:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); }
 .search-result:active { transform: translateY(1px); }
+.search-result:focus-visible { outline: 2px solid var(--primary-ring); outline-offset: 1px; border-color: var(--primary); }
 .search-result-icon { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; display: inline-flex; }
 .search-result-icon svg { width: 20px; height: 20px; }
 .search-result-main { flex: 1; min-width: 0; }
@@ -1626,10 +1625,32 @@ html { scroll-behavior: smooth; }
 .search-result-score { font-family: var(--font-mono); font-size: 12px; color: var(--primary); flex-shrink: 0; align-self: center; padding: 2px 9px; background: var(--primary-light); border-radius: var(--radius-pill); }
 
 /* ---- AI 回答文件来源 chip（对齐 landing figure 的 sx-mockup-chip 药丸）---- */
-.chat-cite-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.chat-cite-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 240px; padding: 4px 10px; border-radius: var(--radius-pill); background: var(--bg-surface); border: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); }
+.chat-cite-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chat-cite-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 999px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  font-family: inherit; font-size: 12px; color: var(--text-secondary);
+  cursor: pointer; transition: border-color .15s, background .15s;
+}
+.chat-cite-chip:hover { border-color: var(--primary); background: var(--primary-lighter); }
 .chat-cite-chip svg { width: 13px; height: 13px; color: var(--primary); flex-shrink: 0; }
 .chat-cite-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Search Result Meta (date · size) ---- */
+.search-result-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* ---- Search Sort Toggle ---- */
+.search-sort-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border-radius: var(--radius-sm);
+  background: transparent; border: none;
+  font-size: 12px; color: var(--text-muted); cursor: pointer;
+  font-family: var(--font-mono);
+  transition: background .15s, color .15s;
+}
+.search-sort-toggle:hover { background: var(--bg-surface-hover); color: var(--text); }
+.search-sort-toggle.is-active { color: var(--primary); background: var(--primary-bg); }
 @media (max-width: 900px) { .files-groups { display: none; } .files-body { flex-direction: column; } }
 
 /* ============ Shortcut Help ============ */
