@@ -4177,7 +4177,7 @@ async function sendChatMessage() {
   statusEl.className = 'typing-indicator';
   statusEl.setAttribute('aria-live', 'polite');
   statusEl.innerHTML = '正在思考<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
-  container.appendChild(statusEl);
+  assistantEl.appendChild(statusEl);
   scrollChat(container);
 
   setSendButtonState('stop');
