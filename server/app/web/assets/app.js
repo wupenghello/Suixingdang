@@ -1337,9 +1337,7 @@ async function openNoteEditor(opts = {}) {
   const nsbReading = modal.querySelector('#nsb-reading');
 
  let saving = false;
- let autoSaveTimer = null;
  let isDirty = false;  // 是否有未保存到服务端的修改
- let lastAutoSaveTs = 0;
  let viewMode = loadPref('noteViewMode', 'split');
   let noteTags = [];
   let notePinned = false;
