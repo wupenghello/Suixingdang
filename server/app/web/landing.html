@@ -16,7 +16,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/app.css">
   <link rel="stylesheet" href="/assets/tokens.css?v=1">
-  <link rel="stylesheet" href="/landing.css?v=5">
+  <link rel="stylesheet" href="/landing.css?v=6">
 </head>
 <body class="sx-landing">
   <!-- ============ 线性图标集（viewBox 24 / stroke 1.5 / currentColor） ============ -->
@@ -367,45 +367,8 @@
       </div>
     </section>
 
-    <!-- ============ 部署 ============ -->
-    <section class="sx-section sx-section--tint" id="start">
-      <div class="sx-container">
-        <div class="sx-head">
-          <h2>一键部署，长在你自己的服务器上</h2>
-          <p>一行命令，自动下载配置、生成密钥、拉镜像启动。无需 clone 源码。</p>
-        </div>
-        <div class="sx-deploy">
-          <div class="sx-deploy-card">
-            <div class="sx-deploy-step">1</div>
-            <h3>一键脚本</h3>
-            <span class="sx-pre-label"><svg class="sx-ico"><use href="#sx-ico-terminal"/></svg>shell · 一键安装</span>
-            <pre><code>curl -fsSL https://raw.githubusercontent.com/wupenghello/Suixingdang/main/install.sh | bash</code></pre>
-            <p>脚本交互式收集域名与密码，自动生成三把独立密钥，写 <code>.env</code>（权限 600），拉镜像启动。</p>
-          </div>
-          <div class="sx-deploy-card">
-            <div class="sx-deploy-step">2</div>
-            <h3>登录配置</h3>
-            <span class="sx-pre-label"><svg class="sx-ico"><use href="#sx-ico-globe"/></svg>浏览器 · /admin 后台</span>
-            <pre><code># 打开 https://你的域名/admin
-# 账号 admin（密码见 .env）
-# 在「大模型配置」页添加 DeepSeek / OpenAI API Key</code></pre>
-            <p>管理员在后台添加大模型并分配给用户，即可使用 AI 对话、语义检索、内容摘要等能力。</p>
-          </div>
-          <div class="sx-deploy-card">
-            <div class="sx-deploy-step">3</div>
-            <h3>开始使用</h3>
-            <span class="sx-pre-label"><svg class="sx-ico"><use href="#sx-ico-server"/></svg>守护进程 · 设备令牌配置</span>
-            <pre><code># 用户端：https://你的域名
-# 家里守护进程：创建设备令牌后配置
-# 公司端：浏览器打开即用，零安装</code></pre>
-            <p>多账户、多设备、三端不对称——家里同步、公司只看不留、管理员全量管控。</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- ============ CTA band ============ -->
-    <section class="sx-band">
+    <section class="sx-band" id="start">
       <div class="sx-band-inner">
         <h2>把文件，装进只对你显影的档案室。</h2>
         <p>自托管、加密归档、零痕迹。浏览器打开即用。</p>
