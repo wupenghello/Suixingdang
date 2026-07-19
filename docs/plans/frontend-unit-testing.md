@@ -132,7 +132,7 @@ server/tests/web/     【新增】前端单测，与后端 server/tests/ 并列
 |---|---|
 | CLI 流程 | `pnpm test`(watch) / `pnpm test:unit`(once) / `pnpm test:coverage` / `pnpm test:e2e` |
 | CI 流程 | PR→自动跑→Checks 标签显示 vitest 结果（可选覆盖率评论） |
-| 设计系统 | 不改 UI；e2e 截图基线须在"蓝 #2B5FFF + Geist"定型后建立 |
+| 设计系统 | 不改 UI；e2e 截图基线须在"蓝 #3370FF + Geist"定型后建立 |
 | CSP | 测试在 Node 跑不经 CSP；生产 `script-src 'self'`，`type="module"` 抽函数后仍 self，不违反 |
 | `?v=` 升级 | F03 抽离改 app.js 内容 → **必须升 `index.html:30` 的 `app.js?v=57→58`**；F17 lint 兜底 |
 | a11y/响应式/暗色 | 不在本次范围；a11y 列 P2（F19）留口 |

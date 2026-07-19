@@ -51,10 +51,17 @@ def _get_embedding_function():
                 api_key=api_key,
                 model_name=getattr(settings, "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
             )
-        except Exception:
-            pass  # 回退到默认
-    # 默认：ChromaDB 内置嵌入模型
-    return None
+        except Exception as e:
+            logger.warning("OpenAI embedding 初始化失败(%s)，回退到 ChromaDB 内置嵌入", e)
+    # 默认：显式使用 ChromaDB 内置嵌入模型（all-MiniLM-L6-v2）。
+    # 注意：chroma >= 0.4.x 不会给 embedding_function=None 的集合自动注入内置模型，
+    # 必须显式传入，否则 add/query 会抛 "must provide an embedding function"。
+    try:
+        from chromadb.utils import embedding_functions
+        return embedding_functions.DefaultEmbeddingFunction()
+    except Exception as e:
+        logger.warning("ChromaDB 内置嵌入加载失败(%s)，搜索/索引将不可用", e)
+        return None
 
 
 def _get_collection(user_id: str):
