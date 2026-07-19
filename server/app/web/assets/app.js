@@ -14,7 +14,7 @@ import { parseServerTs } from './utils/time.js?v=60';
 import { escapeHtml } from './utils/dom.js?v=60';
 import { getPreviewType, fileTypeBadge } from './utils/file-classify.js?v=60';
 import { ICONS, getFileIcon } from './utils/icons.js?v=63';
-import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=60';
+import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=61';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
 import { createTrashSelection } from './utils/trash-selection.js?v=66';
@@ -4264,6 +4264,26 @@ async function sendChatMessage() {
   setStatus('正在思考…');
   scrollChat(container);
 
+  // 流式渲染节流：rAF 合并多个 delta，增量阶段跳过 hljs/KaTeX/mermaid 等重计算，
+  // 避免逐 token 全量重渲染导致的闪烁/抖动；done 时再完整增强渲染一次。
+  let streamRaf = null;
+  let gotDone = false;
+  bubble.classList.add('is-streaming');
+  const renderStreaming = () => {
+    bubble.innerHTML = renderMarkdown(assistantMsg.content, { enhance: false });
+    enhanceMaskedContent(bubble);
+    if (statusEl.isConnected) setStatus('正在整理回答…');
+    scrollChat(container);
+  };
+  const scheduleStreamRender = () => {
+    if (streamRaf !== null) return;
+    streamRaf = requestAnimationFrame(() => { streamRaf = null; renderStreaming(); });
+  };
+  const flushStreamRender = () => {
+    if (streamRaf !== null) { cancelAnimationFrame(streamRaf); streamRaf = null; }
+    bubble.classList.remove('is-streaming');
+  };
+
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
@@ -4296,13 +4316,12 @@ async function sendChatMessage() {
           // 根据工具类型 + 结果生成状态文本（对齐 PRD：阶梯式状态提示 + 命中计数）
           renderStatusFromTool(statusEl, payload.data);
           scrollChat(container);
-        } else if (payload.type === 'delta') {
+        } else if (payload.type === 'delta' && !gotDone) {
           assistantMsg.content += payload.data;
-          bubble.innerHTML = renderMarkdown(assistantMsg.content);
-          enhanceMaskedContent(bubble);
-          if (statusEl.isConnected) setStatus('正在整理回答…');
-          scrollChat(container);
+          scheduleStreamRender();
         } else if (payload.type === 'done') {
+          flushStreamRender();
+          gotDone = true;
           assistantMsg.content = payload.data.reply || assistantMsg.content || '(无回复)';
           assistantMsg.tool_calls = payload.data.tool_calls || assistantMsg.tool_calls;
           bubble.innerHTML = renderMarkdown(assistantMsg.content);
@@ -4312,6 +4331,7 @@ async function sendChatMessage() {
           if (statusEl.isConnected) statusEl.remove();
           scrollChat(container);
         } else if (payload.type === 'error') {
+          flushStreamRender();
           assistantMsg.content = '出错了: ' + payload.data;
           bubble.innerHTML = renderMarkdown(assistantMsg.content);
           enhanceMaskedContent(bubble);
@@ -4319,13 +4339,20 @@ async function sendChatMessage() {
         }
       }
     }
-    if (!assistantMsg.content) {
+    // 收尾：取消未决的节流渲染；若异常断流（未收到 done）但已有内容，补一次完整增强渲染
+    flushStreamRender();
+    if (!gotDone && assistantMsg.content) {
+      bubble.innerHTML = renderMarkdown(assistantMsg.content);
+      enhanceMaskedContent(bubble);
+      if (statusEl.isConnected) statusEl.remove();
+    } else if (!assistantMsg.content) {
       assistantMsg.content = controller.signal.aborted ? '（已停止）' : '(无回复)';
       bubble.innerHTML = renderMarkdown(assistantMsg.content);
       enhanceMaskedContent(bubble);
       if (statusEl.isConnected) statusEl.remove();
     }
   } catch (err) {
+    flushStreamRender();
     if (statusEl.isConnected) {
       if (err && err.name === 'AbortError') { statusEl.remove(); }
       else { setStatus('出错了：' + ((err && err.message) || '未知错误'), { error: true, busy: false }); }
