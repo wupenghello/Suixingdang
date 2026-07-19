@@ -1202,7 +1202,6 @@ async function openNoteEditor(opts = {}) {
   const editFileId = opts.fileId || '';
   const editName = opts.name || '';
   const isEdit = !!(editPath || editFileId);
-  const draftKey = 'sxd_draft_note_' + (editPath || 'new');
   const { modal, close } = openModal({ onDismiss: () => close() });
   modal.classList.add('note-editor-modal');
   modal.innerHTML = `
@@ -1265,10 +1264,6 @@ async function openNoteEditor(opts = {}) {
         <span class="nsb-item" id="nsb-chars">0 字符</span>
         <span class="nsb-item" id="nsb-reading">约 0 分钟</span>
       </div>
-      <div class="note-status-right">
-        <span class="nsb-item" id="nsb-draft"></span>
-        <span class="nsb-item nsb-draft-restore" id="nsb-draft-restore"></span>
-      </div>
     </div>
     <div class="note-editor-bottom">
       <div class="note-editor-meta">
@@ -1316,7 +1311,7 @@ async function openNoteEditor(opts = {}) {
 
   // Close button
   const closeBtn = modal.querySelector('#btn-note-close');
-  closeBtn.addEventListener('click', () => close());
+  closeBtn.addEventListener('click', confirmClose);
 
   // 反向链接（编辑已有笔记时加载"谁链接了我"）
   const backlinksRow = modal.querySelector('#note-backlinks-row');
@@ -1340,8 +1335,6 @@ async function openNoteEditor(opts = {}) {
   const nsbWords = modal.querySelector('#nsb-words');
   const nsbChars = modal.querySelector('#nsb-chars');
   const nsbReading = modal.querySelector('#nsb-reading');
-  const nsbDraft = modal.querySelector('#nsb-draft');
-  const nsbDraftRestore = modal.querySelector('#nsb-draft-restore');  // F6: 常驻「丢弃草稿」控件
 
  let saving = false;
  let autoSaveTimer = null;
@@ -1351,7 +1344,6 @@ async function openNoteEditor(opts = {}) {
   let noteTags = [];
   let notePinned = false;
   let suggestedTags = [];  // AI 建议但尚未被用户接受的标签
-  let draftTimer = null;
   let previewTimer = null;
   let tocTimer = null;
   let lastSavedPath = '';
@@ -1578,11 +1570,10 @@ ${r.html}
    previewTimer = setTimeout(updatePreview, 200);
    updateTocDebounced();
    updateStatusBar();
-   scheduleDraft();
-   scheduleAutoSave();
+   isDirty = true;
  });
  // 标题输入也触发自动保存
- titleEl.addEventListener('input', () => { scheduleDraft(); scheduleAutoSave(); });
+ titleEl.addEventListener('input', () => { isDirty = true; });
 
   // ---- 工具栏激活态：根据光标位置检测当前 Markdown 格式上下文 ----
   function updateToolbarActiveStates() {
@@ -1616,44 +1607,6 @@ ${r.html}
   ta.addEventListener('focus', updateToolbarActiveStates);
 
   // ---- 草稿自动保存 ----
-  function scheduleDraft() {
-    clearTimeout(draftTimer);
-    draftTimer = setTimeout(saveDraft, 1500);
-  }
- function saveDraft() {
-   if (!ta.value.trim() && !titleEl.value.trim()) { localStorage.removeItem(draftKey); if (nsbDraft) nsbDraft.textContent = ''; return; }
-   try {
-     localStorage.setItem(draftKey, JSON.stringify({ title: titleEl.value, content: ta.value, tags: noteTags, suggestedTags, pinned: notePinned, ts: Date.now() }));
-     if (nsbDraft) nsbDraft.textContent = '草稿已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-   } catch {}
- }
- function loadDraft() {
-   try { const raw = localStorage.getItem(draftKey); return raw ? JSON.parse(raw) : null; } catch { return null; }
- }
-
- // F6: 状态栏常驻「已恢复草稿 · 丢弃」控件。与 Toast 并存——错过 6s Toast 仍可丢弃。
- // 用独立元素 #nsb-draft-restore，避免 saveDraft 写 nsbDraft 时被覆盖。
- function showDraftDiscardControl(onDiscard) {
-   if (!nsbDraftRestore) return;
-   nsbDraftRestore.innerHTML = '';
-   nsbDraftRestore.classList.add('has-discard');
-   const label = document.createElement('span');
-   label.className = 'nsb-draft-restore-label';
-   label.textContent = '已恢复草稿';
-   const btn = document.createElement('button');
-   btn.type = 'button';
-   btn.className = 'nsb-discard-btn';
-   btn.textContent = '丢弃';
-   btn.title = '丢弃已恢复的草稿';
-   btn.addEventListener('click', () => { onDiscard(); });
-   nsbDraftRestore.appendChild(label);
-   nsbDraftRestore.appendChild(btn);
- }
- function clearDraftDiscardControl() {
-   if (!nsbDraftRestore) return;
-   nsbDraftRestore.innerHTML = '';
-   nsbDraftRestore.classList.remove('has-discard');
- }
 
  // F4: 把当前剩余 suggestedTags 整体覆盖写回后端 f.ai_tags（owner 隔离）。
  // 接受/忽略/AI 整理后均调用，使重开笔记时不再复活已处理的建议。
@@ -1665,37 +1618,8 @@ ${r.html}
    } catch { Toast.show('建议标签同步失败', 'info', 2500); }
  }
 
-  // ---- 自动保存到服务器 ----
-  // 已有笔记（编辑模式）或新建笔记首次保存后，停止输入 3s 自动保存到服务端。
-  // 新建笔记未保存前只走 localStorage 草稿，避免空标题/空内容创建垃圾笔记。
-  function scheduleAutoSave() {
-    isDirty = true;
-    clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(() => {
-      if (!isDirty || saving) return;
-      if (!ta.value.trim()) return;  // 空内容不自动保存
-      doAutoSave();
-    }, 3000);
-  }
-  async function doAutoSave() {
-    const prev = saving;
-    if (prev) return;
-    const result = await doSave(true);  // silent save
-    if (result) {
-      isDirty = false;
-      lastAutoSaveTs = Date.now();
-      if (nsbDraft) nsbDraft.textContent = '已自动保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    }
-  }
-  // beforeunload：有未保存修改时提示（非 SPA 导航场景）
-  function beforeUnloadGuard(e) {
-    if (isDirty) { e.preventDefault(); e.returnValue = ''; }
-  }
- window.addEventListener('beforeunload', beforeUnloadGuard);
-  function closeEditor() {
-   clearTimeout(autoSaveTimer);
-   window.removeEventListener('beforeunload', beforeUnloadGuard);
-   close();
+ function closeEditor() {
+  close();
  };
 
   // ---- 标签输入 ----
@@ -1708,14 +1632,14 @@ ${r.html}
       if (e.key === 'Enter' || e.key === ',') {
         e.preventDefault();
         const v = field.value.trim();
-        if (v && !noteTags.includes(v) && noteTags.length < 20) { noteTags.push(v); renderTags(); scheduleDraft(); }
+        if (v && !noteTags.includes(v) && noteTags.length < 20) { noteTags.push(v); renderTags(); isDirty = true; }
         else field.value = '';
       } else if (e.key === 'Backspace' && !field.value && noteTags.length) {
-        noteTags.pop(); renderTags(); scheduleDraft();
+        noteTags.pop(); renderTags(); isDirty = true;
       }
     });
     tagsInputEl.querySelectorAll('.note-tag-remove').forEach(btn => {
-      btn.addEventListener('click', () => { noteTags.splice(parseInt(btn.dataset.idx), 1); renderTags(); scheduleDraft(); });
+      btn.addEventListener('click', () => { noteTags.splice(parseInt(btn.dataset.idx), 1); renderTags(); isDirty = true; });
     });
   }
   renderTags();
@@ -1762,7 +1686,7 @@ ${r.html}
     suggestChips.querySelectorAll('.note-tag-suggest-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         const t = chip.dataset.tag;
-        if (!noteTags.includes(t) && noteTags.length < 20) { noteTags.push(t); renderTags(); scheduleDraft(); }
+        if (!noteTags.includes(t) && noteTags.length < 20) { noteTags.push(t); renderTags(); isDirty = true; }
         suggestedTags = suggestedTags.filter(x => x !== t);
         renderTagSuggestions();
         syncAiTags();  // F4: 持久化剩余建议
@@ -1772,7 +1696,7 @@ ${r.html}
   modal.querySelector('#btn-tags-accept-all').addEventListener('click', () => {
     suggestedTags.forEach(t => { if (!noteTags.includes(t) && noteTags.length < 20) noteTags.push(t); });
     suggestedTags = [];
-    renderTags(); renderTagSuggestions(); scheduleDraft();
+    renderTags(); renderTagSuggestions(); isDirty = true;
     syncAiTags();  // F4
     Toast.show('已接受全部建议标签', 'success');
   });
@@ -1846,9 +1770,7 @@ ${r.html}
         API.put('/api/files/tags', { path: data.path, tags: noteTags }),
         API.put('/api/files/pin', { path: data.path, pinned: notePinned }),
       ]);
-     localStorage.removeItem(draftKey);
      isDirty = false;
-     clearDraftDiscardControl();  // F6: 已保存到服务端，无需再丢弃草稿
      if (suggestedTags.length) syncAiTags();  // F4: 首次保存后补一次，把待处理建议落库
      if (!silent) Toast.show(data.guard_status === 'warning' ? '笔记已保存（Guard 提醒：可能含敏感内容）' : '笔记已保存', 'success');
       return true;
@@ -1896,48 +1818,15 @@ ${r.html}
   });
 
   // ---- 初始化加载 ----
-  // F8: isEdit 与 new-note 两分支共用 restoreDraft，差异通过 { isNew } 与 discard 回调处理
-  function restoreDraft(draft, { isNew }) {
-    titleEl.value = isNew ? (draft.title || '') : (draft.title || titleEl.value);
-    ta.value = draft.content || '';
-    noteTags = draft.tags || [];
-    suggestedTags = draft.suggestedTags || [];
-    if (!isNew) {
-      notePinned = !!draft.pinned;
-      if (notePinned) pinBtn.classList.add('is-active');
-      renderTags(); renderTagSuggestions(); updatePreview(); updateToc();
-    } else {
-      renderTags(); renderTagSuggestions();
-    }
-    const onDiscard = () => discardRestoredDraft(isNew);
-    showDraftDiscardControl(onDiscard);  // F6: 常驻丢弃控件
-    Toast.show('已恢复未保存草稿（' + new Date(draft.ts).toLocaleString('zh-CN') + '）', 'info', 6000, {
-      label: '丢弃草稿', onClick: onDiscard
-    });
-  }
-  function discardRestoredDraft(isNew) {
-    localStorage.removeItem(draftKey);
-    if (isNew) {
-      titleEl.value = ''; ta.value = ''; noteTags = []; suggestedTags = [];
-      renderTags(); renderTagSuggestions(); updatePreview();
-    } else {
-      loadRemote();  // 编辑态丢弃后回退到服务端最新内容
-    }
-    clearDraftDiscardControl();
-  }
 
   applyViewMode();
   applyTocVisible();
   if (isEdit) {
-    const draft = loadDraft();
-    if (draft) {
-      restoreDraft(draft, { isNew: false });
-    } else { await loadRemote(); }
+    await loadRemote();  // 编辑态：仅加载服务端内容，不恢复草稿
   } else {
-    const draft = loadDraft();
-    if (draft) restoreDraft(draft, { isNew: true });
-    titleEl.focus();
+    titleEl.focus();     // 新建：空白编辑器
   }
+  isDirty = false;
   updatePreview();
   updateStatusBar();
 

@@ -2124,8 +2124,7 @@ html.dark .note-card-action { background: rgba(40, 44, 52, 0.85); }
   flex-shrink: 0;
 }
 
-.note-status-left,
-.note-status-right {
+.note-status-left {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2136,41 +2135,6 @@ html.dark .note-card-action { background: rgba(40, 44, 52, 0.85); }
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
-}
-
-.nsb-draft {
-  font-size: 11px;
-  color: var(--success);
-}
-
-/* F6: 状态栏常驻「已恢复草稿 · 丢弃」控件——与 .nsb-item 同基线（mono/11px/muted），
-   仅在 has-discard 时显示，错过 6s Toast 仍可点击丢弃。 */
-.nsb-draft-restore { display: none; }
-.nsb-draft-restore.has-discard {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.nsb-draft-restore-label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.nsb-discard-btn {
-  border: none;
-  background: none;
-  padding: 1px 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.nsb-discard-btn:hover {
-  color: var(--danger);
-  background: var(--danger-light);
 }
 
 /* Editor Bottom Bar (Meta + Actions) */
