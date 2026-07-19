@@ -1892,6 +1892,43 @@ html { scroll-behavior: smooth; }
 .note-card-action svg { width: 15px; height: 15px; }
 html.dark .note-card-action { background: rgba(40, 44, 52, 0.85); }
 
+/* ---- Notes: 加载骨架屏（对齐 note-card 结构，复用 shimmer 动画） ---- */
+.notes-grid-skeleton {
+  pointer-events: none;          /* 加载中禁止误触 */
+}
+.note-card-skeleton {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  min-height: 150px;             /* 与真实卡片高度相近，避免加载→数据切换跳动 */
+}
+.ncs-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--border-light) 37%, var(--bg-elevated) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+.ncs-title { width: 70%; height: 14px; margin-bottom: 6px; }
+.ncs-excerpt { width: 100%; margin-bottom: 6px; }
+.ncs-excerpt.ncs-short { width: 55%; margin-bottom: 0; }
+.ncs-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+.ncs-tag { width: 36px; height: 14px; border-radius: 999px; }
+.ncs-meta-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bg-elevated); }
+@media (prefers-reduced-motion: reduce) {
+  .ncs-line { animation: none; }   /* 尊重无障碍设置，停止闪烁 */
+}
+
 /* ---- Notes: Empty State ---- */
 .notes-empty {
   display: flex;

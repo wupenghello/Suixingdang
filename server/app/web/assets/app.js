@@ -194,6 +194,18 @@ function skeletonHTML(rows = 6) {
   return `<div class="file-list">${row.repeat(rows)}</div>`;
 }
 
+// 笔记网格加载骨架屏：复用 .notes-grid 的 bento 栏宽，每张骨架卡对齐真实 note-card 结构
+function notesSkeletonHTML(cards = 9) {
+  const card = `<div class="note-card-skeleton">
+      <div class="ncs-line ncs-title"></div>
+      <div class="ncs-line ncs-excerpt"></div>
+      <div class="ncs-line ncs-excerpt"></div>
+      <div class="ncs-line ncs-excerpt ncs-short"></div>
+      <div class="ncs-meta"><span class="ncs-line ncs-tag"></span><span class="ncs-line ncs-tag"></span><span class="ncs-meta-dot"></span></div>
+    </div>`;
+  return `<div class="notes-grid notes-grid-skeleton">${card.repeat(cards)}</div>`;
+}
+
 // 错误态 + 重试按钮（替代纯文字"加载失败"）
 function renderErrorState(container, message, onRetry) {
   container.innerHTML = `<div class="empty-state error-state"><div>${escapeHtml(message || '加载失败')}</div>${onRetry ? '<button class="btn btn-secondary btn-sm" style="margin-top:12px">重试</button>' : ''}</div>`;
@@ -1068,7 +1080,7 @@ async function renderNotes() {
   document.getElementById('btn-note-new').addEventListener('click', showNoteEditor);
   const content = document.getElementById('file-content');
   const cntEl = document.getElementById('files-count');
-  content.innerHTML = `<div class="notes-empty">${ICONS.refresh}<div class="empty-title">加载中…</div></div>`;
+  content.innerHTML = notesSkeletonHTML();
   let notes = [];
   try {
     // F1: 用专用 notes 端点（递归覆盖子目录/分组），不再走非递归的 /api/files/list
