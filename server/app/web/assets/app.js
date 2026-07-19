@@ -1227,7 +1227,7 @@ async function openNoteEditor(opts = {}) {
         <button class="tb-icon-btn" id="btn-note-pin" title="置顶/收藏">${ICONS.pin}</button>
         <button class="tb-icon-btn" id="btn-note-export" title="导出 HTML">${ICONS.export}</button>
         <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理">${ICONS.ai}<span>AI 整理</span></button>
-        <button class="btn btn-danger btn-sm" id="btn-note-delete" title="删除笔记">${ICONS.trash}<span>删除</span></button>
+        <button class="tb-icon-btn" id="btn-note-delete" title="删除笔记">${ICONS.trash}</button>
       </div>
     </div>
     <input type="text" class="note-title-input" placeholder="笔记标题" maxlength="80" value="${escapeHtml(stripExt(editName))}">
@@ -1268,24 +1268,13 @@ async function openNoteEditor(opts = {}) {
             <article class="markdown-body" id="note-preview"></article>
           </div>
         </div>
-      </div>
-    </div>
-    <div class="note-status-bar" id="note-status-bar">
-      <div class="note-status-left">
-        <span class="nsb-item" id="nsb-words">0 字</span>
-        <span class="nsb-item" id="nsb-chars">0 字符</span>
-        <span class="nsb-item" id="nsb-reading">约 0 分钟</span>
-      </div>
-    </div>
-    <div class="note-editor-bottom">
-      <div class="note-editor-meta">
+     </div>
+   </div>
+   <div class="note-editor-bottom">
+      <div class="note-editor-extras">
         <div class="note-backlinks-row" id="note-backlinks-row" style="display:none">
           <span class="note-backlinks-label">${ICONS.tbLink}反向链接</span>
           <div class="note-backlinks-list" id="note-backlinks"></div>
-        </div>
-        <div class="note-tags-row">
-          ${ICONS.tag}<span class="note-tags-label">标签</span>
-          <div class="note-tags-input" id="note-tags-input"></div>
         </div>
         <div class="note-tag-suggest-row" id="note-tag-suggest-row" style="display:none">
           ${ICONS.ai}<span class="note-tag-suggest-label">AI 建议</span>
@@ -1297,11 +1286,23 @@ async function openNoteEditor(opts = {}) {
           ${ICONS.ai}<span class="note-summary-text" id="note-summary-text"></span>
         </div>
       </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" id="btn-note-view" title="切换视图">${ICONS.split}<span>分屏</span></button>
-        <span class="modal-spacer"></span>
-        <button class="btn btn-secondary" id="btn-note-cancel">取消</button>
-        <button class="btn btn-primary" id="btn-note-save">保存</button>
+      <div class="note-editor-footrow">
+        <div class="note-foot-left">
+          <div class="note-tags-row">
+            ${ICONS.tag}<span class="note-tags-label">标签</span>
+            <div class="note-tags-input" id="note-tags-input"></div>
+          </div>
+          <div class="note-stats" id="note-stats">
+            <span class="nsb-item" id="nsb-words">0 字</span>
+            <span class="nsb-dot">·</span>
+            <span class="nsb-item" id="nsb-reading">不足 1 分钟</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="btn-note-view" title="切换视图">${ICONS.split}<span>分屏</span></button>
+          <button class="btn btn-secondary" id="btn-note-cancel">取消</button>
+          <button class="btn btn-primary" id="btn-note-save">保存</button>
+        </div>
       </div>
     </div>`;
 
