@@ -194,6 +194,18 @@ function skeletonHTML(rows = 6) {
   return `<div class="file-list">${row.repeat(rows)}</div>`;
 }
 
+// 笔记网格加载骨架屏：复用 .notes-grid 的 bento 栏宽，每张骨架卡对齐真实 note-card 结构
+function notesSkeletonHTML(cards = 9) {
+  const card = `<div class="note-card-skeleton">
+      <div class="ncs-line ncs-title"></div>
+      <div class="ncs-line ncs-excerpt"></div>
+      <div class="ncs-line ncs-excerpt"></div>
+      <div class="ncs-line ncs-excerpt ncs-short"></div>
+      <div class="ncs-meta"><span class="ncs-line ncs-tag"></span><span class="ncs-line ncs-tag"></span><span class="ncs-meta-dot"></span></div>
+    </div>`;
+  return `<div class="notes-grid notes-grid-skeleton">${card.repeat(cards)}</div>`;
+}
+
 // 错误态 + 重试按钮（替代纯文字"加载失败"）
 function renderErrorState(container, message, onRetry) {
   container.innerHTML = `<div class="empty-state error-state"><div>${escapeHtml(message || '加载失败')}</div>${onRetry ? '<button class="btn btn-secondary btn-sm" style="margin-top:12px">重试</button>' : ''}</div>`;
@@ -1068,7 +1080,7 @@ async function renderNotes() {
   document.getElementById('btn-note-new').addEventListener('click', showNoteEditor);
   const content = document.getElementById('file-content');
   const cntEl = document.getElementById('files-count');
-  content.innerHTML = `<div class="notes-empty">${ICONS.refresh}<div class="empty-title">加载中…</div></div>`;
+  content.innerHTML = notesSkeletonHTML();
   let notes = [];
   try {
     // F1: 用专用 notes 端点（递归覆盖子目录/分组），不再走非递归的 /api/files/list
@@ -1105,6 +1117,10 @@ async function renderNotes() {
     const pinHtml = item.pinned ? `<span class="note-card-pin">${ICONS.pin}置顶</span>` : '';
     return `<div class="note-card" data-path="${escapeHtml(item.path)}" data-file-id="${escapeHtml(item.file_id || '')}" data-name="${escapeHtml(item.name)}">
       ${pinHtml}
+      <div class="note-card-actions">
+        <button class="note-card-action" data-action="edit" title="编辑" aria-label="编辑 ${escapeHtml(stripExt(item.name))}">${ICONS.edit}</button>
+        <button class="note-card-action danger" data-action="delete" title="删除" aria-label="删除 ${escapeHtml(stripExt(item.name))}">${ICONS.trash}</button>
+      </div>
       <div class="note-card-title">${title}</div>
       ${excerpt ? `<div class="note-card-excerpt">${excerpt}</div>` : ''}
       ${tagsHtml}
@@ -1118,9 +1134,64 @@ async function renderNotes() {
       </div>
     </div>`;
   }).join('')}</div>`;
+  // 卡片操作：操作按钮 / 右键菜单 / 长按 走删除等次要操作；点击卡片空白区打开编辑器
   content.querySelectorAll('.note-card').forEach(card => {
-    card.addEventListener('click', () => openNoteEditor({ path: card.dataset.path, fileId: card.dataset.fileId, name: card.dataset.name }));
+    const cardPath = card.dataset.path;
+    const cardName = card.dataset.name;
+    const cardFileId = card.dataset.fileId;
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.note-card-action')) return; // 点击操作按钮不打开
+      openNoteEditor({ path: cardPath, fileId: cardFileId, name: cardName });
+    });
+    card.querySelectorAll('.note-card-action').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (btn.dataset.action === 'edit') openNoteEditor({ path: cardPath, fileId: cardFileId, name: cardName });
+        else if (btn.dataset.action === 'delete') deleteNote(cardPath, cardName);
+      });
+    });
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showNotesCardMenu(e.clientX, e.clientY, { path: cardPath, name: cardName, fileId: cardFileId });
+    });
+    // 移动端长按 → 菜单（500ms，不触发单击打开）
+    let pressTimer = null;
+    let longPressed = false;
+    const startPress = (x, y) => {
+      longPressed = false;
+      pressTimer = setTimeout(() => { longPressed = true; showNotesCardMenu(x, y, { path: cardPath, name: cardName, fileId: cardFileId }); }, 500);
+    };
+    const cancelPress = () => clearTimeout(pressTimer);
+    card.addEventListener('touchstart', (e) => { const t = e.touches[0]; startPress(t.clientX, t.clientY); }, { passive: true });
+    card.addEventListener('touchend', (e) => { cancelPress(); if (longPressed) e.preventDefault(); });
+    card.addEventListener('touchmove', cancelPress);
   });
+}
+
+// 笔记卡片右键/长按菜单（hover 按钮已覆盖编辑/删除，此菜单作完整入口：含重命名/置顶/标签）
+function showNotesCardMenu(x, y, note) {
+  const items = [];
+  items.push({ action: 'edit', label: '编辑', icon: ICONS.edit, onClick: () => openNoteEditor({ path: note.path, name: note.name, fileId: note.fileId }) });
+  items.push({ action: 'rename', label: '重命名', icon: ICONS.rename, onClick: () => renameFile(note.path, note.name) });
+  items.push({ action: 'toggle-pin', label: '置顶/取消置顶', icon: ICONS.pin, onClick: () => togglePinFile(note.path) });
+  items.push({ action: 'tags', label: '编辑标签', icon: ICONS.tag, onClick: () => editFileTags(note.path, note.name) });
+  items.push({ divider: true });
+  items.push({ action: 'delete', label: '删除', icon: ICONS.trash, danger: true, onClick: () => deleteNote(note.path, note.name) });
+  showContextMenu(x, y, items);
+}
+
+// 笔记删除（卡片/菜单）：单次确认（含 [[链接]] 引用计数）→ 软删除 → 撤销 Toast
+async function deleteNote(path, name) {
+  if (!path) return;
+  let backlinks = 0;
+  try {
+    const res = await API.get('/api/files/backlinks?path=' + encodeURIComponent(path));
+    if (res && res.ok) { const d = await res.json(); backlinks = (d.backlinks || []).length; }
+  } catch { /* 查询失败静默降级 */ }
+  const baseMsg = `确定删除笔记「${escapeHtml(stripExt(name) || path.split('/').pop())}」？将移入回收站，保留一段时间后彻底删除。`;
+  const msg = backlinks > 0 ? baseMsg + `\n有 ${backlinks} 篇笔记通过 [[链接]] 引用了本文。` : baseMsg;
+  if (!await confirmDialog({ title: '删除笔记', message: msg, confirmText: '删除', danger: true })) return;
+  await softDeleteFile(path);
 }
 
 function showNoteEditor() { openNoteEditor(); }
@@ -1143,7 +1214,6 @@ async function openNoteEditor(opts = {}) {
   const editFileId = opts.fileId || '';
   const editName = opts.name || '';
   const isEdit = !!(editPath || editFileId);
-  const draftKey = 'sxd_draft_note_' + (editPath || 'new');
   const { modal, close } = openModal({ onDismiss: () => close() });
   modal.classList.add('note-editor-modal');
   modal.innerHTML = `
@@ -1157,6 +1227,7 @@ async function openNoteEditor(opts = {}) {
         <button class="tb-icon-btn" id="btn-note-pin" title="置顶/收藏">${ICONS.pin}</button>
         <button class="tb-icon-btn" id="btn-note-export" title="导出 HTML">${ICONS.export}</button>
         <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理">${ICONS.ai}<span>AI 整理</span></button>
+        <button class="tb-icon-btn" id="btn-note-delete" title="删除笔记">${ICONS.trash}</button>
       </div>
     </div>
     <input type="text" class="note-title-input" placeholder="笔记标题" maxlength="80" value="${escapeHtml(stripExt(editName))}">
@@ -1197,28 +1268,13 @@ async function openNoteEditor(opts = {}) {
             <article class="markdown-body" id="note-preview"></article>
           </div>
         </div>
-      </div>
-    </div>
-    <div class="note-status-bar" id="note-status-bar">
-      <div class="note-status-left">
-        <span class="nsb-item" id="nsb-words">0 字</span>
-        <span class="nsb-item" id="nsb-chars">0 字符</span>
-        <span class="nsb-item" id="nsb-reading">约 0 分钟</span>
-      </div>
-      <div class="note-status-right">
-        <span class="nsb-item" id="nsb-draft"></span>
-        <span class="nsb-item nsb-draft-restore" id="nsb-draft-restore"></span>
-      </div>
-    </div>
-    <div class="note-editor-bottom">
-      <div class="note-editor-meta">
+     </div>
+   </div>
+   <div class="note-editor-bottom">
+      <div class="note-editor-extras">
         <div class="note-backlinks-row" id="note-backlinks-row" style="display:none">
           <span class="note-backlinks-label">${ICONS.tbLink}反向链接</span>
           <div class="note-backlinks-list" id="note-backlinks"></div>
-        </div>
-        <div class="note-tags-row">
-          ${ICONS.tag}<span class="note-tags-label">标签</span>
-          <div class="note-tags-input" id="note-tags-input"></div>
         </div>
         <div class="note-tag-suggest-row" id="note-tag-suggest-row" style="display:none">
           ${ICONS.ai}<span class="note-tag-suggest-label">AI 建议</span>
@@ -1230,11 +1286,23 @@ async function openNoteEditor(opts = {}) {
           ${ICONS.ai}<span class="note-summary-text" id="note-summary-text"></span>
         </div>
       </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" id="btn-note-view" title="切换视图">${ICONS.split}<span>分屏</span></button>
-        <span class="modal-spacer"></span>
-        <button class="btn btn-secondary" id="btn-note-cancel">取消</button>
-        <button class="btn btn-primary" id="btn-note-save">保存</button>
+      <div class="note-editor-footrow">
+        <div class="note-foot-left">
+          <div class="note-tags-row">
+            ${ICONS.tag}<span class="note-tags-label">标签</span>
+            <div class="note-tags-input" id="note-tags-input"></div>
+          </div>
+          <div class="note-stats" id="note-stats">
+            <span class="nsb-item" id="nsb-words">0 字</span>
+            <span class="nsb-dot">·</span>
+            <span class="nsb-item" id="nsb-reading">不足 1 分钟</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="btn-note-view" title="切换视图">${ICONS.split}<span>分屏</span></button>
+          <button class="btn btn-secondary" id="btn-note-cancel">取消</button>
+          <button class="btn btn-primary" id="btn-note-save">保存</button>
+        </div>
       </div>
     </div>`;
 
@@ -1247,6 +1315,7 @@ async function openNoteEditor(opts = {}) {
   const aiBtn = modal.querySelector('#btn-note-ai');
   const pinBtn = modal.querySelector('#btn-note-pin');
   const exportBtn = modal.querySelector('#btn-note-export');
+  const deleteBtn = modal.querySelector('#btn-note-delete');
   const tocBtn = modal.querySelector('#btn-note-toc');
   const tocList = modal.querySelector('#note-toc-list');
   const editorBody = modal.querySelector('#note-editor-body');
@@ -1255,7 +1324,7 @@ async function openNoteEditor(opts = {}) {
 
   // Close button
   const closeBtn = modal.querySelector('#btn-note-close');
-  closeBtn.addEventListener('click', () => close());
+  closeBtn.addEventListener('click', confirmClose);
 
   // 反向链接（编辑已有笔记时加载"谁链接了我"）
   const backlinksRow = modal.querySelector('#note-backlinks-row');
@@ -1279,18 +1348,13 @@ async function openNoteEditor(opts = {}) {
   const nsbWords = modal.querySelector('#nsb-words');
   const nsbChars = modal.querySelector('#nsb-chars');
   const nsbReading = modal.querySelector('#nsb-reading');
-  const nsbDraft = modal.querySelector('#nsb-draft');
-  const nsbDraftRestore = modal.querySelector('#nsb-draft-restore');  // F6: 常驻「丢弃草稿」控件
 
  let saving = false;
- let autoSaveTimer = null;
  let isDirty = false;  // 是否有未保存到服务端的修改
- let lastAutoSaveTs = 0;
  let viewMode = loadPref('noteViewMode', 'split');
   let noteTags = [];
   let notePinned = false;
   let suggestedTags = [];  // AI 建议但尚未被用户接受的标签
-  let draftTimer = null;
   let previewTimer = null;
   let tocTimer = null;
   let lastSavedPath = '';
@@ -1392,7 +1456,25 @@ ${r.html}
     Toast.show('已导出 HTML', 'success');
   });
 
-  // ---- 工具栏：插入 Markdown 语法 ----
+  // ---- 编辑器内删除当前笔记：单次确认（含引用计数）→ 关闭编辑器 → 软删除 ----
+  deleteBtn.addEventListener('click', () => deleteNoteInEditor());
+
+  async function deleteNoteInEditor() {
+    // 新建笔记（尚未保存、无 path）不可删除
+    if (!editPath && !lastSavedPath) { Toast.show('笔记尚未保存，无需删除', 'info'); return; }
+    const targetPath = lastSavedPath || editPath;
+    const targetName = titleEl.value.trim() || editName;
+    let backlinks = 0;
+    try {
+      const res = await API.get('/api/files/backlinks?path=' + encodeURIComponent(targetPath));
+      if (res && res.ok) { const d = await res.json(); backlinks = (d.backlinks || []).length; }
+    } catch { /* 静默降级 */ }
+    const baseMsg = `确定删除笔记「${escapeHtml(stripExt(targetName) || targetPath.split('/').pop())}」？将移入回收站，保留一段时间后彻底删除。`;
+    const msg = backlinks > 0 ? baseMsg + `\n有 ${backlinks} 篇笔记通过 [[链接]] 引用了本文。` : baseMsg;
+    if (!await confirmDialog({ title: '删除笔记', message: msg, confirmText: '删除', danger: true })) return;
+    await closeEditor();
+    await softDeleteFile(targetPath);
+  }
   function wrapSelection(before, after, placeholder) {
     const start = ta.selectionStart, end = ta.selectionEnd;
     const sel = ta.value.slice(start, end) || placeholder || '';
@@ -1499,11 +1581,10 @@ ${r.html}
    previewTimer = setTimeout(updatePreview, 200);
    updateTocDebounced();
    updateStatusBar();
-   scheduleDraft();
-   scheduleAutoSave();
+   isDirty = true;
  });
  // 标题输入也触发自动保存
- titleEl.addEventListener('input', () => { scheduleDraft(); scheduleAutoSave(); });
+ titleEl.addEventListener('input', () => { isDirty = true; });
 
   // ---- 工具栏激活态：根据光标位置检测当前 Markdown 格式上下文 ----
   function updateToolbarActiveStates() {
@@ -1537,44 +1618,6 @@ ${r.html}
   ta.addEventListener('focus', updateToolbarActiveStates);
 
   // ---- 草稿自动保存 ----
-  function scheduleDraft() {
-    clearTimeout(draftTimer);
-    draftTimer = setTimeout(saveDraft, 1500);
-  }
- function saveDraft() {
-   if (!ta.value.trim() && !titleEl.value.trim()) { localStorage.removeItem(draftKey); if (nsbDraft) nsbDraft.textContent = ''; return; }
-   try {
-     localStorage.setItem(draftKey, JSON.stringify({ title: titleEl.value, content: ta.value, tags: noteTags, suggestedTags, pinned: notePinned, ts: Date.now() }));
-     if (nsbDraft) nsbDraft.textContent = '草稿已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-   } catch {}
- }
- function loadDraft() {
-   try { const raw = localStorage.getItem(draftKey); return raw ? JSON.parse(raw) : null; } catch { return null; }
- }
-
- // F6: 状态栏常驻「已恢复草稿 · 丢弃」控件。与 Toast 并存——错过 6s Toast 仍可丢弃。
- // 用独立元素 #nsb-draft-restore，避免 saveDraft 写 nsbDraft 时被覆盖。
- function showDraftDiscardControl(onDiscard) {
-   if (!nsbDraftRestore) return;
-   nsbDraftRestore.innerHTML = '';
-   nsbDraftRestore.classList.add('has-discard');
-   const label = document.createElement('span');
-   label.className = 'nsb-draft-restore-label';
-   label.textContent = '已恢复草稿';
-   const btn = document.createElement('button');
-   btn.type = 'button';
-   btn.className = 'nsb-discard-btn';
-   btn.textContent = '丢弃';
-   btn.title = '丢弃已恢复的草稿';
-   btn.addEventListener('click', () => { onDiscard(); });
-   nsbDraftRestore.appendChild(label);
-   nsbDraftRestore.appendChild(btn);
- }
- function clearDraftDiscardControl() {
-   if (!nsbDraftRestore) return;
-   nsbDraftRestore.innerHTML = '';
-   nsbDraftRestore.classList.remove('has-discard');
- }
 
  // F4: 把当前剩余 suggestedTags 整体覆盖写回后端 f.ai_tags（owner 隔离）。
  // 接受/忽略/AI 整理后均调用，使重开笔记时不再复活已处理的建议。
@@ -1586,37 +1629,8 @@ ${r.html}
    } catch { Toast.show('建议标签同步失败', 'info', 2500); }
  }
 
-  // ---- 自动保存到服务器 ----
-  // 已有笔记（编辑模式）或新建笔记首次保存后，停止输入 3s 自动保存到服务端。
-  // 新建笔记未保存前只走 localStorage 草稿，避免空标题/空内容创建垃圾笔记。
-  function scheduleAutoSave() {
-    isDirty = true;
-    clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(() => {
-      if (!isDirty || saving) return;
-      if (!ta.value.trim()) return;  // 空内容不自动保存
-      doAutoSave();
-    }, 3000);
-  }
-  async function doAutoSave() {
-    const prev = saving;
-    if (prev) return;
-    const result = await doSave(true);  // silent save
-    if (result) {
-      isDirty = false;
-      lastAutoSaveTs = Date.now();
-      if (nsbDraft) nsbDraft.textContent = '已自动保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    }
-  }
-  // beforeunload：有未保存修改时提示（非 SPA 导航场景）
-  function beforeUnloadGuard(e) {
-    if (isDirty) { e.preventDefault(); e.returnValue = ''; }
-  }
- window.addEventListener('beforeunload', beforeUnloadGuard);
-  function closeEditor() {
-   clearTimeout(autoSaveTimer);
-   window.removeEventListener('beforeunload', beforeUnloadGuard);
-   close();
+ function closeEditor() {
+  close();
  };
 
   // ---- 标签输入 ----
@@ -1629,14 +1643,14 @@ ${r.html}
       if (e.key === 'Enter' || e.key === ',') {
         e.preventDefault();
         const v = field.value.trim();
-        if (v && !noteTags.includes(v) && noteTags.length < 20) { noteTags.push(v); renderTags(); scheduleDraft(); }
+        if (v && !noteTags.includes(v) && noteTags.length < 20) { noteTags.push(v); renderTags(); isDirty = true; }
         else field.value = '';
       } else if (e.key === 'Backspace' && !field.value && noteTags.length) {
-        noteTags.pop(); renderTags(); scheduleDraft();
+        noteTags.pop(); renderTags(); isDirty = true;
       }
     });
     tagsInputEl.querySelectorAll('.note-tag-remove').forEach(btn => {
-      btn.addEventListener('click', () => { noteTags.splice(parseInt(btn.dataset.idx), 1); renderTags(); scheduleDraft(); });
+      btn.addEventListener('click', () => { noteTags.splice(parseInt(btn.dataset.idx), 1); renderTags(); isDirty = true; });
     });
   }
   renderTags();
@@ -1683,7 +1697,7 @@ ${r.html}
     suggestChips.querySelectorAll('.note-tag-suggest-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         const t = chip.dataset.tag;
-        if (!noteTags.includes(t) && noteTags.length < 20) { noteTags.push(t); renderTags(); scheduleDraft(); }
+        if (!noteTags.includes(t) && noteTags.length < 20) { noteTags.push(t); renderTags(); isDirty = true; }
         suggestedTags = suggestedTags.filter(x => x !== t);
         renderTagSuggestions();
         syncAiTags();  // F4: 持久化剩余建议
@@ -1693,7 +1707,7 @@ ${r.html}
   modal.querySelector('#btn-tags-accept-all').addEventListener('click', () => {
     suggestedTags.forEach(t => { if (!noteTags.includes(t) && noteTags.length < 20) noteTags.push(t); });
     suggestedTags = [];
-    renderTags(); renderTagSuggestions(); scheduleDraft();
+    renderTags(); renderTagSuggestions(); isDirty = true;
     syncAiTags();  // F4
     Toast.show('已接受全部建议标签', 'success');
   });
@@ -1757,6 +1771,7 @@ ${r.html}
       const res = await API.post('/api/files/note', {
         name: titleEl.value.trim(), content,
         directory: currentDir || '', group_id: selectedGroup || '',
+        file_id: editFileId || '',  // 编辑已有笔记时传入，后端据此原地更新（含重命名）并排除去重自检
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); Toast.show(d.detail || '保存失败', 'error'); return false; }
       const data = await res.json();
@@ -1766,9 +1781,7 @@ ${r.html}
         API.put('/api/files/tags', { path: data.path, tags: noteTags }),
         API.put('/api/files/pin', { path: data.path, pinned: notePinned }),
       ]);
-     localStorage.removeItem(draftKey);
      isDirty = false;
-     clearDraftDiscardControl();  // F6: 已保存到服务端，无需再丢弃草稿
      if (suggestedTags.length) syncAiTags();  // F4: 首次保存后补一次，把待处理建议落库
      if (!silent) Toast.show(data.guard_status === 'warning' ? '笔记已保存（Guard 提醒：可能含敏感内容）' : '笔记已保存', 'success');
       return true;
@@ -1816,48 +1829,15 @@ ${r.html}
   });
 
   // ---- 初始化加载 ----
-  // F8: isEdit 与 new-note 两分支共用 restoreDraft，差异通过 { isNew } 与 discard 回调处理
-  function restoreDraft(draft, { isNew }) {
-    titleEl.value = isNew ? (draft.title || '') : (draft.title || titleEl.value);
-    ta.value = draft.content || '';
-    noteTags = draft.tags || [];
-    suggestedTags = draft.suggestedTags || [];
-    if (!isNew) {
-      notePinned = !!draft.pinned;
-      if (notePinned) pinBtn.classList.add('is-active');
-      renderTags(); renderTagSuggestions(); updatePreview(); updateToc();
-    } else {
-      renderTags(); renderTagSuggestions();
-    }
-    const onDiscard = () => discardRestoredDraft(isNew);
-    showDraftDiscardControl(onDiscard);  // F6: 常驻丢弃控件
-    Toast.show('已恢复未保存草稿（' + new Date(draft.ts).toLocaleString('zh-CN') + '）', 'info', 6000, {
-      label: '丢弃草稿', onClick: onDiscard
-    });
-  }
-  function discardRestoredDraft(isNew) {
-    localStorage.removeItem(draftKey);
-    if (isNew) {
-      titleEl.value = ''; ta.value = ''; noteTags = []; suggestedTags = [];
-      renderTags(); renderTagSuggestions(); updatePreview();
-    } else {
-      loadRemote();  // 编辑态丢弃后回退到服务端最新内容
-    }
-    clearDraftDiscardControl();
-  }
 
   applyViewMode();
   applyTocVisible();
   if (isEdit) {
-    const draft = loadDraft();
-    if (draft) {
-      restoreDraft(draft, { isNew: false });
-    } else { await loadRemote(); }
+    await loadRemote();  // 编辑态：仅加载服务端内容，不恢复草稿
   } else {
-    const draft = loadDraft();
-    if (draft) restoreDraft(draft, { isNew: true });
-    titleEl.focus();
+    titleEl.focus();     // 新建：空白编辑器
   }
+  isDirty = false;
   updatePreview();
   updateStatusBar();
 
@@ -3307,21 +3287,25 @@ async function downloadFile(path, opts = {}) {
 
 async function deleteFile(path) {
   if (!await confirmDialog({ title: '删除文件', message: `确定删除 "${path.split('/').pop()}"？将移入回收站，保留一段时间后彻底删除。`, confirmText: '删除', danger: true })) return;
+  await softDeleteFile(path);
+}
+
+// 软删除核心（无确认框，供 deleteFile 与 deleteNote 共用）：调 API → 撤销/回收站 Toast → 刷新。
+// opts.hint 为可选的补充说明（如笔记的 [[链接]] 引用计数），拼接在主文案后。
+async function softDeleteFile(path, opts = {}) {
   try {
     const res = await API.del(`/api/files?path=${encodeURIComponent(path)}`);
     if (res.ok) {
       const data = await res.json();
-      Toast.show(`已移入回收站`, 'success', 6000, {
-        action: [
+      const msg = opts.hint ? `已移入回收站 · ${opts.hint}` : '已移入回收站';
+      Toast.show(msg, 'success', 6000, [
           { label: '撤销', onClick: async () => {
             const r = await API.post(`/api/files/trash/restore?file_id=${encodeURIComponent(data.file_id)}`);
             if (r.ok) { Toast.show('已恢复', 'success'); await loadTrashCount(); refreshCurrentView(); }
             else { Toast.show('恢复失败', 'error'); }
           }},
           { label: '查看', onClick: () => App.navigate('trash') }
-        ]
-      });
-      // 刷新回收站角标与列表
+        ]);
       await loadTrashCount();
       refreshCurrentView();
     }

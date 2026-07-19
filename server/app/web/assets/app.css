@@ -1853,6 +1853,82 @@ html { scroll-behavior: smooth; }
   color: var(--text-muted);
 }
 
+/* ---- 笔记卡片 hover 操作区（桌面）/ 长按（移动） ---- */
+.note-card-actions {
+  position: absolute;
+  top: 10px;
+  right: 36px; /* 避开置顶徽章 */
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s;
+  z-index: 2;
+}
+.note-card:hover .note-card-actions,
+.note-card:focus-within .note-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.note-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: background .12s, color .12s, transform .1s;
+  backdrop-filter: blur(2px);
+}
+.note-card-action:hover { background: var(--bg-surface-hover); color: var(--text); }
+.note-card-action:active { transform: scale(0.94); }
+.note-card-action.danger:hover { background: var(--danger-light); color: var(--danger); }
+.note-card-action svg { width: 15px; height: 15px; }
+html.dark .note-card-action { background: rgba(40, 44, 52, 0.85); }
+
+/* ---- Notes: 加载骨架屏（对齐 note-card 结构，复用 shimmer 动画） ---- */
+.notes-grid-skeleton {
+  pointer-events: none;          /* 加载中禁止误触 */
+}
+.note-card-skeleton {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  min-height: 150px;             /* 与真实卡片高度相近，避免加载→数据切换跳动 */
+}
+.ncs-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--border-light) 37%, var(--bg-elevated) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+.ncs-title { width: 70%; height: 14px; margin-bottom: 6px; }
+.ncs-excerpt { width: 100%; margin-bottom: 6px; }
+.ncs-excerpt.ncs-short { width: 55%; margin-bottom: 0; }
+.ncs-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+.ncs-tag { width: 36px; height: 14px; border-radius: 999px; }
+.ncs-meta-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bg-elevated); }
+@media (prefers-reduced-motion: reduce) {
+  .ncs-line { animation: none; }   /* 尊重无障碍设置，停止闪烁 */
+}
+
 /* ---- Notes: Empty State ---- */
 .notes-empty {
   display: flex;
@@ -1918,7 +1994,7 @@ html { scroll-behavior: smooth; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 18px;
+  padding: 8px 18px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
   flex-shrink: 0;
@@ -1944,23 +2020,32 @@ html { scroll-behavior: smooth; }
   align-items: center;
   gap: 6px;
 }
+/* 删除笔记：默认与 TOC/置顶/导出同权重的 ghost 图标，hover 才浮出危险色（降权降噪） */
+.note-editor-top-actions #btn-note-delete:hover {
+  background: var(--danger-light);
+  color: var(--danger);
+  border-color: transparent;
+}
 
 /* Editor Toolbar */
 .note-toolbar {
   display: flex;
   align-items: center;
-  gap: 1px;
-  flex-wrap: wrap;
-  padding: 6px 10px;
+  gap: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 4px 10px;
+  scrollbar-width: none;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+.note-toolbar::-webkit-scrollbar { display: none; }
 
 .tb-btn {
-  min-width: 32px;
-  height: 32px;
-  padding: 0 6px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 5px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -1983,15 +2068,15 @@ html { scroll-behavior: smooth; }
 }
 
 .tb-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .tb-sep {
   width: 1px;
-  height: 20px;
+  height: 16px;
   background: var(--border-light);
-  margin: 0 5px;
+  margin: 0 4px;
   flex-shrink: 0;
 }
 
@@ -2070,25 +2155,6 @@ html { scroll-behavior: smooth; }
   min-height: auto;
 }
 
-/* Editor Status Bar */
-.note-status-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 8px 16px;
-  background: var(--bg-surface);
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.note-status-left,
-.note-status-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .nsb-item {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -2096,63 +2162,54 @@ html { scroll-behavior: smooth; }
   white-space: nowrap;
 }
 
-.nsb-draft {
-  font-size: 11px;
-  color: var(--success);
-}
-
-/* F6: 状态栏常驻「已恢复草稿 · 丢弃」控件——与 .nsb-item 同基线（mono/11px/muted），
-   仅在 has-discard 时显示，错过 6s Toast 仍可点击丢弃。 */
-.nsb-draft-restore { display: none; }
-.nsb-draft-restore.has-discard {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.nsb-draft-restore-label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.nsb-discard-btn {
-  border: none;
-  background: none;
-  padding: 1px 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.nsb-discard-btn:hover {
-  color: var(--danger);
-  background: var(--danger-light);
-}
-
 /* Editor Bottom Bar (Meta + Actions) */
 .note-editor-bottom {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 18px;
+  gap: 8px;
+  padding: 10px 18px;
   border-top: 1px solid var(--border);
   background: var(--bg-surface);
   flex-shrink: 0;
 }
 
-.note-editor-meta {
+.note-editor-extras {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
+
+/* 单行页脚：左 = 标签 + 统计，右 = 视图/取消/保存（原状态栏已合并进来） */
+.note-editor-footrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.note-foot-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.note-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.nsb-dot { color: var(--border-strong); font-size: 11px; }
 
 .note-tags-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .note-tags-row > svg {
@@ -2176,18 +2233,14 @@ html { scroll-behavior: smooth; }
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  flex: 1;
-  min-height: 32px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  min-width: 0;
+  padding: 0;
+  background: transparent;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.note-tags-input:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-ring);
+.note-tags-input:focus-within .note-tag-field::placeholder {
+  color: var(--text-secondary);
 }
 
 .note-tag-chip {
@@ -2427,7 +2480,7 @@ html { scroll-behavior: smooth; }
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  padding: 16px 18px 8px;
+  padding: 12px 22px 6px;
   border: none;
   outline: none;
   background: transparent;
