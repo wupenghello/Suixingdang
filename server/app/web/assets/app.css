@@ -279,12 +279,12 @@ body.view-shell { overflow: hidden; }
 /* ---- File Browser ---- */
 .files-header {
   display: flex; align-items: center; gap: 16px;
-  padding: 14px 24px; background: var(--bg-surface);
+  padding: 16px 24px; background: var(--bg-surface);
   border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
 }
 .files-title { display: flex; align-items: baseline; gap: 10px; flex-shrink: 0; }
 .files-title h1 { font-family: var(--font-sans); font-size: 16px; font-weight: 600; letter-spacing: -0.011em; color: var(--text); margin: 0; }
-.files-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-height: 1em; letter-spacing: 0.02em; }
+.files-count { font-family: var(--font-sans); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-height: 1em; }
 .files-search { flex: 1; min-width: 200px; max-width: 440px; }
 .files-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto; }
 .files-divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
@@ -322,60 +322,51 @@ body.view-shell { overflow: hidden; }
 .breadcrumb-sep { color: var(--text-muted); }
 .breadcrumb-item svg { width: 14px; height: 14px; vertical-align: middle; }
 
-/* 文件表 · 登记册网格（5 列：名称│类型│大小│修改时间│操作） */
+/* 文件表 · 柔和风格（去网格化，行分隔替代硬边框） */
 .file-list, .file-table {
   background: var(--bg-surface); border: 1px solid var(--border);
   border-radius: var(--radius-lg); overflow: hidden;
 }
-.search-results-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 16px; font-size: 12px; color: var(--text-muted);
-  background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
-  margin-bottom: 12px;
-}
-.search-results-head .search-results-head-title { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text-secondary); }
-.search-results-head .search-results-head-title svg { width: 14px; height: 14px; color: var(--primary); }
-.search-results-head .spacer { flex: 1; }
 .file-table-head, .file-row {
   display: grid; align-items: center; gap: 12px;
   grid-template-columns: minmax(0, 1fr) 84px 92px 116px auto;
 }
 .file-table-head {
-  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
 }
 .file-table-head .file-cell {
-  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em;
+  font-family: var(--font-sans); font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--text-muted);
 }
 .file-row {
-  padding: 9px 16px; border-bottom: 1px solid var(--border);
+  padding: 12px 20px; border-bottom: 1px solid var(--border-light);
   transition: background .12s; cursor: pointer;
 }
 .file-row:last-child { border-bottom: none; }
 .file-row:hover { background: var(--bg-surface-hover); }
-.file-row.is-pinned { box-shadow: inset 2px 0 0 var(--primary); }
+.file-row.is-pinned { box-shadow: inset 3px 0 0 var(--primary); }
 
 .file-cell { min-width: 0; }
-.file-cell--name { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.file-cell--type { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
-.file-cell--size { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
-.file-cell--date { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.file-cell--name { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.file-cell--type { font-family: var(--font-sans); font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.file-cell--size { font-family: var(--font-sans); font-size: 12px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.file-cell--date { font-family: var(--font-sans); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .file-cell--actions { display: flex; gap: 2px; justify-content: flex-end; }
 
 .file-controls { display: flex; gap: 4px; flex-shrink: 0; }
 
 /* 文件网格视图 */
 .file-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px; background: transparent; border: none;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px; background: transparent; border: none;
 }
 .file-card {
   position: relative; background: var(--bg-surface); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); padding: 16px 12px;
-  display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer;
-  transition: border-color .15s, background .15s, box-shadow .15s; text-align: center;
+  border-radius: var(--radius-lg); padding: 18px 14px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s, transform .15s; text-align: center;
 }
-.file-card:hover { border-color: var(--primary); background: var(--bg-surface-hover); box-shadow: var(--shadow-xs); }
+.file-card:hover { border-color: var(--primary); background: var(--bg-surface-hover); box-shadow: var(--shadow-sm); transform: translateY(-2px); }
 .file-card.is-pinned { box-shadow: var(--shadow-xs), inset 0 0 0 1px var(--primary-ring); }
 .file-card .file-icon { width: 48px; height: 48px; margin: 0; }
 .file-card .file-icon svg { width: 36px; height: 36px; }
@@ -384,11 +375,11 @@ body.view-shell { overflow: hidden; }
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   white-space: normal; text-overflow: ellipsis;
 }
-.file-card .file-card-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); min-height: 1.4em; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.file-card .file-card-meta { font-family: var(--font-sans); font-size: 11px; color: var(--text-muted); min-height: 1.4em; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .file-card .file-card-pin { position: absolute; top: 10px; right: 10px; color: var(--warning); }
 .file-card .file-card-pin svg { width: 14px; height: 14px; }
 /* —— 笔记视图卡片：加宽列宽（160px）并增加 meta 信息量 —— */
-.file-grid.note-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+.file-grid.note-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
 
 /* 选中态 */
 .file-row.is-selected, .file-card.is-selected { background: var(--primary-light); border-color: var(--primary); }
@@ -410,12 +401,12 @@ body.view-shell { overflow: hidden; }
 
 /* 批量操作栏 */
 .batch-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; margin-bottom: 12px;
-  background: var(--primary-light); border: 1px solid var(--primary-ring);
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; margin-bottom: 14px;
+  background: var(--primary-lighter); border: 1px solid var(--primary-ring);
   border-radius: var(--radius-lg); font-size: 13px; flex-wrap: wrap;
 }
-.batch-count { font-weight: 600; color: var(--primary); font-family: var(--font-mono); letter-spacing: 0.02em; }
+.batch-count { font-weight: 600; color: var(--primary); font-family: var(--font-sans); letter-spacing: 0.02em; }
 .batch-count[aria-live="polite"] { min-width: 60px; }
 .batch-spacer { flex: 1; }
 .batch-bar .btn-sm { padding: 6px 12px; }
@@ -504,26 +495,26 @@ body.view-shell { overflow: hidden; }
 /* —— 空状态（三类：空库 / 空分组 / 空目录）—— */
 .empty-state {
   padding: 64px 20px; text-align: center; color: var(--text-muted);
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
-.empty-state svg { width: 44px; height: 44px; margin-bottom: 12px; opacity: 0.4; }
-.empty-title { font-size: 15px; font-weight: 500; color: var(--text-secondary); }
-.empty-desc { font-size: 13px; margin-top: 4px; color: var(--text-muted); }
+.empty-state svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.5; }
+.empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.empty-desc { font-size: 13px; margin-top: 2px; color: var(--text-muted); }
 .empty-card {
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
-  padding: 56px 24px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 60px 28px; text-align: center;
   background: var(--bg-surface); border: 1px dashed var(--border);
   border-radius: var(--radius-lg);
 }
 .empty-card .empty-illust {
-  width: 56px; height: 56px; border-radius: var(--radius-pill);
+  width: 60px; height: 60px; border-radius: var(--radius-pill);
   background: var(--primary-lighter); color: var(--primary);
   display: flex; align-items: center; justify-content: center;
 }
-.empty-card .empty-illust svg { width: 28px; height: 28px; }
-.empty-card .empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
-.empty-card .empty-desc { font-size: 13px; color: var(--text-muted); margin: 0; }
-.empty-card .empty-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+.empty-card .empty-illust svg { width: 30px; height: 30px; }
+.empty-card .empty-title { font-size: 16px; font-weight: 600; color: var(--text); }
+.empty-card .empty-desc { font-size: 13px; color: var(--text-muted); margin: 0; max-width: 28em; }
+.empty-card .empty-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
 .error-state { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 
 /* 骨架屏 */
@@ -1599,15 +1590,16 @@ html { scroll-behavior: smooth; }
 
 /* ============ 档案室分组侧栏 ============ */
 .files-body { display: flex; gap: 16px; align-items: flex-start; }
-.files-groups { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); position: sticky; top: 8px; }
+.files-groups { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 10px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); position: sticky; top: 8px; }
 .files-main { flex: 1; min-width: 0; }
-.group-item-h { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px 8px; }
-.group-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: none; background: none; border-radius: var(--radius-sm); font-size: 13px; color: var(--text-secondary); cursor: pointer; transition: background .15s, color .15s; text-align: left; font-family: inherit; }
+.group-item-h { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 10px 8px; }
+.group-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: none; background: none; border-radius: var(--radius-sm); font-size: 13px; color: var(--text-secondary); cursor: pointer; transition: background .15s, color .15s; text-align: left; font-family: inherit; }
 .group-item svg { width: 16px; height: 16px; flex-shrink: 0; }
 .group-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-count { font-size: 11px; color: var(--text-muted); }
 .group-item:hover { background: var(--bg-surface-hover); }
-.group-item.active { background: var(--primary-bg); color: var(--primary); font-weight: 500; }
+.group-item.active { background: var(--primary-bg); color: var(--primary); font-weight: 600; }
+.group-item.active .group-count { color: var(--primary); }
 
 /* ---- 搜索结果卡片（对齐 landing figure 的语义检索碎片）---- */
 .search-results { display: flex; flex-direction: column; gap: 8px; }
