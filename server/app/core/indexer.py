@@ -115,15 +115,28 @@ def index_file(user_id: str, file_id: str, rel_path: str):
     doc_text = doc_text[:50000]
     doc_id = hashlib.md5(f"{user_id}:{rel_path}".encode()).hexdigest()
 
+    # 取文件修改时间，便于搜索结果按时间排序（与 keyword_search 的 modified 字段对齐）
+    modified_at = None
+    try:
+        from ..db.models import File, SessionLocal
+        db = SessionLocal()
+        try:
+            f = db.query(File).filter_by(id=file_id).first()
+            modified_at = f.modified_at.isoformat() if f and f.modified_at else None
+        finally:
+            db.close()
+    except Exception:
+        pass
+
     col = _get_collection(user_id)
     try:
         col.delete(ids=[doc_id])
     except Exception:
         pass
-    col.add(
-        ids=[doc_id], documents=[doc_text],
-        metadatas=[{"type": "file", "file_id": file_id, "path": rel_path, "name": name}],
-    )
+    meta = {"type": "file", "file_id": file_id, "path": rel_path, "name": name}
+    if modified_at:
+        meta["modified_at"] = modified_at
+    col.add(ids=[doc_id], documents=[doc_text], metadatas=[meta])
 
 
 def remove_from_index(user_id: str, rel_path: str):
@@ -208,6 +221,7 @@ def semantic_search(user_id: str, query: str, n_results: int = 10) -> list:
             else:
                 item["file_id"] = meta.get("file_id")
                 item["path"] = meta.get("path")
+                item["modified"] = meta.get("modified_at")  # ISO 时间字符串，供前端时间排序
             files.append(item)
     return files
 

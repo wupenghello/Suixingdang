@@ -3010,13 +3010,14 @@ if (!isDir) {
   showContextMenu(x, y, items);
 }
 
+let searchSortMode = 'relevance'; // 'relevance' or 'time'
+
 function renderSearchResults(results) {
   const content = document.getElementById('file-content');
   if (!results.length) {
     content.innerHTML = `<div class="search-results-empty">${ICONS.search}<div class="empty-title">没有找到匹配的文件</div></div>`;
     return;
   }
-  // 搜索结果复用主列表组件体系（P0 L0.5 / S4）：顶部轻量 head + 用 renderFileList 渲染行
   function highlightSnippet(text, q) {
     if (!text) return '';
     const escaped = escapeHtml(text);
@@ -3024,38 +3025,73 @@ function renderSearchResults(results) {
     const re = new RegExp('(' + ql.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
     return '<mark class="search-hit">' + escaped.replace(re, '</mark>$1<mark class="search-hit">').replace(/<\/mark>(<mark class="search-hit">)/g, '$1') + '</mark>';
   }
-  const items = results.map(r => ({
-    name: r.name || r.path, path: r.path, is_dir: false, size: r.size || 0,
-    modified: r.modified || 0, file_id: r.file_id || '', guard_status: r.guard_status || 'safe',
-    group_id: r.group_id || '', group_name: r.group_name || '',
-    is_note: /\.(md|markdown|mdown|mkd)$/i.test(r.name || r.path),
-    tags: r.tags || [], pinned: false, summary: r.summary || '', ai_tags: [],
-    _snippet: r.snippet || '', _fileId: r.file_id || '',
-  }));
-  // snippet 注入：把摘要高亮后挂到每组 item 的 summary，下接在 .file-name-info 内行内
-  if (searchQuery) {
-    items.forEach(it => { if (it._snippet) it._snippetHighlight = highlightSnippet(it._snippet, searchQuery); });
+  function scoreDisplay(score) {
+    if (score == null) return '';
+    const s = Math.max(0, Math.min(1, score));
+    return s.toFixed(2);
   }
-  const head = `<div class="search-results-head" role="status" aria-live="polite"><span class="search-results-head-title">${ICONS.search}<span>语义检索 · ${results.length} 项命中</span></span><span class="spacer"></span></div>`;
+  function searchResultCardHTML(r) {
+    const isTextMsg = r.type === 'text';
+    const name = isTextMsg ? '文字便签' : (r.name || r.path);
+    const icon = isTextMsg ? { cls: 'type-text', icon: ICONS.transfer } : getFileIcon(name, false);
+    const snippet = r.snippet ? highlightSnippet(r.snippet, searchQuery) : '';
+    const modified = r.modified ? formatDate(r.modified) : '';
+    const size = r.size ? formatSize(r.size) : '';
+    const meta = [modified, size].filter(x => x).join(' · ');
+    const score = scoreDisplay(r.score);
+    return `
+      <div class="search-result${isTextMsg ? ' is-text-msg' : ''}" data-path="${escapeHtml(r.path || '')}" data-name="${escapeHtml(name)}" data-file-id="${escapeHtml(r.file_id || '')}" data-text-msg="${isTextMsg ? 'true' : ''}" role="button" tabindex="0" aria-label="${isTextMsg ? '查看便签' : `预览 ${escapeHtml(name)}`}">
+        <span class="search-result-icon ${icon.cls}">${icon.icon}</span>
+        <div class="search-result-main">
+          <div class="search-result-name">${escapeHtml(name)}</div>
+          ${meta ? `<div class="search-result-meta">${meta}</div>` : ''}
+          ${snippet ? `<div class="search-result-snippet">${snippet}</div>` : ''}
+        </div>
+        ${score ? `<div class="search-result-score" title="相关度">${score}</div>` : ''}
+      </div>
+    `;
+  }
+  function sortResults(a, b) {
+    if (searchSortMode === 'relevance') {
+      const sa = a.score ?? 0;
+      const sb = b.score ?? 0;
+      return sb - sa;
+    } else {
+      const ta = a.modified ? new Date(a.modified).getTime() : 0;
+      const tb = b.modified ? new Date(b.modified).getTime() : 0;
+      return tb - ta;
+    }
+  }
+  const sortedResults = [...results].sort(sortResults);
+  const head = `
+    <div class="search-results-head" role="status" aria-live="polite">
+      <span class="search-results-head-title">${ICONS.search}<span>语义检索 · ${results.length} 项命中</span></span>
+      <span class="spacer"></span>
+      <button class="search-sort-toggle ${searchSortMode === 'relevance' ? 'is-active' : ''}" data-action="sort-relevance" title="按相关度排序">相关度</button>
+      <button class="search-sort-toggle ${searchSortMode === 'time' ? 'is-active' : ''}" data-action="sort-time" title="按时间排序">时间</button>
+    </div>`;
   content.innerHTML = head;
   const listWrap = document.createElement('div');
+  listWrap.className = 'search-results';
+  listWrap.innerHTML = sortedResults.map(r => searchResultCardHTML(r)).join('');
   content.appendChild(listWrap);
-  // 用 sortItems 保持排序一致，再走统一渲染；结果不显示骨架屏（已在 loadFiles 前置空）
-  const displayItems = sortItems(items);
-  if (fileView === 'grid') {
-    listWrap.innerHTML = `<div class="file-grid">${displayItems.map(item => fileItemHTML(item)).join('')}</div>`;
-  } else {
-    listWrap.innerHTML = `<div class="file-table">
-      <div class="file-table-head">
-        <span class="file-cell file-cell--name">名称</span>
-        <span class="file-cell file-cell--type">类型</span>
-        <span class="file-cell file-cell--size">大小</span>
-        <span class="file-cell file-cell--date">修改</span>
-        <span class="file-cell file-cell--actions"></span>
-      </div>${displayItems.map(item => fileItemHTML(item)).join('')}
-    </div>`;
-  }
-  bindFileItemsToContainer(listWrap);
+  listWrap.querySelectorAll('.search-result').forEach(card => {
+    const open = () => {
+      if (card.dataset.textMsg === 'true') { App.navigate('transfer'); return; }
+      previewFile(card.dataset.path, card.dataset.name, { fileId: card.dataset.fileId });
+    };
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  });
+  content.querySelectorAll('.search-sort-toggle').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      if (action === 'sort-relevance') searchSortMode = 'relevance';
+      else if (action === 'sort-time') searchSortMode = 'time';
+      renderSearchResults(results);
+    });
+  });
 }
 
 function bindFileItemsToContainer(root) {
@@ -3886,6 +3922,45 @@ function toolsElement(toolCalls) {
   return wrap;
 }
 
+// 在流式过程中把引用来源 chip 更新到 assistant 节点（气泡后、工具区前）
+function updateCiteFiles(msgEl, toolCalls) {
+  const citeFiles = extractCiteFiles(toolCalls);
+  let host = msgEl.querySelector('.chat-cite-files');
+  if (!citeFiles.length) {
+    // 无引用来源时移除 chip 区（例如流式过程中间态），避免残留上一次渲染的空壳
+    if (host) host.remove();
+    return;
+  }
+  if (!host) {
+    host = document.createElement('div');
+    host.className = 'chat-cite-files';
+    const bubble = msgEl.querySelector('.chat-bubble');
+    const tools = msgEl.querySelector('.chat-tools-detail');
+    const actions = msgEl.querySelector('.chat-msg-actions');
+    const anchor = tools || actions || bubble;
+    if (anchor) anchor.parentNode.insertBefore(host, anchor);
+    else msgEl.appendChild(host);
+  }
+  host.innerHTML = '';
+  citeFiles.forEach(f => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chat-cite-chip';
+    if (f.isText) {
+      chip.title = '查看传输助手';
+      chip.innerHTML = `${ICONS.transfer || ICONS.file}<span class="chat-cite-name">${escapeHtml(f.name)}</span>`;
+      chip.addEventListener('click', () => App.navigate('transfer'));
+    } else {
+      chip.title = f.path ? `预览 ${f.name}` : f.name;
+      chip.innerHTML = `${ICONS.file}<span class="chat-cite-name">${escapeHtml(f.name)}</span>`;
+      if (f.path || f.file_id) {
+        chip.addEventListener('click', () => previewFile(f.path || f.name, f.name, { fileId: f.file_id }));
+      }
+    }
+    host.appendChild(chip);
+  });
+}
+
 // 在流式过程中把工具区更新到 assistant 节点（气泡后、复制按钮前）
 function updateToolsInMessage(msgEl, toolCalls) {
   if (!toolCalls || !toolCalls.length) return;
@@ -3898,18 +3973,41 @@ function updateToolsInMessage(msgEl, toolCalls) {
 }
 
 // 构造单条消息 DOM 节点（assistant 用 markdown，含复制按钮与工具区）
-// 从工具调用结果提取引用文件名（对齐 landing figure 的药丸文件来源 chip）
+// 从工具调用结果提取引用来源（对齐 landing figure 的药丸来源 chip，可点击跳转）
+// 返回 {name, path, file_id, isText}：isText=true 表示传输助手文字便签，点击跳传输助手页
 function extractCiteFiles(toolCalls) {
   const files = [];
+  let hasTextCite = false;
   (toolCalls || []).forEach(tc => {
-    if (!/search_files|qa|summarize_file|read_file/.test(tc.tool || '')) return;
+    if (!/search_files|qa|summarize_file|read_file|list_transfer_messages/.test(tc.tool || '')) return;
     try {
       const data = typeof tc.result === 'string' ? JSON.parse(tc.result) : tc.result;
-      const arr = Array.isArray(data) ? data : (data && (data.results || data.files || data.items)) || [];
-      arr.forEach(f => { if (f && f.name) files.push(f.name); });
+      const arr = Array.isArray(data) ? data : (data && (data.results || data.files || data.items || data.messages)) || [];
+      arr.forEach(f => {
+        if (!f) return;
+        if (f.type === 'text') { hasTextCite = true; return; }  // 便签片段
+        if (f.name) files.push({ name: f.name, path: f.path || '', file_id: f.file_id || '', isText: false });
+      });
+      // qa 工具返回 sources 路径数组（"文字便签" 表示便签来源）
+      if (data && Array.isArray(data.sources)) {
+        data.sources.forEach(p => {
+          if (!p) return;
+          if (p === '文字便签') { hasTextCite = true; return; }
+          files.push({ name: p.split('/').pop(), path: p, file_id: '', isText: false });
+        });
+      }
     } catch { /* result 非预期格式则跳过 */ }
   });
-  return [...new Set(files)].slice(0, 5);
+  // 按 path 去重（无 path 的按 name），文件 chip 最多 5 个；便签 chip 最多 1 个排最后
+  const seen = new Set();
+  const deduped = files.filter(f => {
+    const key = f.path || f.name;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 5);
+  if (hasTextCite) deduped.push({ name: '文字便签', path: '', file_id: '', isText: true });
+  return deduped;
 }
 
 function messageElement(msg) {
@@ -3931,7 +4029,23 @@ function messageElement(msg) {
     if (citeFiles.length) {
       const chips = document.createElement('div');
       chips.className = 'chat-cite-files';
-      chips.innerHTML = citeFiles.map(n => `<span class="chat-cite-chip">${ICONS.file}<span class="chat-cite-name">${escapeHtml(n)}</span></span>`).join('');
+      citeFiles.forEach(f => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chat-cite-chip';
+        if (f.isText) {
+          chip.title = '查看传输助手';
+          chip.innerHTML = `${ICONS.transfer || ICONS.file}<span class="chat-cite-name">${escapeHtml(f.name)}</span>`;
+          chip.addEventListener('click', () => App.navigate('transfer'));
+        } else {
+          chip.title = f.path ? `预览 ${f.name}` : f.name;
+          chip.innerHTML = `${ICONS.file}<span class="chat-cite-name">${escapeHtml(f.name)}</span>`;
+          if (f.path || f.file_id) {
+            chip.addEventListener('click', () => previewFile(f.path || f.name, f.name, { fileId: f.file_id }));
+          }
+        }
+        chips.appendChild(chip);
+      });
       wrap.appendChild(chips);
     }
     if (msg.tool_calls && msg.tool_calls.length) updateToolsInMessage(wrap, msg.tool_calls);
@@ -3975,7 +4089,9 @@ async function renderChat() {
   try {
     const res = await API.get('/api/chat/history?limit=50');
     const data = await res.json();
-    chatMessages = (data.messages || []).reverse();
+    // 后端 get_history 已按时间正序返回（最早→最新）；实时发消息也是追加到末尾（最新在底）。
+    // 这里不能再 reverse，否则重新进入页面时最新消息会跑到顶部，与实时发送顺序不一致。
+    chatMessages = data.messages || [];
   } catch { chatMessages = []; }
   const container = document.getElementById('chat-messages');
   if (!chatMessages.length && container) {
@@ -4097,6 +4213,7 @@ async function sendChatMessage() {
           assistantMsg.tool_calls = assistantMsg.tool_calls || [];
           assistantMsg.tool_calls.push(payload.data);
           updateToolsInMessage(assistantEl, assistantMsg.tool_calls);
+          updateCiteFiles(assistantEl, assistantMsg.tool_calls);
           scrollChat(container);
         } else if (payload.type === 'delta') {
           assistantMsg.content += payload.data;
@@ -4109,6 +4226,7 @@ async function sendChatMessage() {
           bubble.innerHTML = renderMarkdown(assistantMsg.content);
           enhanceMaskedContent(bubble);
           updateToolsInMessage(assistantEl, assistantMsg.tool_calls);
+          updateCiteFiles(assistantEl, assistantMsg.tool_calls);
           scrollChat(container);
         } else if (payload.type === 'error') {
           assistantMsg.content = '出错了: ' + payload.data;
