@@ -4173,16 +4173,26 @@ async function sendChatMessage() {
   chatMessages.push(assistantMsg);
   const assistantEl = messageElement(assistantMsg);
   container.appendChild(assistantEl);
-  const typingEl = document.createElement('div');
-  typingEl.className = 'typing-indicator';
-  typingEl.innerHTML = '正在思考<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
-  container.appendChild(typingEl);
+  const statusEl = document.createElement('div');
+  statusEl.className = 'typing-indicator';
+  statusEl.setAttribute('aria-live', 'polite');
+  statusEl.innerHTML = '正在思考<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
+  container.appendChild(statusEl);
   scrollChat(container);
 
   setSendButtonState('stop');
   const controller = new AbortController();
   currentChatAbort = controller;
   const bubble = assistantEl.querySelector('.chat-bubble');
+
+  const setStatus = (msg, opts = {}) => {
+    if (!statusEl.isConnected) return;
+    const dot = opts.busy === false ? '' : '<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
+    // 转义避免 XSS（tool 名可能含异常字符）
+    const safe = String(msg).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    statusEl.innerHTML = safe + dot;
+    if (opts.error) statusEl.classList.add('is-error'); else statusEl.classList.remove('is-error');
+  };
 
   try {
     const res = await fetch('/api/chat/stream', {
@@ -4195,7 +4205,6 @@ async function sendChatMessage() {
       const d = await res.json().catch(() => ({}));
       throw new Error(d.detail || `HTTP ${res.status}`);
     }
-    if (typingEl.isConnected) typingEl.remove();
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -4214,11 +4223,14 @@ async function sendChatMessage() {
           assistantMsg.tool_calls.push(payload.data);
           updateToolsInMessage(assistantEl, assistantMsg.tool_calls);
           updateCiteFiles(assistantEl, assistantMsg.tool_calls);
+          // 根据工具类型 + 结果生成状态文本（对齐 PRD：阶梯式状态提示 + 命中计数）
+          renderStatusFromTool(statusEl, payload.data);
           scrollChat(container);
         } else if (payload.type === 'delta') {
           assistantMsg.content += payload.data;
           bubble.innerHTML = renderMarkdown(assistantMsg.content);
           enhanceMaskedContent(bubble);
+          if (statusEl.isConnected) setStatus('正在整理回答…');
           scrollChat(container);
         } else if (payload.type === 'done') {
           assistantMsg.content = payload.data.reply || assistantMsg.content || '(无回复)';
@@ -4227,11 +4239,13 @@ async function sendChatMessage() {
           enhanceMaskedContent(bubble);
           updateToolsInMessage(assistantEl, assistantMsg.tool_calls);
           updateCiteFiles(assistantEl, assistantMsg.tool_calls);
+          if (statusEl.isConnected) statusEl.remove();
           scrollChat(container);
         } else if (payload.type === 'error') {
           assistantMsg.content = '出错了: ' + payload.data;
           bubble.innerHTML = renderMarkdown(assistantMsg.content);
           enhanceMaskedContent(bubble);
+          setStatus('出错了', { error: true, busy: false });
         }
       }
     }
@@ -4239,9 +4253,13 @@ async function sendChatMessage() {
       assistantMsg.content = controller.signal.aborted ? '（已停止）' : '(无回复)';
       bubble.innerHTML = renderMarkdown(assistantMsg.content);
       enhanceMaskedContent(bubble);
+      if (statusEl.isConnected) statusEl.remove();
     }
   } catch (err) {
-    if (typingEl.isConnected) typingEl.remove();
+    if (statusEl.isConnected) {
+      if (err && err.name === 'AbortError') { statusEl.remove(); }
+      else { setStatus('出错了：' + ((err && err.message) || '未知错误'), { error: true, busy: false }); }
+    }
     if (err && err.name === 'AbortError') {
       assistantMsg.content += assistantMsg.content ? '\n\n_（已停止）_' : '（已停止）';
     } else {
@@ -4254,6 +4272,74 @@ async function sendChatMessage() {
     currentChatAbort = null;
     setSendButtonState('send');
   }
+}
+
+// 工具名 → 中文步骤文本映射（对齐 PRD §6：A 方案，前端本地映射，零 token 成本）
+const TOOL_LABELS = {
+  search_files:      '正在搜索文件…',
+  qa:                '正在基于文档回答…',
+  summarize_file:    '正在生成摘要…',
+  read_file:         '正在阅读文档…',
+  list_files:        '正在浏览目录…',
+  list_transfer_messages: '正在查看传输助手…',
+  get_file_info:     '正在获取文件信息…',
+  check_guard:       '正在检查安全性…',
+  delete_file:       '正在处理删除…',
+  restore_file:      '正在恢复文件…',
+  sync:              '正在同步…',
+  list_sync_events:  '正在查看同步记录…',
+  smart_sync_suggestions: '正在生成同步建议…',
+  cleanup_assistant: '正在准备清理…',
+  cleanup_suggestions: '正在分析清理建议…',
+  trash_cleanup_assistant: '正在扫描回收站…',
+};
+
+// 根据单个 tool 事件数据，推断当前步骤状态文本
+function renderStatusFromTool(statusEl, toolData) {
+  if (!statusEl || !statusEl.isConnected) return;
+  const name = toolData && toolData.tool;
+  const label = TOOL_LABELS[name] || '正在查询…';
+  const dot = '<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>';
+
+  // 检查工具执行错误
+  let result;
+  try {
+    result = typeof toolData.result === 'string' ? JSON.parse(toolData.result) : toolData.result;
+  } catch { result = null; }
+  if (result && result.error) {
+    statusEl.innerHTML = '查询出错：' + String(result.error).slice(0, 60);
+    statusEl.classList.add('is-error');
+    return;
+  }
+  statusEl.classList.remove('is-error');
+
+  // search_files / list_transfer_messages → 展示命中计数
+  if (name === 'search_files') {
+    let n = 0;
+    if (result) {
+      if (Array.isArray(result.results)) n = result.results.length;
+      else if (Array.isArray(result)) n = result.length;
+    }
+    statusEl.innerHTML = n > 0 ? `已搜到 ${n} 个相关文件` + dot : '正在搜索文件…' + dot;
+    return;
+  }
+  if (name === 'list_transfer_messages') {
+    let n = 0;
+    if (result && Array.isArray(result.messages)) n = result.messages.length;
+    statusEl.innerHTML = n > 0 ? `已找到 ${n} 条传输记录` + dot : '正在查看传输助手…' + dot;
+    return;
+  }
+  if (name === 'cleanup_suggestions' || name === 'trash_cleanup_assistant') {
+    let n = 0;
+    if (result) {
+      if (Array.isArray(result)) n = result.length;
+      else if (result.files && Array.isArray(result.files)) n = result.files.length;
+      else if (result.suggestions && Array.isArray(result.suggestions)) n = result.suggestions.length;
+    }
+    if (n > 0) { statusEl.innerHTML = `已找到 ${n} 个待清理项` + dot; return; }
+  }
+
+  statusEl.innerHTML = label + dot;
 }
 
 // ============ Transfer Assistant (文件传输助手) ============
