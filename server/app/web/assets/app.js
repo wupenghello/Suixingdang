@@ -2637,6 +2637,7 @@ function renderFileList(items) {
     content.innerHTML = `<div class="file-table">
       <div class="file-table-head">
         <span class="file-cell file-cell--name">名称</span>
+        <span class="file-cell file-cell--type">类型</span>
         <span class="file-cell file-cell--size">大小</span>
         <span class="file-cell file-cell--date">修改</span>
         <span class="file-cell file-cell--actions"></span>

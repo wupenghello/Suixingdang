@@ -322,36 +322,37 @@ body.view-shell { overflow: hidden; }
 .breadcrumb-sep { color: var(--text-muted); }
 .breadcrumb-item svg { width: 14px; height: 14px; vertical-align: middle; }
 
-/* 文件表 · 柔和风格（去网格化，行分隔替代硬边框） */
+/* 文件表 · 现代列表（无框、无行线、留白分隔） */
 .file-list, .file-table {
-  background: var(--bg-surface); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); overflow: hidden;
-}
-.file-table-head, .file-row {
-  display: grid; align-items: center; gap: 12px;
-  grid-template-columns: minmax(0, 1fr) 84px 92px 116px auto;
+  background: transparent; border: none; border-radius: 0;
 }
 .file-table-head {
-  padding: 10px 20px; border-bottom: 1px solid var(--border);
+  display: grid; align-items: center; gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 70px 84px 92px auto;
+  padding: 8px 20px;
 }
 .file-table-head .file-cell {
-  font-family: var(--font-sans); font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--text-muted);
+  font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+  color: var(--text-muted); text-transform: none; letter-spacing: 0;
 }
+.file-table-head .file-cell--actions { display: none; }
 .file-row {
-  padding: 12px 20px; border-bottom: 1px solid var(--border-light);
+  display: grid; align-items: center; gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 70px 84px 92px auto;
+  padding: 14px 20px; border-bottom: none;
+  border-radius: var(--radius-sm);
   transition: background .12s; cursor: pointer;
 }
-.file-row:last-child { border-bottom: none; }
 .file-row:hover { background: var(--bg-surface-hover); }
-.file-row.is-pinned { box-shadow: inset 3px 0 0 var(--primary); }
+.file-row.is-pinned { box-shadow: inset 3px 0 0 var(--primary); background: var(--primary-lighter); }
 
 .file-cell { min-width: 0; }
-.file-cell--name { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.file-cell--name { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .file-cell--type { font-family: var(--font-sans); font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
 .file-cell--size { font-family: var(--font-sans); font-size: 12px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
 .file-cell--date { font-family: var(--font-sans); font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.file-cell--actions { display: flex; gap: 2px; justify-content: flex-end; }
+.file-cell--actions { display: flex; gap: 2px; justify-content: flex-end; opacity: 0; transition: opacity .15s; }
+.file-row:hover .file-cell--actions { opacity: 1; }
 
 .file-controls { display: flex; gap: 4px; flex-shrink: 0; }
 
@@ -415,23 +416,24 @@ body.view-shell { overflow: hidden; }
 .file-row .file-icon { margin-right: 0; }
 
 .file-icon {
-  width: 32px; height: 32px; flex-shrink: 0;
+  width: 36px; height: 36px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm); background: var(--bg-sunken);
 }
-.file-icon svg { width: 20px; height: 20px; }
+.file-icon svg { width: 22px; height: 22px; }
 /* 徽章折叠 +N */
 .badge-more { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--bg-sunken); color: var(--text-secondary); cursor: help; }
 
-/* 文件类型色 · 严格走 tokens.css --type-* 语义色 */
-.file-icon.folder { color: var(--primary); }
-.file-icon.type-pdf { color: var(--type-pdf); }
-.file-icon.type-doc { color: var(--type-doc); }
-.file-icon.type-xls { color: var(--type-xls); }
-.file-icon.type-ppt { color: var(--type-ppt); }
-.file-icon.type-md { color: var(--type-md); }
-.file-icon.type-img { color: var(--type-img); }
-.file-icon.type-video { color: var(--type-video); }
-.file-icon.type-audio { color: var(--type-audio); }
+/* 文件类型色 · 严格走 tokens.css --type-* 语义色 · 加浅色底更显眼 */
+.file-icon.folder { color: var(--primary); background: var(--primary-lighter); }
+.file-icon.type-pdf { color: var(--type-pdf); background: rgba(245, 63, 63, 0.08); }
+.file-icon.type-doc { color: var(--type-doc); background: rgba(51, 112, 255, 0.08); }
+.file-icon.type-xls { color: var(--type-xls); background: rgba(0, 180, 42, 0.08); }
+.file-icon.type-ppt { color: var(--type-ppt); background: rgba(255, 125, 0, 0.08); }
+.file-icon.type-md { color: var(--type-md); background: rgba(31, 35, 41, 0.06); }
+.file-icon.type-img { color: var(--type-img); background: rgba(0, 180, 42, 0.08); }
+.file-icon.type-video { color: var(--type-video); background: rgba(179, 127, 235, 0.10); }
+.file-icon.type-audio { color: var(--type-audio); background: rgba(179, 127, 235, 0.10); }
 .file-icon.type-archive { color: var(--type-archive); }
 .file-icon.type-code { color: var(--type-code); }
 .file-icon.type-text { color: var(--type-text); }
@@ -1590,10 +1592,10 @@ html { scroll-behavior: smooth; }
 
 /* ============ 档案室分组侧栏 ============ */
 .files-body { display: flex; gap: 16px; align-items: flex-start; }
-.files-groups { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 10px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); position: sticky; top: 8px; }
+.files-groups { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 12px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); position: sticky; top: 8px; box-shadow: var(--shadow-xs); }
 .files-main { flex: 1; min-width: 0; }
 .group-item-h { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 10px 8px; }
-.group-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: none; background: none; border-radius: var(--radius-sm); font-size: 13px; color: var(--text-secondary); cursor: pointer; transition: background .15s, color .15s; text-align: left; font-family: inherit; }
+.group-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: none; background: none; border-radius: var(--radius-sm); font-size: 13px; color: var(--text-secondary); cursor: pointer; transition: background .15s, color .15s; text-align: left; font-family: inherit; }
 .group-item svg { width: 16px; height: 16px; flex-shrink: 0; }
 .group-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-count { font-size: 11px; color: var(--text-muted); }
