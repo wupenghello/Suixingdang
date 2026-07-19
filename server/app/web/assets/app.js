@@ -13,7 +13,7 @@ import { formatSize, formatDate, formatDateTime, stripExt } from './utils/format
 import { parseServerTs } from './utils/time.js?v=60';
 import { escapeHtml } from './utils/dom.js?v=60';
 import { getPreviewType, fileTypeBadge } from './utils/file-classify.js?v=60';
-import { ICONS, getFileIcon } from './utils/icons.js?v=62';
+import { ICONS, getFileIcon } from './utils/icons.js?v=63';
 import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=60';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
@@ -637,7 +637,7 @@ window.renderForgotPassword = renderForgotPassword;
 // 未登录访问根路径时展示的产品官网:顶栏 + Hero + 特性 + 安全/多端 + CTA + Footer。
 // 纯静态渲染,右上角"登录"跳 renderLogin;注册 CTA 随 register-status 开关,失败降级为仅"登录"。
 function renderLanding() {
-  // 双落地页已合并（Q2A）：统一跳静态 landing.html，消除 .sx-page #2B5FFF 与静态页 #3370FF 的双源色差
+  // 双落地页已合并（Q2A）：统一跳静态 landing.html，消除 .sx-page 与静态页的历史双源色差，现已统一飞书蓝 #3370FF
   window.location.href = '/';
   return; // 以下旧 SPA 内落地页（.sx-page）已废弃，保留以避免大段删除风险；永不执行
   document.body.classList.remove('view-shell');
@@ -984,6 +984,9 @@ let searchQuery = '';
 let selectedGroup = '';  // 当前选中的分组 id（'' = 全部）
 let selectedTag = '';    // 当前筛选的标签（'' = 全部）
 let userGroups = [];    // 缓存当前用户的分组列表
+let sensitiveFileCount = 0; // 当前列表中 guard_status = warning|blocked 的文件数（用于告警条 + 敏感分组）
+const SENSITIVE_GROUP_ID = '__sensitive__'; // 合成分组 id：服务端不持久化，前端按 guard_status 过滤
+let sensitiveAlertDismissed = false; // 告警条本次会话是否已关闭（避免排序/视图切换后复现）
 let currentFileItems = [];               // 当前渲染的原始 items（供排序/选择重渲复用）
 let fileSort = loadPref('fileSort', { key: 'name', dir: 'asc' });   // 排序偏好
 let fileView = loadPref('fileView', 'list');                         // 视图：list | grid
@@ -1008,7 +1011,7 @@ async function renderFiles() {
        <button class="btn btn-secondary btn-icon-only" id="btn-groups" title="分组管理">${ICONS.groups}</button>
        <button class="btn btn-secondary btn-icon-only" id="btn-tags" title="标签筛选">${ICONS.tag}</button>
        <span class="files-divider"></span>
-       <button class="btn btn-secondary btn-icon-only" id="btn-export" title="导出全部">${ICONS.export}</button>
+       <button class="btn btn-secondary btn-icon-only" id="btn-export" title="导出全部">${ICONS.exportIco}</button>
        <button class="btn btn-secondary btn-icon-only" id="btn-refresh" title="刷新">${ICONS.refresh}</button>
       </div>
       <div id="quota-ring-slot" class="quota-ring" style="display:none"></div>
@@ -1025,7 +1028,8 @@ async function renderFiles() {
   `;
  document.getElementById('btn-refresh').addEventListener('click', () => { Toast.show('刷新中', 'info', 1000); loadFiles(); });
  document.getElementById('btn-export').addEventListener('click', () => {
-   const gid = selectedGroup || '';
+   // 合成视图 __sensitive__ 非真实分组，导出时回落为"全部"
+   const gid = (selectedGroup && selectedGroup !== SENSITIVE_GROUP_ID) ? selectedGroup : '';
    exportAllFiles(gid);
  });
  document.getElementById('btn-groups').addEventListener('click', showGroupManager);
@@ -1225,7 +1229,7 @@ async function openNoteEditor(opts = {}) {
       <div class="note-editor-top-actions">
         <button class="tb-icon-btn" id="btn-note-toc" title="目录">${ICONS.toc}</button>
         <button class="tb-icon-btn" id="btn-note-pin" title="置顶/收藏">${ICONS.pin}</button>
-        <button class="tb-icon-btn" id="btn-note-export" title="导出 HTML">${ICONS.export}</button>
+        <button class="tb-icon-btn" id="btn-note-export" title="导出 HTML">${ICONS.exportIco}</button>
         <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理">${ICONS.ai}<span>AI 整理</span></button>
         <button class="tb-icon-btn" id="btn-note-delete" title="删除笔记">${ICONS.trash}</button>
       </div>
@@ -1770,7 +1774,7 @@ ${r.html}
     try {
       const res = await API.post('/api/files/note', {
         name: titleEl.value.trim(), content,
-        directory: currentDir || '', group_id: selectedGroup || '',
+        directory: currentDir || '', group_id: (selectedGroup && selectedGroup !== SENSITIVE_GROUP_ID) ? selectedGroup : '',
         file_id: editFileId || '',  // 编辑已有笔记时传入，后端据此原地更新（含重命名）并排除去重自检
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); Toast.show(d.detail || '保存失败', 'error'); return false; }
@@ -2014,7 +2018,7 @@ function openCommandPalette() {
       { type: 'action', label: '上传文件', icon: ICONS.upload, detail: '上传文件到当前目录', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => document.getElementById('file-input')?.click(), 100); } },
       { type: 'action', label: 'AI 对话', icon: ICONS.chat, detail: '打开 AI 助手对话', onClick: () => App.navigate('chat') },
       { type: 'action', label: '传输助手', icon: ICONS.transfer, detail: '打开文件传输助手', onClick: () => App.navigate('transfer') },
-      { type: 'action', label: '导出全部文件', icon: ICONS.export, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
+      { type: 'action', label: '导出全部文件', icon: ICONS.exportIco, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
       { type: 'action', label: '设置', icon: ICONS.settings, detail: '打开设置页', onClick: () => App.navigate('settings') },
       { type: 'action', label: '快捷键帮助', icon: ICONS.keyboard, detail: '查看所有键盘快捷键', onClick: () => showShortcutHelp() },
     ];
@@ -2293,25 +2297,33 @@ async function loadGroups() {
   return userGroups;
 }
 
-// 档案室分组侧栏：左侧持久分组导航（对齐落地页 Hero 的档案室侧栏）
+// 档案室分组侧栏：左档案室卡 + "全部文件" + 用户分组 + 提示分隔 + 敏感文件（合成）
 function renderGroupsSidebar() {
   const el = document.getElementById('files-groups');
   if (!el) return;
   const allActive = !selectedGroup && !currentDir && !searchQuery;
   const allItem = `<button class="group-item${allActive ? ' active' : ''}" data-action="group-all" aria-label="全部文件">${ICONS.files}<span class="group-item-name">全部文件</span></button>`;
   const groupItems = userGroups.map(g =>
-    `<button class="group-item${selectedGroup === g.id ? ' active' : ''}" data-gid="${escapeHtml(g.id)}" aria-label="分组 ${escapeHtml(g.name)}"><span class="group-item-name">${escapeHtml(g.name)}</span><span class="group-count">${g.file_count || 0}</span></button>`
+    `<button class="group-item${selectedGroup === g.id ? ' active' : ''}" data-gid="${escapeHtml(g.id)}" aria-label="分组 ${escapeHtml(g.name)}">${ICONS.groups}<span class="group-item-name">${escapeHtml(g.name)}</span><span class="group-count">${g.file_count || 0}</span></button>`
   ).join('');
-  el.innerHTML = `<div class="group-item-h">档案室</div>${allItem}${groupItems}`;
+  const sensitiveActive = selectedGroup === SENSITIVE_GROUP_ID;
+  const sensitiveItem = sensitiveFileCount > 0 ? `<div class="group-divider"></div><button class="group-item group-item--sensitive${sensitiveActive ? ' active' : ''}" data-gid="${SENSITIVE_GROUP_ID}" aria-label="敏感文件">${ICONS.sensitive}<span class="group-item-name">敏感文件</span><span class="group-count">${sensitiveFileCount}</span></button>` : '';
+  el.innerHTML = `<div class="files-groups-hd">${ICONS.fileCabinet}<span>档案室</span></div>${allItem}${groupItems}${sensitiveItem}${userGroups.length ? '<div class="group-divider"></div>' : ''}<button class="group-item-cta" id="btn-group-create-quick">${ICONS.add}<span>新建分组</span></button>`;
   el.querySelectorAll('.group-item').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.dataset.action === 'group-all') { selectedGroup = ''; currentDir = ''; }
-      else { selectedGroup = btn.dataset.gid || ''; currentDir = ''; }
+      else {
+        selectedGroup = btn.dataset.gid || '';
+        // 合成"敏感文件"保留 currentDir：按当前目录 scope 过滤，与 sensitiveFileCount 口径一致
+        if (selectedGroup !== SENSITIVE_GROUP_ID) currentDir = '';
+      }
       searchQuery = '';
       const si = document.getElementById('search-input'); if (si) si.value = '';
       loadFiles();
     });
   });
+  const q = el.querySelector('#btn-group-create-quick');
+  if (q) q.addEventListener('click', showGroupManager);
 }
 
 function showGroupManager() {
@@ -2497,13 +2509,16 @@ function renderBreadcrumb() {
   // 分组视图：主目录 / [分组名]
   if (selectedGroup) {
     const g = userGroups.find(x => x.id === selectedGroup);
-    const name = g ? g.name : '分组';
-    bc.innerHTML = `<span class="breadcrumb-item" data-dir="" data-action="root">主目录</span><span class="breadcrumb-sep">/</span><span class="breadcrumb-item current">${ICONS.groups}${escapeHtml(name)}</span>`;
+    const isSensitive = selectedGroup === SENSITIVE_GROUP_ID;
+    const name = isSensitive ? '敏感文件' : (g ? g.name : '分组');
+    const ico = isSensitive ? ICONS.sensitive : ICONS.groups;
+    bc.innerHTML = `<span class="breadcrumb-item" data-dir="" data-action="root">主目录</span><span class="breadcrumb-sep">/</span><span class="breadcrumb-item current">${ico}${escapeHtml(name)}</span>`;
     bc.querySelectorAll('.breadcrumb-item').forEach(el => {
       el.addEventListener('click', () => {
         if (el.dataset.action === 'root') {
           selectedGroup = '';
           currentDir = '';
+          selectedTag = '';
           loadFiles();
         }
       });
@@ -2542,6 +2557,7 @@ async function loadFiles() {
   const fail = (msg) => renderErrorState(content, msg, () => loadFiles());
   // 搜索结果不走 renderFileList；若处于选择模式则先退出，避免选中态错乱
   if (searchQuery && fileSelectMode) { fileSelectMode = false; fileSelection.clear(); updateBatchBar(); }
+  // 合成分组「敏感文件」：不调用 API，在前端从全量文件中过滤
   if (searchQuery) {
     content.innerHTML = '<div class="empty-state">搜索中...</div>';
     try {
@@ -2549,6 +2565,17 @@ async function loadFiles() {
       const data = await res.json();
       renderSearchResults(data.results || []);
     } catch { fail('搜索失败'); }
+  } else if (selectedGroup === SENSITIVE_GROUP_ID) {
+    renderBreadcrumb();
+    content.innerHTML = skeletonHTML(6);
+    try {
+      const res = await API.get(`/api/files/list?directory=${encodeURIComponent(currentDir)}`);
+      if (!res.ok) { fail('加载失败'); return; }
+      const data = await res.json();
+      let items = (data.items || []).filter(i => i.guard_status === 'warning' || i.guard_status === 'blocked');
+      if (selectedTag) items = items.filter(i => i.tags && i.tags.includes(selectedTag));
+      renderFileList(items);
+    } catch { fail('加载失败'); }
   } else if (selectedGroup) {
     // 分组视图：展示该分组全部文件
     renderBreadcrumb();
@@ -2587,11 +2614,13 @@ function sortItems(items) {
 
 function renderFileList(items) {
   currentFileItems = items;
+  sensitiveFileCount = items.filter(i => !i.is_group && !i.is_dir && (i.guard_status === 'warning' || i.guard_status === 'blocked')).length;
   renderGroupsSidebar();
   const content = document.getElementById('file-content');
   if (!content) return;
   // 分组已迁移到左侧档案室侧栏（renderGroupsSidebar）；列表只显示文件/目录
   const isRoot = !currentDir && !selectedGroup && !searchQuery;
+  const isSensitiveView = selectedGroup === SENSITIVE_GROUP_ID;
   const displayItems = sortItems(items);
 
   const realItems = displayItems.filter(i => !i.is_group);
@@ -2599,9 +2628,25 @@ function renderFileList(items) {
   const cntEl = document.getElementById('files-count');
   if (cntEl) cntEl.textContent = realItems.length ? `${realItems.length} 项${bytes ? ' · ' + formatSize(bytes) : ''}` : '';
 
+  // 敏感文件告警条：仅在非敏感视图、非搜索、非分组时显示（避免重复提示）
+  const alertBar = (!isSensitiveView && !searchQuery && !selectedGroup && sensitiveFileCount > 0 && !sensitiveAlertDismissed)
+    ? `<div class="alert-bar alert-bar--warn" role="status" id="sensitive-alert">
+        <div class="alert-bar-icon">${ICONS.sensitive}</div>
+        <div class="alert-bar-text"><b>检测到 ${sensitiveFileCount} 个敏感 / 注意标记的文件</b><span>，已在本列表中以左侧橙色竖线标记。</span></div>
+        <button class="btn btn-secondary btn-sm" id="btn-view-sensitive">查看敏感文件</button>
+        <button class="alert-bar-close" id="btn-dismiss-sensitive" aria-label="关闭提示">${ICONS.close}</button>
+      </div>` : '';
+
   if (!displayItems.length) {
     let card;
-    if (selectedGroup) {
+    if (isSensitiveView) {
+      card = `<div class="empty-card" role="status">
+        <div class="empty-illust" style="background:rgba(255,125,0,0.12);color:var(--warning)">${ICONS.shieldOff}</div>
+        <div class="empty-title">没有敏感文件</div>
+        <div class="empty-desc">当前归档中未检测到敏感或注意标记的文件。</div>
+        <div class="empty-actions"><button class="btn btn-secondary" id="btn-back-all">${ICONS.files}<span>返回全部文件</span></button></div>
+      </div>`;
+    } else if (selectedGroup) {
       card = `<div class="empty-card" role="status">
         <div class="empty-illust">${ICONS.groups}</div>
         <div class="empty-title">该分组暂无文件</div>
@@ -2628,22 +2673,31 @@ function renderFileList(items) {
     if (up) up.addEventListener('click', () => document.getElementById('file-input').click());
     const note = content.querySelector('#btn-empty-note');
     if (note) note.addEventListener('click', showNoteEditor);
+    const backAll = content.querySelector('#btn-back-all');
+    if (backAll) backAll.addEventListener('click', () => { selectedGroup = ''; currentDir = ''; searchQuery = ''; loadFiles(); });
     updateBatchBar();
     return;
   }
-  if (fileView === 'grid') {
-    content.innerHTML = `<div class="file-grid">${displayItems.map(item => fileItemHTML(item)).join('')}</div>`;
-  } else {
-    content.innerHTML = `<div class="file-table">
-      <div class="file-table-head">
+  content.innerHTML = `${alertBar}`;
+  content.insertAdjacentHTML('beforeend', (() => {
+    if (fileView === 'grid') {
+      return `<div class="file-list-card"><div class="file-grid">${displayItems.map(item => fileItemHTML(item)).join('')}</div></div>`;
+    }
+    return `<div class="file-list-card"><div class="file-table" role="grid" aria-label="文件列表">
+      <div class="file-table-head" role="row">
         <span class="file-cell file-cell--name">名称</span>
         <span class="file-cell file-cell--type">类型</span>
         <span class="file-cell file-cell--size">大小</span>
         <span class="file-cell file-cell--date">修改</span>
         <span class="file-cell file-cell--actions"></span>
       </div>${displayItems.map(item => fileItemHTML(item)).join('')}
-    </div>`;
-  }
+    </div></div>`;
+  })());
+  // 告警条按钮：查看敏感文件 / 关闭提示
+  const vsEl = content.querySelector('#btn-view-sensitive');
+  if (vsEl) vsEl.addEventListener('click', () => { selectedGroup = SENSITIVE_GROUP_ID; searchQuery = ''; selectedTag = ''; loadFiles(); });
+  const dismissEl = content.querySelector('#btn-dismiss-sensitive');
+  if (dismissEl) dismissEl.addEventListener('click', () => { sensitiveAlertDismissed = true; dismissEl.closest('.alert-bar').remove(); });
   bindFileItems(content);
   updateBatchBar();
 }
@@ -2707,24 +2761,33 @@ function fileItemHTML(item) {
   const pinHtml = item.pinned ? '<span class="badge badge-pin" title="已置顶">★</span>' : '';
   const tagsHtml = (item.tags && item.tags.length) ? item.tags.slice(0, 3).map(t => `<span class="badge badge-tag">#${escapeHtml(t)}</span>`).join('') + (item.tags.length > 3 ? `<span class="badge badge-tag">+${item.tags.length - 3}</span>` : '') : '';
   const isNote = /\.(md|markdown|mdown|mkd)$/i.test(item.name);
+  const isSensitive = item.guard_status === 'warning' || item.guard_status === 'blocked';
   const checkHtml = (fileSelectMode && !item.is_dir) ? `<input type="checkbox" class="file-check ${isSel ? 'is-checked' : ''}" data-action="toggle-select" role="checkbox" aria-checked="${isSel ? 'true' : 'false'}" aria-label="选择 ${escapeHtml(item.name)}" ${isSel ? 'checked' : ''}>` : '';
   const selCls = isSel ? ' is-selected' : '';
-  const ariaLabel = `${escapeHtml(item.name)}, 类型 ${tb.label}${item.is_dir ? ' 文件夹' : ''}${item.pinned ? ' 已置顶' : ''}`;
+  const sensitiveCls = isSensitive ? ' is-sensitive' : '';
+  const ariaLabel = `${escapeHtml(item.name)}, 类型 ${tb.label}${item.is_dir ? ' 文件夹' : ''}${item.pinned ? ' 已置顶' : ''}${isSensitive ? ' 含敏感标记' : ''}`;
   const snippetHtml = item._snippetHighlight ? `<div class="file-snippet">${item._snippetHighlight}</div>` : '';
+  // 网格卡 hover 操作药丸（对齐 note-card-action），仅非选择模式渲染
+  const actionsPill = (!fileSelectMode && !item.is_dir && !item.is_group) ? `<div class="file-card-actions">
+      <button class="file-card-action" data-action="preview" title="预览" aria-label="预览 ${escapeHtml(item.name)}">${ICONS.eye}</button>
+      <button class="file-card-action" data-action="download" title="下载" aria-label="下载 ${escapeHtml(item.name)}">${ICONS.download}</button>
+      <button class="file-card-action danger" data-action="delete" title="删除" aria-label="删除 ${escapeHtml(item.name)}">${ICONS.trash}</button>
+    </div>` : '';
   if (fileView === 'grid') {
-    return `<div class="file-card${selCls}${item.pinned ? ' is-pinned' : ''}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}" data-file-id="${escapeHtml(item._fileId || item.file_id || '')}" data-pinned="${item.pinned ? 'true' : 'false'}" role="gridcell" aria-label="${ariaLabel}">
+    return `<div class="file-card${selCls}${item.pinned ? ' is-pinned' : ''}${sensitiveCls}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}" data-file-id="${escapeHtml(item._fileId || item.file_id || '')}" data-pinned="${item.pinned ? 'true' : 'false'}" role="gridcell" aria-label="${ariaLabel}">
       ${checkHtml}
+      ${actionsPill}
       ${pinHtml ? `<span class="file-card-pin">${ICONS.pin}</span>` : ''}
       <div class="file-icon ${icon.cls}">${icon.icon}</div>
       <div class="file-name">${escapeHtml(item.name)}</div>
-      <div class="file-card-meta"><span>${item.is_dir ? '文件夹' : formatSize(item.size)}</span>${_sourceBadge(item.source)}${tagsHtml}</div>
+      <div class="file-card-meta"><span>${item.is_dir ? '文件夹' : formatSize(item.size)}</span>${_sourceBadge(item.source)}${groupHtml}${guardHtml}${tagsHtml}</div>
     </div>`;
   }
-  return `<div class="file-row${selCls}${item.pinned ? ' is-pinned' : ''}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}" data-file-id="${escapeHtml(item._fileId || item.file_id || '')}" data-pinned="${item.pinned ? 'true' : 'false'}" role="row" aria-label="${ariaLabel}">
+  return `<div class="file-row${selCls}${item.pinned ? ' is-pinned' : ''}${sensitiveCls}" data-path="${escapeHtml(item.path)}" data-isdir="${item.is_dir}" data-name="${escapeHtml(item.name)}" data-file-id="${escapeHtml(item._fileId || item.file_id || '')}" data-pinned="${item.pinned ? 'true' : 'false'}" role="row" aria-label="${ariaLabel}">
     <div class="file-cell file-cell--name" role="gridcell">
       ${checkHtml}
       <span class="file-icon ${icon.cls}">${icon.icon}</span>
-      <div class="file-name-info"><span class="file-name">${escapeHtml(item.name)}</span>${snippetHtml}</div>
+      <div class="file-name-info"><span class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>${snippetHtml}</div>
       ${_badgeCap(pinHtml, groupHtml, guardHtml, tagsHtml, item.is_dir)}
     </div>
     <div class="file-cell file-cell--type" role="gridcell">${item.is_dir ? `<span class="type-badge type-md">文件夹</span>` : `<span class="type-badge ${tb.cls}" title="${tb.label}">${tb.label}</span>`}</div>
@@ -3138,7 +3201,7 @@ async function handleFilesUpload(fileList) {
       const formData = new FormData();
       formData.append('file', file);
       const xhr = new XMLHttpRequest();
-      const gidParam = selectedGroup ? `&group_id=${encodeURIComponent(selectedGroup)}` : ''
+      const gidParam = (selectedGroup && selectedGroup !== SENSITIVE_GROUP_ID) ? `&group_id=${encodeURIComponent(selectedGroup)}` : ''
       xhr.open('POST', `/api/files/upload?directory=${encodeURIComponent(currentDir)}&source=manual${gidParam}`);
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
