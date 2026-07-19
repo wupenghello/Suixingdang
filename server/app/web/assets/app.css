@@ -674,12 +674,12 @@ body.view-shell { overflow: hidden; }
 }
 .chat-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-ring); }
 
-.typing-indicator { padding: 4px 16px 8px; color: var(--text-muted); font-size: 13px; align-self: flex-start; }
+.typing-indicator { padding: 0 0 2px; color: var(--text-muted); font-size: 12px; line-height: 1.4; align-self: flex-start; opacity: 0.8; }
 .typing-indicator .dot { display: inline-block; animation: bounce 1.4s infinite; }
 .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
-.typing-indicator.is-error { color: var(--danger); }
-@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
+.typing-indicator.is-error { color: var(--danger); opacity: 1; }
+@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-3px); } }
 
 /* ---- Settings · 左标签 + 右面板分栏 ---- */
 .settings-layout { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
