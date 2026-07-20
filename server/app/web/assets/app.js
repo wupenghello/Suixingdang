@@ -363,10 +363,11 @@ function loadPopoverStats(pop) {
 function computeStorageFill(used, quota) {
   const limited = quota > 0;
   const pct = limited ? Math.min((used / quota) * 100, 100) : 0;
+  const remaining = limited ? Math.max(quota - used, 0) : 0;
   let fill = 'success';
   if (pct >= 90) fill = 'danger';
   else if (pct >= 70) fill = 'warning';
-  return { limited, pct, fill };
+  return { limited, pct, fill, remaining };
 }
 
 // 弹层紧凑版存储条
