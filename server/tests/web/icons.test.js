@@ -3,7 +3,7 @@ import { ICONS, getFileIcon } from '../../app/web/assets/utils/icons.js';
 
 describe('ICONS', () => {
   it('关键 key 存在且为完整 <svg> 字符串', () => {
-    const keys = ['folder', 'file', 'fileCode', 'copy', 'tbCheck', 'search', 'send', 'close', 'trash', 'download'];
+    const keys = ['folder', 'file', 'fileCode', 'copy', 'tbCheck', 'search', 'send', 'close', 'trash', 'download', 'monitor', 'info'];
     for (const k of keys) {
       expect(typeof ICONS[k]).toBe('string');
       expect(ICONS[k].startsWith('<svg')).toBe(true);

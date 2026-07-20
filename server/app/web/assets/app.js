@@ -13,11 +13,12 @@ import { formatSize, formatDate, formatDateTime, stripExt } from './utils/format
 import { parseServerTs } from './utils/time.js?v=60';
 import { escapeHtml } from './utils/dom.js?v=60';
 import { getPreviewType, fileTypeBadge } from './utils/file-classify.js?v=60';
-import { ICONS, getFileIcon } from './utils/icons.js?v=63';
+import { ICONS, getFileIcon } from './utils/icons.js?v=64';
 import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=60';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
 import { createTrashSelection } from './utils/trash-selection.js?v=66';
+import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=93';
 
 // ============ API 层 ============
 const API = {
@@ -287,7 +288,7 @@ async function openAccountPopover(anchor) {
     <div class="ap-login" id="ap-login"></div>
     <div class="ap-menu" role="none">
       <button class="ap-item" role="menuitem" data-ap="account">${ICONS.user}<span>账户详情</span></button>
-      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全与会话</span></button>
+      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全与隐私</span></button>
       <button class="ap-item" role="menuitem" data-ap="others">${ICONS.logout}<span>退出其他设备</span></button>
     </div>
     <div class="ap-divider"></div>
@@ -2011,6 +2012,10 @@ function openCommandPalette() {
       { type: 'action', label: '传输助手', icon: ICONS.transfer, detail: '打开文件传输助手', onClick: () => App.navigate('transfer') },
       { type: 'action', label: '导出全部文件', icon: ICONS.exportIco, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
       { type: 'action', label: '设置', icon: ICONS.settings, detail: '打开设置页', onClick: () => App.navigate('settings') },
+      { type: 'action', label: '设置 · 账户', icon: ICONS.user, detail: '账户信息、配额与登录记录', onClick: () => App.openSettings('account') },
+      { type: 'action', label: '设置 · 安全与隐私', icon: ICONS.shield, detail: '修改密码、PII 脱敏、临时下载', onClick: () => App.openSettings('security') },
+      { type: 'action', label: '设置 · 设备与会话', icon: ICONS.monitor, detail: '设备令牌与紧急吊销', onClick: () => App.openSettings('devices') },
+      { type: 'action', label: '设置 · 存储与索引', icon: ICONS.database, detail: '存储统计与索引重建', onClick: () => App.openSettings('storage') },
       { type: 'action', label: '快捷键帮助', icon: ICONS.keyboard, detail: '查看所有键盘快捷键', onClick: () => showShortcutHelp() },
     ];
     return actions.filter(a => !(a.label === 'AI 对话' && !(App.currentUser && App.currentUser.ai_enabled)));
@@ -2165,6 +2170,7 @@ function showShortcutHelp() {
       { key: 'Ctrl/Cmd + E', desc: '跳转到文件列表' },
       { key: 'Ctrl/Cmd + ,', desc: '打开设置' },
       { key: 'Alt + 1/2/3/4', desc: '切换视图（传输/AI/文件/设置）' },
+      { key: '/', desc: '聚焦页内搜索（设置页内）' },
       { key: '?', desc: '显示此快捷键帮助' },
     ]},
     { group: '笔记编辑器', items: [
@@ -2226,6 +2232,11 @@ function setupGlobalShortcuts() {
     }
     if (mod && e.key === 'e') { e.preventDefault(); App.navigate('files'); return; }
     if (mod && e.key === ',') { e.preventDefault(); App.navigate('settings'); return; }
+    if (!inInput && !mod && !e.altKey && !e.shiftKey && e.key === '/' && App.currentView === 'settings') {
+      // 设置页内按 / 聚焦页内搜索（Chrome 式）
+      const si = document.getElementById('settings-search-input');
+      if (si) { e.preventDefault(); si.focus(); si.select(); return; }
+    }
     if (e.altKey && !mod) {
       const views = ['transfer', 'chat', 'files', 'settings'];
       const idx = parseInt(e.key) - 1;
@@ -3350,7 +3361,11 @@ async function downloadFile(path, opts = {}) {
     if (res.status === 403) {
       // 就地弹出密码验证，验证通过后直接下载（不跳设置页）
       const auth = await requestDownloadAuth({ filePath: path, fileId: fid, defaultMode: 'single' });
-      if (!auth) return;  // 用户取消
+      if (!auth) {
+        // 用户取消：给出带深链的引导，一键直达设置页临时下载卡片
+        Toast.show('已取消下载授权', 'info', 5000, { label: '去设置开启', onClick: () => App.openSettings('security', 'download') });
+        return;
+      }
       if (auth.mode === 'window') {
         Toast.show(`已开启临时下载（${auth.minutes} 分钟）`, 'success');
         showDownloadBanner(auth.until);
@@ -4941,174 +4956,447 @@ function previewVideo(path, name, opts = {}) {
   document.addEventListener('keydown', esc);
 }
 
-// ============ Settings ============
-async function renderSettings(initialTab) {
-  const TAB_ICONS = {
-    general: ICONS.database,
-    security: ICONS.shield,
-    account: ICONS.user,
-  };
-  const activeTab = initialTab || loadPref('settingsTab', 'general');
+// ============ Settings · Chrome 式双栏（左垂直导航 + 搜索框，右独立滚动内容区）============
+// IA：账户 / 安全与隐私 / 设备与会话 / 存储与索引 / 关于随行档（见 utils/settings-search.js）
+// 深链：#/settings/<section>[/<anchor>]；页内搜索为纯前端静态索引——不发请求、不落日志（零痕迹）。
+const APP_VERSION = '2.0.0';
+
+const SECTION_ICONS = {
+  account: ICONS.user,
+  security: ICONS.shield,
+  devices: ICONS.monitor,
+  storage: ICONS.database,
+  about: ICONS.info,
+};
+
+// ---- 全局事件（模块级单例，不随 DOM 重建重复挂监听）----
+let _settingsWired = false;
+function wireSettingsGlobal() {
+  if (_settingsWired) return;
+  _settingsWired = true;
+
+  // hashchange：深链跳转章节/锚点；不在设置视图时先导航进来
+  window.addEventListener('hashchange', () => {
+    const h = location.hash || '';
+    if (!h.startsWith('#/settings/')) return;
+    const { section, anchor } = parseSettingsHash(h);
+    if (App.currentView !== 'settings') { App.navigate('settings', { section, anchor }); return; }
+    renderTab(section, anchor, { persist: true });
+  });
+
+  // 抽屉（窄屏）：Esc 关闭并归还焦点。
+  // 守卫：若有模态/预览/命令面板叠在抽屉之上，则把本次 Esc 让给该弹层自己的处理程序，
+  // 不在同一次按键里连带关闭背后的抽屉（否则一次 Esc 双重关闭）。与 setupGlobalShortcuts 的弹层守卫保持一致。
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (document.querySelector('.modal-overlay, .preview-overlay, .cmd-overlay')) return;
+    const nav = document.getElementById('settings-nav');
+    if (nav && nav.classList.contains('settings-drawer-open')) {
+      closeSettingsDrawer();
+      document.getElementById('settings-drawer-btn')?.focus();
+    }
+  });
+
+  // 遮罩点击关闭抽屉
+  document.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'settings-scrim') closeSettingsDrawer();
+  });
+
+  // 搜索结果：点击搜索区外部收起
+  document.addEventListener('mousedown', (e) => {
+    const box = document.getElementById('settings-search');
+    if (!box || box.contains(e.target)) return;
+    hideSettingsSearchResults();
+  });
+
+  // 窗口拉宽回桌面时清理抽屉态
+  const mq = window.matchMedia('(min-width: 900px)');
+  const onMq = (ev) => { if (ev.matches) closeSettingsDrawer(); };
+  if (mq.addEventListener) mq.addEventListener('change', onMq);
+  else if (mq.addListener) mq.addListener(onMq);
+}
+
+function isSettingsDrawerMode() {
+  return window.matchMedia('(max-width: 899.98px)').matches;
+}
+
+function openSettingsDrawer() {
+  const nav = document.getElementById('settings-nav');
+  const scrim = document.getElementById('settings-scrim');
+  const btn = document.getElementById('settings-drawer-btn');
+  if (!nav) return;
+  nav.classList.add('settings-drawer-open');
+  if (scrim) { scrim.hidden = false; requestAnimationFrame(() => scrim.classList.add('is-open')); }
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+  setTimeout(() => document.getElementById('settings-search-input')?.focus(), 60);
+}
+
+function closeSettingsDrawer() {
+  const nav = document.getElementById('settings-nav');
+  const scrim = document.getElementById('settings-scrim');
+  const btn = document.getElementById('settings-drawer-btn');
+  if (!nav) return;
+  nav.classList.remove('settings-drawer-open');
+  if (scrim) {
+    scrim.classList.remove('is-open');
+    setTimeout(() => { if (!scrim.classList.contains('is-open')) scrim.hidden = true; }, 220);
+  }
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+// ---- 页内搜索（输入即过滤导航 + 结果下拉，↑↓/Enter/Esc 键盘导航）----
+let _ssResults = [];
+let _ssActiveIdx = -1;
+
+function renderSettingsSearchResults(q) {
+  const list = document.getElementById('settings-search-results');
+  const input = document.getElementById('settings-search-input');
+  if (!list || !input) return;
+  const query = String(q || '').trim();
+  _ssResults = filterSettingsIndex(query);
+  _ssActiveIdx = _ssResults.length ? 0 : -1;
+  if (!_ssResults.length) {
+    list.innerHTML = query ? '<div class="settings-search-empty">未找到相关设置</div>' : '';
+    list.hidden = !query;
+  } else {
+    list.innerHTML = _ssResults.map((r, i) => {
+      const s = getSection(r.section);
+      return `<div class="settings-search-item${i === 0 ? ' is-active' : ''}" role="option" id="ss-opt-${i}" data-idx="${i}">
+        <span class="ss-title">${escapeHtml(r.title)}</span>
+        <span class="ss-crumb">${escapeHtml(s ? s.label : r.section)}</span>
+      </div>`;
+    }).join('');
+    list.hidden = false;
+    list.querySelectorAll('.settings-search-item').forEach(el => {
+      // mousedown + preventDefault：保持输入框焦点不丢，随后执行跳转
+      el.addEventListener('mousedown', (e) => { e.preventDefault(); gotoSettingsSearchResult(parseInt(el.dataset.idx, 10)); });
+    });
+  }
+  input.setAttribute('aria-expanded', String(!list.hidden));
+  syncSsActive();
+  // 搜索时同步过滤导航项（未命中章节淡出隐藏，Chrome 式实时过滤）
+  const hitSections = new Set(_ssResults.map(r => r.section));
+  document.querySelectorAll('.settings-nav-item[data-section]').forEach(btn => {
+    btn.classList.toggle('is-hidden', !!query && !hitSections.has(btn.dataset.section));
+  });
+}
+
+function syncSsActive() {
+  const input = document.getElementById('settings-search-input');
+  const list = document.getElementById('settings-search-results');
+  if (!input || !list) return;
+  list.querySelectorAll('.settings-search-item').forEach((el, i) => el.classList.toggle('is-active', i === _ssActiveIdx));
+  input.setAttribute('aria-activedescendant', _ssActiveIdx >= 0 ? `ss-opt-${_ssActiveIdx}` : '');
+  const act = list.querySelector('.settings-search-item.is-active');
+  if (act) act.scrollIntoView({ block: 'nearest' });
+}
+
+function gotoSettingsSearchResult(idx) {
+  const r = _ssResults[idx];
+  if (!r) return;
+  const input = document.getElementById('settings-search-input');
+  if (input) input.value = '';
+  renderSettingsSearchResults(''); // 恢复导航过滤、收起结果
+  renderTab(r.section, r.anchor, { persist: true });
+}
+
+function hideSettingsSearchResults() {
+  const list = document.getElementById('settings-search-results');
+  const input = document.getElementById('settings-search-input');
+  if (list) list.hidden = true;
+  if (input) input.setAttribute('aria-expanded', 'false');
+}
+
+// ---- 各章节模板（内容组件沿用既有 loader：loadStats/loadTokens/loadDownloadGrant/loadAccountInfo）----
+const SECTION_TEMPLATES = {
+  account: () => `
+    <div class="settings-panel-title">账户</div>
+    <div class="settings-panel-desc">查看账号身份、存储配额与最近登录记录。修改密码后所有旧会话自动失效。</div>
+    <div class="settings-section" data-anchor="profile">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.user}</div>
+        <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、存储配额、安全状态与登录记录</p></div>
+      </div>
+      <div class="setting-body" id="account-info">加载中...</div>
+    </div>
+    <div class="settings-section settings-section--danger" data-anchor="logout">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-danger">${ICONS.logout}</div>
+        <div class="setting-head-text"><h3>退出登录</h3><p class="section-desc">退出当前账户，需要重新登录</p></div>
+        <div class="setting-head-action"><button class="btn btn-danger" id="btn-logout">${ICONS.logout}<span>退出</span></button></div>
+      </div>
+    </div>`,
+
+  security: () => `
+    <div class="settings-panel-title">安全与隐私</div>
+    <div class="settings-panel-desc">修改密码后旧令牌与会话立即失效；浏览器端默认禁止下载（零痕迹），需要时开临时窗口；AI 回复中的 PII 在送达前端前自动遮罩。</div>
+    <div class="settings-section" data-anchor="password">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
+        <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">修改后旧令牌与会话自动失效，需用新密码重新登录</p></div>
+      </div>
+      <div class="setting-body">
+        <div class="setting-form">
+          <div class="form-group"><label>原密码</label><input type="password" id="old-pass" class="form-input" placeholder="请输入原密码"></div>
+          <div class="form-group"><label>新密码</label><input type="password" id="new-pass" class="form-input" placeholder="请输入新密码"></div>
+          <button class="btn btn-primary" id="btn-change-pwd">修改密码</button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-section" data-anchor="pii">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-neutral">${ICONS.shield}</div>
+        <div class="setting-head-text"><h3>PII 服务端脱敏</h3><p class="section-desc">AI 回复中的手机、邮箱、身份证、API Key、银行卡在送达浏览器前自动遮罩，真实值不落前端；需要时可点睛临时揭示。</p></div>
+      </div>
+      <div class="setting-body">
+        <figure class="sx-compare" role="figure" aria-label="PII 服务端脱敏对比：原始回答含明文，送达前端时已遮罩">
+          <figcaption class="sx-compare-cap">${ICONS.shield}PII 服务端脱敏 · 原文 → 前端</figcaption>
+          <div class="sx-compare-panes">
+            <div class="sx-pane">
+              <span class="sx-pane-tag">服务端 · 原始回答</span>
+              <ul class="sx-pane-list">
+                <li><span class="sx-pane-key">手机</span><span class="sx-raw">13800000815</span></li>
+                <li><span class="sx-pane-key">邮箱</span><span class="sx-raw">wangzhiqiang@example.com</span></li>
+                <li><span class="sx-pane-key">身份证</span><span class="sx-raw">110101199003071234</span></li>
+              </ul>
+            </div>
+            <div class="sx-compare-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+            <div class="sx-pane">
+              <span class="sx-pane-tag">前端可见</span>
+              <ul class="sx-pane-list">
+                <li><span class="sx-pane-key">手机</span><span class="sx-redact">138****0815</span></li>
+                <li><span class="sx-pane-key">邮箱</span><span class="sx-redact">w***@example.com</span></li>
+                <li><span class="sx-pane-key">身份证</span><span class="sx-redact">110***********1234</span></li>
+              </ul>
+            </div>
+          </div>
+        </figure>
+      </div>
+    </div>
+    <div class="settings-section" data-anchor="download">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-warning">${ICONS.download}</div>
+        <div class="setting-head-text"><h3>临时下载</h3><p class="section-desc">浏览器端默认禁止下载（零痕迹）。下载需验证登录密码，可选单次授权或时间窗口。</p></div>
+      </div>
+      <div class="setting-body" id="download-grant-content">加载中...</div>
+    </div>`,
+
+  devices: () => `
+    <div class="settings-panel-title">设备与会话</div>
+    <div class="settings-panel-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。离职时一键吊销全部，公司端不留痕迹。</div>
+    <div class="settings-section" data-anchor="tokens">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.monitor}</div>
+        <div class="setting-head-text"><h3>访问令牌</h3><p class="section-desc">守护进程与浏览器会话各对应一条令牌，创建设备令牌供家里同步使用</p></div>
+        <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
+      </div>
+      <div class="setting-body">
+        <div class="token-list" id="tokens-content"></div>
+      </div>
+    </div>
+    <div class="settings-section settings-section--danger" data-anchor="revoke-all">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-danger">${ICONS.shield}</div>
+        <div class="setting-head-text"><h3>紧急下线所有设备与会话</h3><p class="section-desc">吊销你的全部令牌（含当前浏览器会话），你也会立即登出。适合离职、设备丢失等紧急场景。</p></div>
+      </div>
+      <div class="setting-body">
+        <div class="token-danger-zone" id="revoke-all-zone" style="display:none">
+          <div class="token-danger-zone-text">
+            <strong>此操作立即生效且不可撤销</strong>
+            <span>所有设备与浏览器会话将被登出，守护进程将停止同步，直到创建新令牌。</span>
+          </div>
+          <button class="btn btn-danger" id="btn-revoke-all-tokens">${ICONS.shield}<span>吊销全部</span></button>
+        </div>
+      </div>
+    </div>`,
+
+  storage: () => `
+    <div class="settings-panel-title">存储与索引</div>
+    <div class="settings-panel-desc">查看存储用量与配额，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
+    <div class="settings-section" data-anchor="stats">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.database}</div>
+        <div class="setting-head-text"><h3>存储统计</h3><p class="section-desc">查看文件存储使用情况</p></div>
+      </div>
+      <div class="setting-body" id="stats-content">加载中...</div>
+    </div>
+    <div class="settings-section" data-anchor="reindex">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-neutral">${ICONS.refresh}</div>
+        <div class="setting-head-text"><h3>全文索引</h3><p class="section-desc">重建文件索引以支持语义搜索</p></div>
+        <div class="setting-head-action"><button class="btn btn-secondary" id="btn-reindex">${ICONS.refresh}<span>重建索引</span></button></div>
+      </div>
+    </div>`,
+
+  about: () => `
+    <div class="settings-panel-title">关于随行档</div>
+    <div class="settings-panel-desc">一个长在你自己服务器上、靠浏览器访问、用对话驱动的私人文件中枢。</div>
+    <div class="settings-section">
+      <div class="about-brand">
+        <div class="about-avatar">随</div>
+        <div class="about-meta">
+          <div class="about-name">随行档 Suixingdang <span class="about-ver">v${APP_VERSION}</span></div>
+          <div class="about-slogan">私人文件中枢 · 自托管 · 多账户 · AI 驱动</div>
+        </div>
+      </div>
+      <ul class="about-dna">
+        <li>${ICONS.shield}<div><strong>零痕迹</strong><span>公司电脑默认只看不留，在线预览 no-store，离职一键吊销令牌即切断访问</span></div></li>
+        <li>${ICONS.ai}<div><strong>即问即得</strong><span>用自然语言告诉 agent 意图，它找到文件、传好、通知你</span></div></li>
+        <li>${ICONS.database}<div><strong>懂你的文件</strong><span>索引过文件名和内容，能分类、能提醒、能建议</span></div></li>
+      </ul>
+      <div class="about-links">
+        <a class="about-link" href="https://github.com/wupenghello/Suixingdang" target="_blank" rel="noopener noreferrer">${ICONS.fileCabinet}<span>GitHub 仓库</span></a>
+        <a class="about-link" href="https://github.com/wupenghello/Suixingdang/tree/main/docs" target="_blank" rel="noopener noreferrer">${ICONS.fileText}<span>部署文档</span></a>
+      </div>
+    </div>`,
+};
+
+// 修改密码事件绑定（renderTab 切到 security 时调用）
+function bindChangePassword() {
+  document.getElementById('btn-change-pwd')?.addEventListener('click', async () => {
+    const oldP = document.getElementById('old-pass').value;
+    const newP = document.getElementById('new-pass').value;
+    if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
+    try {
+      const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
+      if (res.ok) {
+        const d = await res.json();
+        Toast.show('密码已修改', 'success');
+        document.getElementById('old-pass').value = '';
+        document.getElementById('new-pass').value = '';
+      }
+      else { const d = await res.json(); Toast.show(d.detail || '修改失败', 'error'); }
+    } catch { Toast.show('网络错误', 'error'); }
+  });
+}
+
+// 锚点定位 + Chrome :target 式闪烁高亮；异步填充的卡片（账户信息）未就绪时重试最多 ~2s
+function flashAnchor(content, anchor, tries = 0) {
+  const target = content.querySelector(`[data-anchor="${anchor}"]`);
+  if (!target) {
+    if (tries < 120 && content.isConnected) requestAnimationFrame(() => flashAnchor(content, anchor, tries + 1));
+    return;
+  }
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  target.classList.add('settings-flash');
+  setTimeout(() => target.classList.remove('settings-flash'), 1400);
+}
+
+// 渲染章节面板（导航/搜索框不重建 → 搜索词跨章节保留）
+function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
+  const section = normalizeSectionId(sectionRaw);
+  const anchor = normalizeAnchor(section, anchorRaw);
+  if (persist) savePref('settingsTab', section); // 仅用户主动操作时持久化，深链初始渲染不覆盖偏好
+
+  const meta = getSection(section);
+  document.querySelectorAll('.settings-nav-item[data-section]').forEach(btn => {
+    const on = btn.dataset.section === section;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-current', on ? 'page' : 'false');
+  });
+  const titleEl = document.getElementById('settings-topbar-title');
+  if (titleEl) titleEl.textContent = meta ? meta.label : '设置';
+  try { history.replaceState(null, '', serializeSettingsHash(section, anchor)); } catch {}
+
+  const panel = document.getElementById('settings-panel');
+  const content = document.getElementById('settings-panel-content');
+  if (!content) return;
+  const tpl = SECTION_TEMPLATES[section];
+  content.innerHTML = tpl ? tpl() : '';
+  if (panel && !anchor) panel.scrollTop = 0;
+
+  // 章节事件绑定 + 数据加载
+  if (section === 'account') {
+    document.getElementById('btn-logout')?.addEventListener('click', () => App.logout());
+    loadAccountInfo();
+  } else if (section === 'security') {
+    bindChangePassword();
+    loadDownloadGrant();
+  } else if (section === 'devices') {
+    document.getElementById('btn-create-token')?.addEventListener('click', createToken);
+    document.getElementById('btn-revoke-all-tokens')?.addEventListener('click', revokeAllTokens);
+    loadTokens();
+  } else if (section === 'storage') {
+    document.getElementById('btn-reindex')?.addEventListener('click', rebuildIndex);
+    loadStats();
+  }
+
+  if (anchor) requestAnimationFrame(() => flashAnchor(content, anchor));
+}
+
+async function renderSettings(initialSection, initialAnchor) {
+  wireSettingsGlobal();
+
+  // 章节解析优先级：显式参数（openSettings/命令面板）> 当前 URL 深链 > localStorage 偏好 > 默认 account
+  let section = null, anchor = initialAnchor || null;
+  if (initialSection) section = normalizeSectionId(initialSection);
+  else if ((location.hash || '').startsWith('#/settings/')) {
+    const fromHash = parseSettingsHash(location.hash);
+    section = fromHash.section;
+    anchor = anchor || fromHash.anchor;
+  }
+  if (!section) section = normalizeSectionId(loadPref('settingsTab', 'account'));
+
+  const navItems = SETTINGS_SECTIONS.map(s => `
+    <button class="settings-nav-item" data-section="${s.id}" aria-current="false">${SECTION_ICONS[s.icon] || ''}<span>${escapeHtml(s.label)}</span></button>`).join('');
+
   document.getElementById('main-content').innerHTML = `
     <div class="settings-layout">
-      <nav class="settings-nav" id="settings-nav">
-        <button class="settings-nav-item" data-tab="general">${TAB_ICONS.general}存储与索引</button>
-        <button class="settings-nav-item" data-tab="security">${TAB_ICONS.security}安全</button>
-        <button class="settings-nav-item" data-tab="account">${TAB_ICONS.account}账户</button>
+      <div class="settings-topbar">
+        <button class="settings-topbar-btn" id="settings-drawer-btn" aria-label="打开设置导航" aria-expanded="false" aria-controls="settings-nav">${ICONS.settings}</button>
+        <span class="settings-topbar-title" id="settings-topbar-title">设置</span>
+      </div>
+      <div class="settings-scrim" id="settings-scrim" hidden></div>
+      <nav class="settings-nav" id="settings-nav" aria-label="设置导航">
+        <div class="settings-search" id="settings-search" role="search">
+          <div class="settings-search-box">
+            ${ICONS.search}
+            <input id="settings-search-input" type="text" placeholder="搜索设置" autocomplete="off" spellcheck="false"
+                   role="combobox" aria-expanded="false" aria-controls="settings-search-results" aria-autocomplete="list" aria-label="搜索设置">
+            <kbd>/</kbd>
+          </div>
+          <div class="settings-search-results" id="settings-search-results" role="listbox" aria-label="设置搜索结果" hidden></div>
+        </div>
+        <div class="settings-nav-list">${navItems}</div>
       </nav>
-      <div class="settings-panel">
+      <div class="settings-panel" id="settings-panel">
         <div class="settings-panel-content" id="settings-panel-content"></div>
       </div>
     </div>`;
 
-  // 渲染对应标签面板内容
-  function renderTab(tab, persist = true) {
-    if (persist) savePref('settingsTab', tab); // 仅用户主动点击时持久化，深链初始渲染不覆盖偏好
-    document.querySelectorAll('.settings-nav-item').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.tab === tab);
-    });
-    const content = document.getElementById('settings-panel-content');
-    if (tab === 'general') {
-      content.innerHTML = `
-        <div class="settings-panel-title">存储与索引</div>
-        <div class="settings-panel-desc">查看存储用量与配额，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-primary">${ICONS.database}</div>
-            <div class="setting-head-text"><h3>存储统计</h3><p class="section-desc">查看文件存储使用情况</p></div>
-          </div>
-          <div class="setting-body" id="stats-content">加载中...</div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-neutral">${ICONS.refresh}</div>
-            <div class="setting-head-text"><h3>全文索引</h3><p class="section-desc">重建文件索引以支持语义搜索</p></div>
-            <div class="setting-head-action"><button class="btn btn-secondary" id="btn-reindex">${ICONS.refresh}<span>重建索引</span></button></div>
-          </div>
-        </div>`;
-      document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
-      loadStats();
-    } else if (tab === 'security') {
-      content.innerHTML = `
-        <div class="settings-panel-title">安全</div>
-        <div class="settings-panel-desc">设备令牌可单条或一键吊销；浏览器默认禁止下载（零痕迹），需要时开临时窗口。</div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-neutral">${ICONS.shield}</div>
-            <div class="setting-head-text"><h3>PII 服务端脱敏</h3><p class="section-desc">AI 回复中的手机、邮箱、身份证、API Key、银行卡在送达浏览器前自动遮罩，真实值不落前端；需要时可点睛临时揭示。</p></div>
-          </div>
-          <div class="setting-body">
-            <figure class="sx-compare" role="figure" aria-label="PII 服务端脱敏对比：原始回答含明文，送达前端时已遮罩">
-              <figcaption class="sx-compare-cap">${ICONS.shield}PII 服务端脱敏 · 原文 → 前端</figcaption>
-              <div class="sx-compare-panes">
-                <div class="sx-pane">
-                  <span class="sx-pane-tag">服务端 · 原始回答</span>
-                  <ul class="sx-pane-list">
-                    <li><span class="sx-pane-key">手机</span><span class="sx-raw">13800000815</span></li>
-                    <li><span class="sx-pane-key">邮箱</span><span class="sx-raw">wangzhiqiang@example.com</span></li>
-                    <li><span class="sx-pane-key">身份证</span><span class="sx-raw">110101199003071234</span></li>
-                  </ul>
-                </div>
-                <div class="sx-compare-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
-                <div class="sx-pane">
-                  <span class="sx-pane-tag">前端可见</span>
-                  <ul class="sx-pane-list">
-                    <li><span class="sx-pane-key">手机</span><span class="sx-redact">138****0815</span></li>
-                    <li><span class="sx-pane-key">邮箱</span><span class="sx-redact">w***@example.com</span></li>
-                    <li><span class="sx-pane-key">身份证</span><span class="sx-redact">110***********1234</span></li>
-                  </ul>
-                </div>
-              </div>
-            </figure>
-          </div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-success">${ICONS.key}</div>
-            <div class="setting-head-text"><h3>访问令牌与会话</h3><p class="section-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。</p></div>
-            <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
-          </div>
-          <div class="setting-body">
-            <div class="token-list" id="tokens-content"></div>
-            <div class="token-danger-zone" id="revoke-all-zone" style="display:none">
-              <div class="token-danger-zone-text">
-                <strong>紧急下线所有设备与会话</strong>
-                <span>吊销你的全部令牌（含当前浏览器会话），你也会立即登出。</span>
-              </div>
-              <button class="btn btn-danger" id="btn-revoke-all-tokens">${ICONS.shield}<span>吊销全部</span></button>
-            </div>
-          </div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-warning">${ICONS.download}</div>
-            <div class="setting-head-text"><h3>临时下载</h3><p class="section-desc">浏览器端默认禁止下载（零痕迹）。下载需验证登录密码，可选单次授权或时间窗口。</p></div>
-          </div>
-          <div class="setting-body" id="download-grant-content">加载中...</div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
-            <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">修改后旧令牌与会话自动失效，需用新密码重新登录</p></div>
-          </div>
-          <div class="setting-body">
-            <div class="setting-form">
-              <div class="form-group"><label>原密码</label><input type="password" id="old-pass" class="form-input" placeholder="请输入原密码"></div>
-              <div class="form-group"><label>新密码</label><input type="password" id="new-pass" class="form-input" placeholder="请输入新密码"></div>
-              <button class="btn btn-primary" id="btn-change-pwd">修改密码</button>
-            </div>
-          </div>
-        </div>`;
-      document.getElementById('btn-create-token').addEventListener('click', createToken);
-      document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
-      bindChangePassword();
-      loadTokens(); loadDownloadGrant();
-    } else if (tab === 'account') {
-      content.innerHTML = `
-        <div class="settings-panel-title">账户</div>
-        <div class="settings-panel-desc">查看账号身份、存储配额与最近登录记录。修改密码后所有旧会话自动失效。</div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-primary">${ICONS.user}</div>
-            <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、存储配额、安全状态与登录记录</p></div>
-          </div>
-          <div class="setting-body" id="account-info">加载中...</div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-danger">${ICONS.logout}</div>
-            <div class="setting-head-text"><h3>退出登录</h3><p class="section-desc">退出当前账户，需要重新登录</p></div>
-            <div class="setting-head-action"><button class="btn btn-danger" id="btn-logout">${ICONS.logout}<span>退出</span></button></div>
-          </div>
-        </div>`;
-      document.getElementById('btn-logout').addEventListener('click', () => App.logout());
-      loadAccountInfo();
+  // 搜索框：输入即过滤，键盘 ↑↓/Enter/Esc
+  const searchInput = document.getElementById('settings-search-input');
+  searchInput.addEventListener('input', () => renderSettingsSearchResults(searchInput.value));
+  searchInput.addEventListener('focus', () => { if (searchInput.value.trim()) renderSettingsSearchResults(searchInput.value); });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    const list = document.getElementById('settings-search-results');
+    const open = list && !list.hidden && _ssResults.length > 0;
+    if (e.key === 'ArrowDown' && open) { e.preventDefault(); _ssActiveIdx = Math.min(_ssActiveIdx + 1, _ssResults.length - 1); syncSsActive(); }
+    else if (e.key === 'ArrowUp' && open) { e.preventDefault(); _ssActiveIdx = Math.max(_ssActiveIdx - 1, 0); syncSsActive(); }
+    else if (e.key === 'Enter' && open) { e.preventDefault(); gotoSettingsSearchResult(_ssActiveIdx); }
+    else if (e.key === 'Escape' && (searchInput.value || open)) {
+      e.stopPropagation(); // 消费掉，避免连带关闭抽屉
+      searchInput.value = '';
+      renderSettingsSearchResults('');
     }
-  }
-
-  // 修改密码事件绑定（抽出来，切到 security 时复用）
-  function bindChangePassword() {
-    document.getElementById('btn-change-pwd')?.addEventListener('click', async () => {
-      const oldP = document.getElementById('old-pass').value;
-      const newP = document.getElementById('new-pass').value;
-      if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
-      try {
-        const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
-        if (res.ok) {
-          const d = await res.json();
-          Toast.show('密码已修改', 'success');
-          document.getElementById('old-pass').value = '';
-          document.getElementById('new-pass').value = '';
-        }
-        else { const d = await res.json(); Toast.show(d.detail || '修改失败', 'error'); }
-      } catch { Toast.show('网络错误', 'error'); }
-    });
-  }
-
-  document.querySelectorAll('.settings-nav-item').forEach(btn => {
-    btn.addEventListener('click', () => renderTab(btn.dataset.tab));
   });
-  renderTab(activeTab, false); // 初始渲染（含深链）不覆盖用户偏好
+
+  document.querySelectorAll('.settings-nav-item[data-section]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      renderTab(btn.dataset.section, null, { persist: true });
+      if (isSettingsDrawerMode()) closeSettingsDrawer();
+    });
+  });
+
+  document.getElementById('settings-drawer-btn').addEventListener('click', () => {
+    const nav = document.getElementById('settings-nav');
+    if (nav.classList.contains('settings-drawer-open')) closeSettingsDrawer();
+    else openSettingsDrawer();
+  });
+
+  renderTab(section, anchor, { persist: false }); // 初始渲染（含深链）不覆盖用户偏好
 }
 
 async function loadAccountInfo() {
@@ -5149,8 +5437,8 @@ async function loadAccountInfo() {
           <div class="account-field"><span class="account-label">已用空间</span><span class="account-value" id="acct-used">-</span></div>
           <div class="account-field"><span class="account-label">剩余配额</span><span class="account-value" id="acct-remain">-</span></div>
         </div>
-        <div id="acct-storage"></div>
-        <div class="login-history" id="login-history"></div>
+        <div id="acct-storage" data-anchor="quota"></div>
+        <div class="login-history" id="login-history" data-anchor="history"></div>
       </div>`;
 
     // 异步填充存储用量（失败降级，不阻塞主体）
@@ -5655,6 +5943,11 @@ const App = {
     }
     this.renderLayout();
     this.navigate('transfer');
+    // 设置深链冷启动直达：#/settings/<section>[/<anchor>]（其他 hash 不受影响）
+    if ((location.hash || '').startsWith('#/settings/')) {
+      const { section, anchor } = parseSettingsHash(location.hash);
+      this.navigate('settings', { section, anchor });
+    }
     setupDragDrop();
     setupPaste();
     setupGlobalShortcuts();
@@ -5749,6 +6042,10 @@ const App = {
  navigate(view, opts = {}) {
    // 离开聊天视图时中止进行中的流式回复，避免向已分离的 DOM 继续写入
    if (this.currentView === 'chat' && view !== 'chat' && currentChatAbort) currentChatAbort.abort();
+   // 离开设置视图时清除深链 hash（防返回键意外回到旧章节；hash 仅在设置视图内有意义）
+   if (this.currentView === 'settings' && view !== 'settings') {
+     try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+   }
    this.currentView = view;
     document.querySelectorAll('.sidebar .nav-item[data-view]').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
    if (view === 'chat' && !(this.currentUser && this.currentUser.ai_enabled)) {
@@ -5759,13 +6056,13 @@ const App = {
     else if (view === 'trash') renderTrash();
     else if (view === 'chat') renderChat();
     else if (view === 'transfer') renderTransfer();
-    else if (view === 'settings') renderSettings(opts.tab);
+    else if (view === 'settings') renderSettings(opts.section || opts.tab, opts.anchor);
     else if (view === 'notes') renderNotes();
   },
-  openSettings(tab) {
-    // 校验 tab 值，避免非法值经 renderTab 被持久化到偏好（修复：openSettings tab 未校验）
-    const validTab = ['general', 'security', 'account'].includes(tab) ? tab : 'general';
-    this.navigate('settings', { tab: validTab });
+  openSettings(section, anchor) {
+    // normalizeSectionId 同时兼容旧 tab id（general→storage）；非法值回落 account，避免坏值持久化到偏好
+    const validSection = normalizeSectionId(section);
+    this.navigate('settings', { section: validSection, anchor: normalizeAnchor(validSection, anchor) });
   },
   logout() {
     if (currentChatAbort) currentChatAbort.abort();
