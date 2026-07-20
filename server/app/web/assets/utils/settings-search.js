@@ -18,6 +18,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'devices',  label: '设备',       icon: 'monitor',  desc: '设备与浏览器会话令牌、紧急吊销' },
   { id: 'storage',  label: '存储',       icon: 'database', desc: '存储用量与配额' },
   { id: 'index',    label: '索引',       icon: 'search',   desc: '语义索引状态与重建' },
+  { id: 'prefs',    label: '偏好设置',   icon: 'keyboard', desc: '快捷键提示与侧栏显示' },
   { id: 'about',    label: '关于',       icon: 'info',     desc: '产品定位与版本信息' },
 ];
 
@@ -33,6 +34,9 @@ export const SETTINGS_INDEX = [
   { section: 'devices',  anchor: 'revoke-all', title: '紧急吊销全部',   keywords: ['吊销', '下线', '离职', '紧急', 'revoke', '退出其他设备', 'token'] },
   { section: 'storage',  anchor: 'stats',      title: '存储统计',       keywords: ['存储', '用量', '配额', '空间', '磁盘', '文件总数', 'storage', 'stats', 'quota'] },
   { section: 'index',    anchor: 'reindex',    title: '全文索引',       keywords: ['索引', '重建', '语义', '搜索', '搜索不准', 'index', 'reindex', 'rebuild', 'search'] },
+  { section: 'prefs',    anchor: 'modkey',     title: '快捷键提示',     keywords: ['快捷键', '修饰键', 'command', 'ctrl', 'mac', 'windows', '提示风格', 'shortcut', 'mod', '键盘'] },
+  { section: 'prefs',    anchor: 'sidebar',    title: '侧栏显示',       keywords: ['侧栏', '折叠', '收起', '展开', '导航栏', '图标栏', 'sidebar', 'collapse'] },
+  { section: 'prefs',    anchor: 'sync',       title: '偏好同步',       keywords: ['同步', '云', '跨设备', '偏好', '跟随账户', 'sync', 'prefs'] },
 ];
 
 // 旧 Tab id → 新章节 id 兼容映射（localStorage 旧偏好 / 旧 openSettings 调用方）

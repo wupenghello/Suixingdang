@@ -11,10 +11,10 @@ import {
 } from '../../app/web/assets/utils/settings-search.js';
 
 describe('SETTINGS_SECTIONS / SETTINGS_INDEX（数据完整性）', () => {
-  it('章节 id 唯一且为拆分后的 7 章（导航顺序即数组顺序）', () => {
+  it('章节 id 唯一且为拆分后的 8 章（导航顺序即数组顺序）', () => {
     const ids = SETTINGS_SECTIONS.map(s => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(['account', 'security', 'privacy', 'devices', 'storage', 'index', 'about']);
+    expect(ids).toEqual(['account', 'security', 'privacy', 'devices', 'storage', 'index', 'prefs', 'about']);
   });
 
   it('导航条目单项化：label 不得为「X与Y」复合命名', () => {

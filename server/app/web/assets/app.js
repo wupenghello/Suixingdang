@@ -18,7 +18,8 @@ import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=61';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
 import { createTrashSelection } from './utils/trash-selection.js?v=66';
-import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=95';
+import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=96';
+import { fmtKey, normalizeHint } from './utils/platform.js?v=1';
 import { mountPasswordField } from './utils/password-field.js?v=95';
 import { auditLabel, auditCls } from './utils/audit-actions.js?v=96';
 import { changePasswordFormHTML, wireChangePasswordForm } from './utils/password-dialog.js?v=96';
@@ -188,11 +189,102 @@ const ICON_CHEVRON_LEFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 
 
 // 偏好持久化（视图、排序等）
+// 存储分两层：设备本地 localStorage（权威，永远可用）+ 可选的账户云同步（仅界面偏好，
+// 无 PII、无令牌，与零痕迹承诺不冲突）。云同步只在用户显式开启时生效，失败静默降级。
+const CLOUD_PREF_KEYS = ['sidebarCollapsed', 'modKeyHint', 'cmdActionUse']; // 与服务端 /api/auth/prefs 白名单一一对应
 function loadPref(key, def) {
   try { const v = JSON.parse(localStorage.getItem('sxd_' + key)); return v == null ? def : v; } catch { return def; }
 }
 function savePref(key, val) {
   try { localStorage.setItem('sxd_' + key, JSON.stringify(val)); } catch {}
+  scheduleCloudPrefPush(key);
+}
+let _cloudPrefTimer = null;
+function scheduleCloudPrefPush(key) {
+  if (!CLOUD_PREF_KEYS.includes(key)) return;
+  if (!loadPref('prefsCloudSync', false)) return;
+  clearTimeout(_cloudPrefTimer);
+  _cloudPrefTimer = setTimeout(pushCloudPrefs, 800); // 防抖：折叠连点/频次连加合并为一次请求
+}
+function collectCloudPrefs() {
+  const prefs = {};
+  for (const k of CLOUD_PREF_KEYS) {
+    const v = loadPref(k, null);
+    if (v != null) prefs[k] = v;
+  }
+  return prefs;
+}
+async function pushCloudPrefs() {
+  try { await API.put('/api/auth/prefs', { prefs: collectCloudPrefs() }); } catch {} // 静默：本地永远权威
+}
+// 登录后拉取云端偏好：仅填补本地未设置的键（本地已有 = 本设备用户明确的状态，不被覆盖）。
+// 旧后端无此接口 / 网络异常时静默等同纯本地模式。
+async function pullCloudPrefs() {
+  try {
+    const res = await API.get('/api/auth/prefs', { _skipLogoutRedirect: true });
+    if (!res.ok) return;
+    const data = await res.json();
+    const cloud = (data && data.prefs) || {};
+    for (const k of CLOUD_PREF_KEYS) {
+      if (cloud[k] == null) continue;
+      let hasLocal = true;
+      try { hasLocal = localStorage.getItem('sxd_' + k) != null; } catch {}
+      if (!hasLocal) { try { localStorage.setItem('sxd_' + k, JSON.stringify(cloud[k])); } catch {} }
+    }
+  } catch {}
+}
+
+// ---- 侧栏折叠：单一真源 ----
+// 折叠状态三处必须同步：DOM 类（.sidebar.collapsed + .app-layout.sidebar-collapsed）、
+// toggle 按钮的 aria/title、localStorage。按钮点击 / ⌘B(Ctrl+B) / 设置页开关全走这一入口。
+function applySidebarToggleState(collapsed) {
+  const btn = document.getElementById('sidebar-toggle');
+  if (!btn) return;
+  btn.setAttribute('aria-expanded', String(!collapsed));
+  btn.title = collapsed ? '展开侧栏' : '收起侧栏';
+}
+function setSidebarCollapsed(collapsed) {
+  const sb = document.getElementById('sidebar');
+  if (!sb) return;
+  sb.classList.toggle('collapsed', collapsed);
+  document.querySelector('.app-layout')?.classList.toggle('sidebar-collapsed', collapsed);
+  applySidebarToggleState(collapsed);
+  savePref('sidebarCollapsed', collapsed);
+  // 首次引导结束：停掉呼吸提示
+  savePref('sidebarHintSeen', true);
+  document.getElementById('sidebar-toggle')?.classList.remove('pulse-once');
+}
+
+// ---- 快捷操作面板辅助 ----
+// 动作使用频次：仅设备本地聚合，用于"常用"组重排；绝不上传（零痕迹）
+function countActionUse(label) {
+  const use = loadPref('cmdActionUse', {}) || {};
+  use[label] = (use[label] || 0) + 1;
+  const keys = Object.keys(use);
+  if (keys.length > 64) { // 按频次裁剪到 64 个，防无限增长
+    keys.sort((a, b) => (use[b] || 0) - (use[a] || 0)).slice(64).forEach(k => delete use[k]);
+  }
+  savePref('cmdActionUse', use);
+}
+let _paletteTagCache = null;
+async function fetchAllTags() {
+  if (_paletteTagCache) return _paletteTagCache;
+  try {
+    const res = await API.get('/api/files/all-tags');
+    if (res.ok) { const d = await res.json(); _paletteTagCache = (d.tags || []).map(t => t.name); }
+  } catch {}
+  return _paletteTagCache || [];
+}
+// "问 AI：<问题>"：带到 AI 助手输入框并聚焦，由用户确认发送（不自动烧 token）
+function askAiWithQuestion(question) {
+  if (!(App.currentUser && App.currentUser.ai_enabled)) { Toast.show('管理员未为您开通 AI 助手功能', 'info'); return; }
+  App.navigate('chat');
+  setTimeout(() => {
+    const ci = document.getElementById('chat-input');
+    if (!ci) return;
+    if (question) { ci.value = question; ci.dispatchEvent(new Event('input', { bubbles: true })); }
+    ci.focus();
+  }, 120);
 }
 
 // 列表加载骨架屏（替代纯文字"加载中..."）
@@ -1809,14 +1901,15 @@ ${r.html}
   // ---- 扩展快捷键体系 ----
   ta.addEventListener('keydown', (e) => {
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.key === 'Enter') { e.preventDefault(); save(); }
-    else if (mod && e.key === 'b') { e.preventDefault(); wrapSelection('**', '**', '加粗文字'); }
-    else if (mod && e.key === 'i') { e.preventDefault(); wrapSelection('*', '*', '斜体文字'); }
-    else if (mod && e.key === 'k') { e.preventDefault(); wrapSelection('[', '](https://)', '链接文字'); }
-    else if (mod && e.key === 'm') { e.preventDefault(); wrapSelection('$$', '$$', 'E=mc^2'); }
-    else if (mod && e.key === 'p') { e.preventDefault(); viewBtn.click(); }
-    else if (mod && e.key === 's') { e.preventDefault(); doSave(false).then(ok => { if (ok) refreshCurrentView(); }); }
-    else if (mod && e.key === '/') { e.preventDefault(); insertBlock('\n```\n代码\n```\n'); }
+    const key = e.key.toLowerCase(); // 同全局处理器：Caps Lock 下大写字母键归一
+    if (mod && key === 'enter') { e.preventDefault(); save(); }
+    else if (mod && key === 'b') { e.preventDefault(); wrapSelection('**', '**', '加粗文字'); }
+    else if (mod && key === 'i') { e.preventDefault(); wrapSelection('*', '*', '斜体文字'); }
+    else if (mod && key === 'k') { e.preventDefault(); wrapSelection('[', '](https://)', '链接文字'); }
+    else if (mod && key === 'm') { e.preventDefault(); wrapSelection('$$', '$$', 'E=mc^2'); }
+    else if (mod && key === 'p') { e.preventDefault(); viewBtn.click(); }
+    else if (mod && key === 's') { e.preventDefault(); doSave(false).then(ok => { if (ok) refreshCurrentView(); }); }
+    else if (mod && key === '/') { e.preventDefault(); insertBlock('\n```\n代码\n```\n'); }
     else if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -1933,10 +2026,17 @@ function openCommandPalette() {
   overlay.innerHTML = `
     <div class="cmd-palette">
       <div class="cmd-input-wrap">${ICONS.search}
-        <input type="text" class="cmd-input" placeholder="搜索文件、笔记、标签…" autocomplete="off" spellcheck="false">
+        <input type="text" class="cmd-input" placeholder="执行操作，或搜索文件、笔记、标签…" autocomplete="off" spellcheck="false">
         <span class="cmd-hint">ESC 关闭</span>
       </div>
       <div class="cmd-results" id="cmd-results"></div>
+      <div class="cmd-footer">
+        <span>输入即搜索</span>
+        <span class="cmd-footer-sep"></span>
+        <kbd>&gt;</kbd><span>仅看操作</span>
+        <kbd>#</kbd><span>按标签</span>
+        <kbd>?</kbd><span>问 AI</span>
+      </div>
     </div>`;
   document.body.appendChild(overlay);
   document.body.style.overflow = 'hidden';
@@ -1946,6 +2046,7 @@ function openCommandPalette() {
   let results = [];
   let selectedIdx = 0;
   let lastQuery = '';
+  let effectiveQuery = ''; // 高亮用：去掉 >/ #/ ? 前缀后的真实检索词
   let debounceTimer = null;
 
   function closePalette() {
@@ -1964,16 +2065,24 @@ function openCommandPalette() {
 
   function renderResults() {
     if (!results.length) {
-      resultsEl.innerHTML = '<div class="cmd-empty">输入关键词搜索…</div>';
+      resultsEl.innerHTML = '<div class="cmd-empty">没有匹配项</div>';
       return;
     }
-    resultsEl.innerHTML = results.map((r, i) => {
+    let html = '';
+    let lastGroup = null;
+    results.forEach((r, i) => {
       const isAction = r.type === 'action';
-      const displayIcon = isAction ? (r.icon || ICONS.file) : getFileIcon(r.name || r.path || '', false).icon;
+      const isTag = r.type === 'tag';
+      const group = r.group || (isAction ? '操作' : '文件 · 语义搜索');
+      if (group !== lastGroup) {
+        html += `<div class="cmd-group-label">${escapeHtml(group)}</div>`;
+        lastGroup = group;
+      }
+      const displayIcon = (isAction || isTag) ? (r.icon || ICONS.file) : getFileIcon(r.name || r.path || '', false).icon;
       const displayName = r.label || r.name || r.path || '';
-      const detail = r.snippet ? hl(r.snippet, lastQuery) : escapeHtml(r.detail || '');
-      const score = (!isAction && r.score != null) ? `<span class="cmd-item-score">${Number(r.score).toFixed(2)}</span>` : '';
-      return `<div class="cmd-item${i === selectedIdx ? ' is-selected' : ''}" data-idx="${i}">
+      const detail = r.snippet ? hl(r.snippet, effectiveQuery) : escapeHtml(r.detail || '');
+      const score = (!isAction && !isTag && r.score != null) ? `<span class="cmd-item-score">${Number(r.score).toFixed(2)}</span>` : '';
+      html += `<div class="cmd-item${i === selectedIdx ? ' is-selected' : ''}" data-idx="${i}">
         <span class="cmd-item-icon">${displayIcon}</span>
         <span class="cmd-item-info">
           <span class="cmd-item-name">${escapeHtml(displayName)}</span>
@@ -1981,7 +2090,8 @@ function openCommandPalette() {
         </span>
         ${score}
       </div>`;
-    }).join('');
+    });
+    resultsEl.innerHTML = html;
     resultsEl.querySelectorAll('.cmd-item').forEach(el => {
       el.addEventListener('click', () => { selectItem(parseInt(el.dataset.idx)); });
     });
@@ -1992,7 +2102,14 @@ function openCommandPalette() {
   function selectItem(idx) {
     if (idx < 0 || idx >= results.length) return;
     const r = results[idx];
+    if (r.type === 'tag') {
+      // 留在面板：把标签作为语义检索词，用户可见地切到搜索态
+      input.value = r.label;
+      doSearch(r.label);
+      return;
+    }
     closePalette();
+    if (r.type === 'action') countActionUse(r.label);
     if (r.onClick) { r.onClick(); return; }
     const name = r.name || r.path || '';
     const isNote = /\.(md|markdown|mdown|mkd)$/i.test(name);
@@ -2001,8 +2118,35 @@ function openCommandPalette() {
   }
 
   async function doSearch(q) {
-    lastQuery = q.trim();
-    if (!lastQuery) { results = getQuickActions(); selectedIdx = 0; renderResults(); return; }
+    const raw = q.trim();
+    lastQuery = raw;
+    if (!raw) { results = getQuickActions(); selectedIdx = 0; renderResults(); return; }
+    // ">" 前缀：仅过滤操作（Notion/VS Code 式命令模式）
+    if (raw.startsWith('>')) {
+      const term = raw.slice(1).trim().toLowerCase();
+      effectiveQuery = term;
+      results = getQuickActions().filter(a => !term || (a.label + ' ' + (a.detail || '')).toLowerCase().includes(term));
+      selectedIdx = 0; renderResults(); return;
+    }
+    // "#" 前缀：按标签查找（all-tags 聚合，选中后以标签做语义检索）
+    if (raw.startsWith('#')) {
+      const term = raw.slice(1).trim().toLowerCase();
+      effectiveQuery = term;
+      const tags = await fetchAllTags();
+      if (lastQuery !== raw) return; // 已被更新的输入取代，丢弃过期结果
+      results = tags.filter(t => !term || t.toLowerCase().includes(term))
+        .slice(0, 30)
+        .map(t => ({ type: 'tag', group: '标签', label: t, icon: ICONS.tag, detail: '回车：以此标签语义查找文件' }));
+      selectedIdx = 0; renderResults(); return;
+    }
+    // "?" 前缀：把问题带到 AI 助手（预填输入框，不自动发送）
+    if (raw.startsWith('?')) {
+      const question = raw.slice(1).trim();
+      effectiveQuery = question;
+      results = question ? [{ type: 'action', group: 'AI 助手', label: '问 AI：' + question, icon: ICONS.ai, detail: '带到 AI 助手输入框，由你确认发送', onClick: () => askAiWithQuestion(question) }] : [];
+      selectedIdx = 0; renderResults(); return;
+    }
+    effectiveQuery = raw;
     try {
       const res = await API.get('/api/files/search?q=' + encodeURIComponent(q) + '&limit=15');
       if (!res.ok) { results = []; renderResults(); return; }
@@ -2015,21 +2159,32 @@ function openCommandPalette() {
 
   function getQuickActions() {
     const actions = [
-      { type: 'action', label: '新建笔记', icon: ICONS.note, detail: '创建新的 Markdown 笔记', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => showNoteEditor(), 50); } },
-      { type: 'action', label: '上传文件', icon: ICONS.upload, detail: '上传文件到当前目录', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => document.getElementById('file-input')?.click(), 100); } },
-      { type: 'action', label: 'AI 对话', icon: ICONS.chat, detail: '打开 AI 助手对话', onClick: () => App.navigate('chat') },
-      { type: 'action', label: '传输助手', icon: ICONS.transfer, detail: '打开文件传输助手', onClick: () => App.navigate('transfer') },
-      { type: 'action', label: '导出全部文件', icon: ICONS.exportIco, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
-      { type: 'action', label: '设置', icon: ICONS.settings, detail: '打开设置页', onClick: () => App.navigate('settings') },
-      { type: 'action', label: '设置 · 账户', icon: ICONS.user, detail: '账户信息、安全状态与登录历史', onClick: () => App.openSettings('account') },
-      { type: 'action', label: '设置 · 安全', icon: ICONS.shield, detail: '修改密码，旧会话立即失效', onClick: () => App.openSettings('security') },
-      { type: 'action', label: '设置 · 隐私', icon: ICONS.eye, detail: 'PII 服务端脱敏、零痕迹临时下载', onClick: () => App.openSettings('privacy') },
-      { type: 'action', label: '设置 · 设备', icon: ICONS.monitor, detail: '访问令牌与紧急吊销', onClick: () => App.openSettings('devices') },
-      { type: 'action', label: '设置 · 存储', icon: ICONS.database, detail: '存储用量与配额', onClick: () => App.openSettings('storage') },
-      { type: 'action', label: '设置 · 索引', icon: ICONS.search, detail: '语义索引状态与重建', onClick: () => App.openSettings('index') },
-      { type: 'action', label: '快捷键帮助', icon: ICONS.keyboard, detail: '查看所有键盘快捷键', onClick: () => showShortcutHelp() },
+      // —— 常用：按本地使用频次重排（同频保持注册序）——
+      { type: 'action', group: '常用', label: '新建笔记', icon: ICONS.note, detail: '创建新的 Markdown 笔记', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => showNoteEditor(), 50); } },
+      { type: 'action', group: '常用', label: '上传文件', icon: ICONS.upload, detail: '上传文件到当前目录', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => document.getElementById('file-input')?.click(), 100); } },
+      { type: 'action', group: '常用', label: 'AI 对话', icon: ICONS.chat, detail: '打开 AI 助手对话', onClick: () => App.navigate('chat') },
+      { type: 'action', group: '常用', label: 'AI 对话 · 带问题', icon: ICONS.ai, detail: '把问题带到 AI 助手输入框', onClick: () => askAiWithQuestion('') },
+      { type: 'action', group: '常用', label: '传输助手', icon: ICONS.transfer, detail: '打开文件传输助手', onClick: () => App.navigate('transfer') },
+      { type: 'action', group: '常用', label: '导出全部文件', icon: ICONS.exportIco, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
+      // —— 导航 ——
+      { type: 'action', group: '导航', label: '文件库', icon: ICONS.files, detail: '全部文件与目录', onClick: () => App.navigate('files') },
+      { type: 'action', group: '导航', label: '笔记', icon: ICONS.note, detail: '全部笔记', onClick: () => App.navigate('notes') },
+      { type: 'action', group: '导航', label: '回收站', icon: ICONS.trash, detail: '已删除文件，可恢复', onClick: () => App.navigate('trash') },
+      // —— 设置 ——
+      { type: 'action', group: '设置', label: '设置', icon: ICONS.settings, detail: '打开设置页', onClick: () => App.navigate('settings') },
+      { type: 'action', group: '设置', label: '设置 · 账户', icon: ICONS.user, detail: '账户信息、安全状态与登录历史', onClick: () => App.openSettings('account') },
+      { type: 'action', group: '设置', label: '设置 · 安全', icon: ICONS.shield, detail: '修改密码，旧会话立即失效', onClick: () => App.openSettings('security') },
+      { type: 'action', group: '设置', label: '设置 · 隐私', icon: ICONS.eye, detail: 'PII 服务端脱敏、零痕迹临时下载', onClick: () => App.openSettings('privacy') },
+      { type: 'action', group: '设置', label: '设置 · 设备', icon: ICONS.monitor, detail: '访问令牌与紧急吊销', onClick: () => App.openSettings('devices') },
+      { type: 'action', group: '设置', label: '设置 · 存储', icon: ICONS.database, detail: '存储用量与配额', onClick: () => App.openSettings('storage') },
+      { type: 'action', group: '设置', label: '设置 · 索引', icon: ICONS.search, detail: '语义索引状态与重建', onClick: () => App.openSettings('index') },
+      { type: 'action', group: '设置', label: '设置 · 偏好', icon: ICONS.keyboard, detail: '快捷键提示与侧栏显示', onClick: () => App.openSettings('prefs') },
+      { type: 'action', group: '设置', label: '快捷键帮助', icon: ICONS.keyboard, detail: '查看所有键盘快捷键', onClick: () => showShortcutHelp() },
     ];
-    return actions.filter(a => !(a.label === 'AI 对话' && !(App.currentUser && App.currentUser.ai_enabled)));
+    const filtered = actions.filter(a => !(a.label.startsWith('AI 对话') && !(App.currentUser && App.currentUser.ai_enabled)));
+    const useCount = loadPref('cmdActionUse', {}) || {};
+    // 稳定排序：仅组内按使用频次降序，跨组保持注册序（常用/导航/设置）
+    return filtered.sort((a, b) => (a.group === b.group ? (useCount[b.label] || 0) - (useCount[a.label] || 0) : 0));
   }
 
   input.addEventListener('input', (e) => {
@@ -2312,26 +2467,30 @@ async function exportAllFiles(groupId = '') {
 // ============ Shortcut Help (#13) ============
 function showShortcutHelp() {
   const { modal, close } = openModal({ width: 560, onDismiss: () => close() });
+  const hint = loadPref('modKeyHint', 'auto');
+  const K = (combo) => escapeHtml(fmtKey(combo, hint)); // 按平台渲染 ⌘K / Ctrl+K
+  const isMacStyle = fmtKey('mod', hint) === '⌘';
   const shortcuts = [
     { group: '全局', items: [
-      { key: 'Ctrl/Cmd + K', desc: '打开快速搜索（命令面板）' },
-      { key: 'Ctrl/Cmd + N', desc: '新建笔记' },
-      { key: 'Ctrl/Cmd + E', desc: '跳转到文件列表' },
-      { key: 'Ctrl/Cmd + ,', desc: '打开设置' },
+      { key: K('mod+k'), desc: '打开快捷操作面板（命令面板）' },
+      { key: K('mod+b'), desc: '收起 / 展开侧栏' },
+      { key: K('mod+n'), desc: '新建笔记' },
+      { key: K('mod+e'), desc: '跳转到文件列表' },
+      { key: K('mod+,'), desc: '打开设置' },
       { key: 'Alt + 1/2/3/4', desc: '切换视图（传输/AI/文件/设置）' },
       { key: '/', desc: '聚焦页内搜索（设置页内）' },
       { key: '?', desc: '显示此快捷键帮助' },
     ]},
     { group: '笔记编辑器', items: [
-      { key: 'Ctrl/Cmd + S', desc: '保存（不关闭）' },
-      { key: 'Ctrl/Cmd + Enter', desc: '保存并关闭' },
-      { key: 'Ctrl/Cmd + B', desc: '加粗' },
-      { key: 'Ctrl/Cmd + I', desc: '斜体' },
-      { key: 'Ctrl/Cmd + K', desc: '插入链接' },
-      { key: 'Ctrl/Cmd + M', desc: '插入数学公式' },
-      { key: 'Ctrl/Cmd + P', desc: '切换编辑/分屏/预览' },
-      { key: 'Ctrl/Cmd + \\', desc: '切换目录侧栏' },
-      { key: 'Ctrl/Cmd + /', desc: '插入代码块' },
+      { key: K('mod+s'), desc: '保存（不关闭）' },
+      { key: K('mod+enter'), desc: '保存并关闭' },
+      { key: K('mod+b'), desc: '加粗' },
+      { key: K('mod+i'), desc: '斜体' },
+      { key: K('mod+k'), desc: '插入链接' },
+      { key: K('mod+m'), desc: '插入数学公式' },
+      { key: K('mod+p'), desc: '切换编辑/分屏/预览' },
+      { key: K('mod+\\'), desc: '切换目录侧栏' },
+      { key: K('mod+/'), desc: '插入代码块' },
       { key: 'F11', desc: '全屏编辑' },
       { key: 'Tab / Shift+Tab', desc: '缩进 / 取消缩进' },
     ]},
@@ -2357,7 +2516,8 @@ function showShortcutHelp() {
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary" id="btn-close-shortcuts">知道了</button>
-    </div>`;
+    </div>
+    <p class="shortcut-note">${isMacStyle ? '⌘ 即 Command 键；Ctrl 组合同样可用（可在 设置 · 偏好 中调整提示风格）' : 'macOS 用户请用 ⌘（Command）代替 Ctrl（可在 设置 · 偏好 中调整提示风格）'}</p>`;
   modal.querySelector('#btn-close-shortcuts').addEventListener('click', close);
 }
 
@@ -2369,19 +2529,30 @@ function setupGlobalShortcuts() {
     const tag = (e.target.tagName || '').toLowerCase();
     const inInput = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
     const mod = e.metaKey || e.ctrlKey;
+    // 归一化：Caps Lock 开启或自动化合成事件会给出大写字母键，统一小写比较，
+    // 避免"开着大写锁定 ⌘K 就失灵"这类隐蔽 bug。
+    const key = e.key.toLowerCase();
 
-    if (mod && e.key === 'k') { e.preventDefault(); if (!_cmdPaletteOpen) openCommandPalette(); return; }
+    if (mod && key === 'k') { e.preventDefault(); if (!_cmdPaletteOpen) openCommandPalette(); return; }
+    if (mod && key === 'b' && !inInput) {
+      // ⌘B/Ctrl+B 切换主侧栏。必须排除输入态：笔记编辑器内 ⌘B=加粗（编辑器自有处理器先触发），
+      // 若此处不排除，编辑器里加粗会连带折叠侧栏。
+      e.preventDefault();
+      const sb = document.getElementById('sidebar');
+      if (sb) setSidebarCollapsed(!sb.classList.contains('collapsed'));
+      return;
+    }
     if (inInput && !mod) return;
 
-    if (mod && e.key === 'n') {
+    if (mod && key === 'n') {
       e.preventDefault();
       if (App.currentView !== 'files') App.navigate('files');
       setTimeout(() => showNoteEditor(), 50);
       return;
     }
-    if (mod && e.key === 'e') { e.preventDefault(); App.navigate('files'); return; }
-    if (mod && e.key === ',') { e.preventDefault(); App.navigate('settings'); return; }
-    if (!inInput && !mod && !e.altKey && !e.shiftKey && e.key === '/' && App.currentView === 'settings') {
+    if (mod && key === 'e') { e.preventDefault(); App.navigate('files'); return; }
+    if (mod && key === ',') { e.preventDefault(); App.navigate('settings'); return; }
+    if (!inInput && !mod && !e.altKey && !e.shiftKey && key === '/' && App.currentView === 'settings') {
       // 设置页内按 / 聚焦页内搜索（Chrome 式）
       const si = document.getElementById('settings-search-input');
       if (si) { e.preventDefault(); si.focus(); si.select(); return; }
@@ -2396,7 +2567,8 @@ function setupGlobalShortcuts() {
         return;
       }
     }
-    if (!inInput && !mod && e.shiftKey && e.key === '/') { e.preventDefault(); showShortcutHelp(); return; }
+    // "?" 帮助：真实浏览器 shift+/ 上报 key='?'（部分环境上报 '/' + shiftKey），两种都接受
+    if (!inInput && !mod && (e.key === '?' || (e.shiftKey && key === '/'))) { e.preventDefault(); showShortcutHelp(); return; }
   });
 }
 
@@ -5145,6 +5317,7 @@ const SECTION_ICONS = {
   devices: ICONS.monitor,
   storage: ICONS.database,
   index: ICONS.search,
+  prefs: ICONS.keyboard,
   about: ICONS.info,
 };
 
@@ -5423,6 +5596,42 @@ const SECTION_TEMPLATES = {
       </div>
     </div>`,
 
+  prefs: () => `
+    <div class="settings-panel-title">偏好设置</div>
+    <div class="settings-panel-desc">这些偏好默认只保存在当前设备浏览器中；开启同步后可跟随账户跨设备沿用（仅界面偏好，不含任何文件数据）。</div>
+    <div class="settings-section" data-anchor="modkey">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.keyboard}</div>
+        <div class="setting-head-text"><h3>快捷键提示风格</h3><p class="section-desc">侧栏与快捷键帮助中修饰键的显示方式；实际按键 ⌘ 与 Ctrl 始终通用</p></div>
+      </div>
+      <div class="setting-body">
+        <div class="prefs-radio-row" role="radiogroup" aria-label="快捷键提示风格">
+          <label class="prefs-radio"><input type="radio" name="modkey-hint" value="auto"><span>自动（跟随系统）</span></label>
+          <label class="prefs-radio"><input type="radio" name="modkey-hint" value="mac"><span>Mac 风格（⌘）</span></label>
+          <label class="prefs-radio"><input type="radio" name="modkey-hint" value="win"><span>Windows 风格（Ctrl）</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="settings-section" data-anchor="sidebar">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.files}</div>
+        <div class="setting-head-text"><h3>侧栏显示</h3><p class="section-desc">收起后仅保留图标，悬停显示名称；随时可用 ${escapeHtml(fmtKey('mod+b', loadPref('modKeyHint', 'auto')))} 切换</p></div>
+      </div>
+      <div class="setting-body">
+        <label class="prefs-check"><input type="checkbox" id="prefs-sidebar-collapsed"><span>默认收起侧栏</span></label>
+      </div>
+    </div>
+    <div class="settings-section" data-anchor="sync">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.refresh}</div>
+        <div class="setting-head-text"><h3>偏好同步</h3><p class="section-desc">把侧栏状态、快捷键风格同步到账户，其他设备登录后自动沿用（不含文件、令牌与任何敏感数据）</p></div>
+      </div>
+      <div class="setting-body">
+        <label class="prefs-check"><input type="checkbox" id="prefs-cloud-sync"><span>同步到我的账户</span></label>
+        <p class="setting-meta" id="prefs-sync-status"></p>
+      </div>
+    </div>`,
+
   about: () => `
     <div class="settings-panel-title">关于</div>
     <div class="settings-panel-desc">一个长在你自己服务器上、靠浏览器访问、用对话驱动的私人文件中枢。</div>
@@ -5514,6 +5723,44 @@ function flashAnchor(content, anchor, tries = 0) {
   setTimeout(() => target.classList.remove('settings-flash'), 1400);
 }
 
+// ---- 偏好设置章节（修饰键提示 / 侧栏默认状态 / 云同步）----
+function wirePrefsSection() {
+  const hint = normalizeHint(loadPref('modKeyHint', 'auto'));
+  document.querySelectorAll('input[name="modkey-hint"]').forEach(r => {
+    r.checked = r.value === hint;
+    r.addEventListener('change', () => {
+      savePref('modKeyHint', r.value);
+      // 重建应用壳让 ⌘/Ctrl 提示全站即刻生效，并停留在偏好章节
+      App.renderLayout();
+      App.navigate('settings', { section: 'prefs' });
+    });
+  });
+  const sbCheck = document.getElementById('prefs-sidebar-collapsed');
+  if (sbCheck) {
+    sbCheck.checked = !!loadPref('sidebarCollapsed', false);
+    sbCheck.addEventListener('change', () => setSidebarCollapsed(sbCheck.checked));
+  }
+  const syncCheck = document.getElementById('prefs-cloud-sync');
+  const status = document.getElementById('prefs-sync-status');
+  if (syncCheck) {
+    syncCheck.checked = !!loadPref('prefsCloudSync', false);
+    syncCheck.addEventListener('change', async () => {
+      savePref('prefsCloudSync', syncCheck.checked);
+      if (!syncCheck.checked) {
+        if (status) status.textContent = '已停止同步，偏好仅保留在各设备本地。';
+        return;
+      }
+      if (status) status.textContent = '正在上传当前偏好…';
+      try {
+        const res = await API.put('/api/auth/prefs', { prefs: collectCloudPrefs() });
+        if (status) status.textContent = res.ok ? '已同步到账户，其他设备登录后自动沿用。' : '同步失败（' + res.status + '），偏好仍保留在本设备。';
+      } catch {
+        if (status) status.textContent = '同步失败（网络错误），偏好仍保留在本设备。';
+      }
+    });
+  }
+}
+
 // 渲染章节面板（导航/搜索框不重建 → 搜索词跨章节保留）
 function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
   const section = normalizeSectionId(sectionRaw);
@@ -5560,6 +5807,8 @@ function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
     loadStats();
   } else if (section === 'index') {
     document.getElementById('btn-reindex')?.addEventListener('click', rebuildIndex);
+  } else if (section === 'prefs') {
+    wirePrefsSection();
   }
 
   if (anchor) requestAnimationFrame(() => flashAnchor(content, anchor));
@@ -6219,6 +6468,8 @@ const App = {
       const res = await API.get('/api/auth/me', { _skipLogoutRedirect: true });
       if (!res || !res.ok) { renderLogin(); return; }
       this.currentUser = await res.json();
+      // 云端偏好回填：仅填补本地未设置的键，失败静默（旧后端无此接口时等同纯本地模式）
+      await pullCloudPrefs();
     } catch {
       renderLogin(); return;
     }
@@ -6241,11 +6492,12 @@ const App = {
     const username = this.currentUser ? this.currentUser.username : '随行档';
     const initial = this.currentUser ? this.currentUser.username.charAt(0).toUpperCase() : '档';
     const aiEnabled = this.currentUser && this.currentUser.ai_enabled;
-    const collapsed = loadPref('sidebarCollapsed', false) ? ' collapsed' : '';
+    const collapsed = loadPref('sidebarCollapsed', false);
+    const modHint = loadPref('modKeyHint', 'auto');
 
     document.getElementById('app').innerHTML = `
-      <div class="app-layout">
-        <aside class="sidebar${collapsed}" id="sidebar">
+      <div class="app-layout${collapsed ? ' sidebar-collapsed' : ''}">
+        <aside class="sidebar${collapsed ? ' collapsed' : ''}" id="sidebar">
           <div class="sidebar-header">
             <div class="workspace" id="sidebar-logo" title="随行档">
               <div class="workspace-avatar">${initial}</div>
@@ -6256,24 +6508,25 @@ const App = {
             </div>
           </div>
           <div class="sidebar-search">
-            <div class="sidebar-search-box" id="sidebar-search-trigger">
+            <div class="sidebar-search-box" id="sidebar-search-trigger" role="button" tabindex="0"
+                 data-tip="快捷操作" title="快捷操作（${escapeHtml(fmtKey('mod+k', modHint))}）">
               ${ICONS.search}
-              <span>搜索</span>
-              <kbd>Ctrl K</kbd>
+              <span>快捷操作</span>
+              <kbd>${escapeHtml(fmtKey('mod+k', modHint))}</kbd>
             </div>
           </div>
           <nav class="sidebar-nav">
             <div class="nav-section">
               <div class="nav-section-label">工作区</div>
-              <button class="nav-item active" data-view="transfer">${ICONS.transfer}<span class="nav-item-label">传输助手</span></button>
-              ${aiEnabled ? `<button class="nav-item" data-view="chat">${ICONS.chat}<span class="nav-item-label">AI 助手</span></button>` : ''}
-              <button class="nav-item" data-view="files">${ICONS.files}<span class="nav-item-label">文件库</span></button>
-              <button class="nav-item" data-view="notes">${ICONS.note}<span class="nav-item-label">笔记</span></button>
-              <button class="nav-item" data-view="trash">${ICONS.trash}<span class="nav-item-label">回收站</span><span class="nav-badge" id="trash-count" hidden>0</span></button>
+              <button class="nav-item active" data-view="transfer" data-tip="传输助手" title="传输助手">${ICONS.transfer}<span class="nav-item-label">传输助手</span></button>
+              ${aiEnabled ? `<button class="nav-item" data-view="chat" data-tip="AI 助手" title="AI 助手">${ICONS.chat}<span class="nav-item-label">AI 助手</span></button>` : ''}
+              <button class="nav-item" data-view="files" data-tip="文件库" title="文件库">${ICONS.files}<span class="nav-item-label">文件库</span></button>
+              <button class="nav-item" data-view="notes" data-tip="笔记" title="笔记">${ICONS.note}<span class="nav-item-label">笔记</span></button>
+              <button class="nav-item" data-view="trash" data-tip="回收站" title="回收站">${ICONS.trash}<span class="nav-item-label">回收站</span><span class="nav-badge" id="trash-count" hidden>0</span></button>
             </div>
             <div class="nav-section">
               <div class="nav-section-label">系统</div>
-              <button class="nav-item" data-view="settings">${ICONS.settings}<span class="nav-item-label">设置</span></button>
+              <button class="nav-item" data-view="settings" data-tip="设置" title="设置">${ICONS.settings}<span class="nav-item-label">设置</span></button>
             </div>
           </nav>
           <div class="sidebar-footer">
@@ -6287,8 +6540,9 @@ const App = {
               <button class="nav-item nav-logout" id="btn-sidebar-logout" title="退出登录" aria-label="退出登录">${ICONS.logout}</button>
             </div>
           </div>
-          <button class="sidebar-collapse" id="sidebar-toggle" title="收起侧栏">${ICON_CHEVRON_LEFT}</button>
         </aside>
+        <button class="sidebar-collapse${loadPref('sidebarHintSeen', false) ? '' : ' pulse-once'}" id="sidebar-toggle"
+                aria-expanded="${!collapsed}" title="${collapsed ? '展开侧栏' : '收起侧栏'}">${ICON_CHEVRON_LEFT}</button>
         <div class="main-content" id="main-content"></div>
       </div>`;
     document.querySelectorAll('.sidebar .nav-item').forEach(btn => {
@@ -6312,12 +6566,16 @@ const App = {
     const logoBtn = document.getElementById('sidebar-logo');
     if (logoBtn) logoBtn.addEventListener('click', () => this.navigate('settings'));
     const searchTrigger = document.getElementById('sidebar-search-trigger');
-    if (searchTrigger) searchTrigger.addEventListener('click', () => { if (typeof openCommandPalette === 'function') openCommandPalette(); });
+    if (searchTrigger) {
+      searchTrigger.addEventListener('click', () => openCommandPalette());
+      searchTrigger.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCommandPalette(); }
+      });
+    }
     const toggleBtn = document.getElementById('sidebar-toggle');
     if (toggleBtn) toggleBtn.addEventListener('click', () => {
       const sb = document.getElementById('sidebar');
-      const isCollapsed = sb.classList.toggle('collapsed');
-      savePref('sidebarCollapsed', isCollapsed);
+      if (sb) setSidebarCollapsed(!sb.classList.contains('collapsed'));
     });
  },
  navigate(view, opts = {}) {

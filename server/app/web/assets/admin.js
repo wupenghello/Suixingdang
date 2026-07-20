@@ -188,26 +188,32 @@ function bindAdminDelegation() {
 function renderLayout() {
   document.body.classList.add('view-shell');
   bindAdminDelegation();
+  let sbCollapsed = false;
+  try { sbCollapsed = localStorage.getItem('sxd_adminSidebarCollapsed') === '1'; } catch {}
   document.getElementById('admin-app').innerHTML = `
     <div class="admin-layout">
-      <div class="admin-sidebar">
+      <div class="admin-sidebar${sbCollapsed ? ' collapsed' : ''}">
         <div class="admin-logo">
           <div class="admin-logo-icon">管</div>
           <div class="admin-logo-text">管理后台</div>
         </div>
         <div class="admin-nav">
-          <div class="admin-nav-item active" data-view="dashboard">${ICONS.dashboard} 系统概览</div>
-          <div class="admin-nav-item" data-view="users">${ICONS.users} 用户管理</div>
-          <div class="admin-nav-item" data-view="files">${ICONS.file} 全局文件</div>
-         <div class="admin-nav-item" data-view="groups">${ICONS.groups} 分组管理</div>
-          <div class="admin-nav-item" data-view="llm">${ICONS.llm} 大模型配置</div>
-         <div class="admin-nav-item" data-view="settings">${ICONS.settings} 系统设置</div>
-         <div class="admin-nav-item" data-view="logs">${ICONS.log} 审计日志</div>
-          <div class="admin-nav-item" data-view="account">${ICONS.account} 账户</div>
+          <div class="admin-nav-item active" data-view="dashboard" title="系统概览">${ICONS.dashboard} 系统概览</div>
+          <div class="admin-nav-item" data-view="users" title="用户管理">${ICONS.users} 用户管理</div>
+          <div class="admin-nav-item" data-view="files" title="全局文件">${ICONS.file} 全局文件</div>
+         <div class="admin-nav-item" data-view="groups" title="分组管理">${ICONS.groups} 分组管理</div>
+          <div class="admin-nav-item" data-view="llm" title="大模型配置">${ICONS.llm} 大模型配置</div>
+         <div class="admin-nav-item" data-view="settings" title="系统设置">${ICONS.settings} 系统设置</div>
+         <div class="admin-nav-item" data-view="logs" title="审计日志">${ICONS.log} 审计日志</div>
+          <div class="admin-nav-item" data-view="account" title="账户">${ICONS.account} 账户</div>
         </div>
         <div style="padding:12px">
-          <div class="admin-nav-item" id="btn-logout">${ICONS.logout} 退出登录</div>
+          <div class="admin-nav-item" id="btn-logout" title="退出登录">${ICONS.logout} 退出登录</div>
         </div>
+        <button class="admin-sidebar-toggle" id="admin-sidebar-toggle" aria-expanded="${!sbCollapsed}"
+                title="${sbCollapsed ? '展开侧栏' : '收起侧栏'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
       </div>
       <div class="admin-main" id="admin-main"></div>
     </div>`;
@@ -215,6 +221,16 @@ function renderLayout() {
     el.addEventListener('click', () => navigate(el.dataset.view));
   });
   document.getElementById('btn-logout').addEventListener('click', () => { fetch('/api/auth/admin/logout', { method: 'POST' }).finally(() => location.reload()); });
+  const sbToggle = document.getElementById('admin-sidebar-toggle');
+  if (sbToggle) {
+    sbToggle.addEventListener('click', () => {
+      const sb = document.querySelector('.admin-sidebar');
+      const c = sb.classList.toggle('collapsed');
+      try { localStorage.setItem('sxd_adminSidebarCollapsed', c ? '1' : '0'); } catch {}
+      sbToggle.title = c ? '展开侧栏' : '收起侧栏';
+      sbToggle.setAttribute('aria-expanded', String(!c));
+    });
+  }
 }
 
 function navigate(view) {
