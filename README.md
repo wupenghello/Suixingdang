@@ -276,7 +276,7 @@ CI（[.github/workflows/test.yml](../.github/workflows/test.yml)）在 PR 时自
 
 ### 安全与认证
 
-- [x] JWT 认证（access/refresh 分离，refresh 有效期 1 天）+ TOTP 双因子
+- [x] JWT 认证（access/refresh 分离，refresh 有效期 1 天）
 - [x] 浏览器会话令牌存 HttpOnly + Secure + SameSite=Lax Cookie（前端 JS 不可读，防 XSS 偷令牌）
 - [x] 设备令牌（opaque，走 Authorization 头，用于守护进程）
 - [x] 会话管理：并发上限（默认 5）、空闲超时、同设备会话复用去分、新设备登录告警
@@ -324,7 +324,7 @@ CI（[.github/workflows/test.yml](../.github/workflows/test.yml)）在 PR 时自
 | AI | DeepSeek / OpenAI API（均走 OpenAI 兼容协议，function-calling） |
 | 守护进程 | Python watchdog, httpx, asyncio |
 | 部署 | Docker Compose, Caddy (自动 HTTPS + 安全头) |
-| 安全 | bcrypt, PyJWT, pyotp, Fernet (HKDF 派生), 服务端 PII 脱敏引擎 |
+| 安全 | bcrypt, PyJWT, Fernet (HKDF 派生), 服务端 PII 脱敏引擎 |
 | 测试 | pytest + vitest + promptfoo + pip-audit |
 
 ---
@@ -347,7 +347,7 @@ suixingdang/
 │   │   ├── admin_server.py     # 管理后台独立入口（仅本地 start.sh 双端口开发用）
 │   │   ├── config.py           # 配置（pydantic Settings，读 env）
 │   │   ├── api/                # API 路由（6 组）
-│   │   │   ├── auth.py         #   /api/auth     认证 + TOTP + 注册 + 会话管理
+│   │   │   ├── auth.py         #   /api/auth     认证 + 注册 + 会话管理
 │   │   │   ├── files.py        #   /api/files    文件 CRUD + 笔记 + 分组 + 标签 + 搜索 + 回收站
 │   │   │   ├── chat.py         #   /api/chat     AI 对话（SSE）+ 摘要 + QA + 脱敏揭帖
 │   │   │   ├── sync.py         #   /api/sync     同步状态 / 推送 / 事件 / 冲突检测
@@ -358,7 +358,7 @@ suixingdang/
 │   │   │   ├── indexer.py      #   Chroma 索引 + 语义搜索 + 关键词回退
 │   │   │   ├── llm_service.py  #   LLM 配置解析（按用户分配，Fernet 解密）
 │   │   │   ├── guard.py        #   Guard 敏感文件检测（方向感知）
-│   │   │   ├── security.py     #   密码哈希 / JWT / TOTP / Fernet 加密
+│   │   │   ├── security.py     #   密码哈希 / JWT / Fernet 加密
 │   │   │   ├── mask.py         #   服务端 PII 脱敏引擎
 │   │   │   └── sensitive_paths.py # 敏感路径扫描防护
 │   │   ├── agent/              # Agent 智能层
@@ -415,7 +415,7 @@ suixingdang/
 2. **离职即清除**：一键吊销全部令牌 + bump 密码版本号，已签发凭证立即失效、不留 60 分钟窗口
 3. **三重隔离**：存储分目录 / DB owner_id 过滤 / Chroma 独立 collection
 4. **PII 服务端脱敏**：AI 回复中的身份证 / 手机号 / 邮箱 / API Key / 银行卡等自动遮罩，真实值不落前端
-5. **纵深防御**：bcrypt + JWT + TOTP + 登录限流 + Guard + 审计日志 + Fernet 加密 + 加密卷 + Caddy 安全头
+5. **纵深防御**：bcrypt + JWT + 登录限流 + Guard + 审计日志 + Fernet 加密 + 加密卷 + Caddy 安全头
 
 完整安全设计详见 [docs/DESIGN.md §9](docs/DESIGN.md) 与 [docs/DEPLOY_SECURITY.md](docs/DEPLOY_SECURITY.md)。
 

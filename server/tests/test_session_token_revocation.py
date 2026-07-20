@@ -83,10 +83,11 @@ def test_revoke_single_session_token(client):
 
 def test_revoke_all_kills_access_and_refresh(client):
     """吊销全部令牌：refresh 失效，且 access JWT 因 password_version bump 立即失效。"""
-    access, refresh, _ = _reg(client)
+    access, refresh, _ = _reg(client)  # 默认密码 Test1234pass
     h = {"Authorization": f"Bearer {access}"}
-    r = client.delete("/api/auth/tokens", headers=h)
-    assert r.status_code == 200
+    # 步骤验证（Q1-B）：吊销全部需重输登录密码
+    r = client.request("DELETE", "/api/auth/tokens", headers=h, json={"password": "Test1234pass"})
+    assert r.status_code == 200, r.text
     assert r.json()["count"] >= 1
     # refresh 失效
     assert _refresh(client, refresh)[0].status_code == 401

@@ -6,11 +6,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from pydantic import BaseModel
 
-from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, LlmProvider, get_db, get_setting, set_setting, get_trash_retention_days, DEFAULT_TRASH_RETENTION_DAYS
+from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSetting, LlmProvider, get_db, get_setting, set_setting, get_trash_retention_days, DEFAULT_TRASH_RETENTION_DAYS, login_limiter_check, login_limiter_record, login_limiter_reset
 from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password, verify_password
 from ..core import storage, indexer
 from ..config import settings
-from .auth import get_current_admin, _log, _bump_password_version
+from .auth import get_current_admin, _log, _bump_password_version, _limiter_key, _set_user_password
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -61,12 +61,21 @@ def admin_info(admin=Depends(get_current_admin)):
 
 @router.put("/me/password")
 def change_admin_password(req: ChangeAdminPasswordRequest, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    # 限流：管理端改密同样防在线爆破旧密码。独立 admin-stepup scope，
+    # 按纯用户名计（cookie 会话认证不绑 IP）。
+    key = _limiter_key("admin-stepup", admin.username)
+    locked = login_limiter_check(db, key)
+    if locked:
+        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
     if not verify_password(req.old_password, admin.password_hash):
+        login_limiter_record(db, key)
         _log(db, None, "admin_password_change_failed", "原密码错误", request)
         raise HTTPException(400, "原密码错误")
     pwd_err = validate_password(req.new_password, admin.username)
     if pwd_err:
-        raise HTTPException(400, pwd_err)
+        # 422（区别于 400 原密码错误）：前端按状态码把错误定位到新密码字段
+        raise HTTPException(422, pwd_err)
+    login_limiter_reset(db, key)
     admin.password_hash = hash_password(req.new_password)
     db.commit()
     _log(db, None, "admin_password_change", "", request)
@@ -96,7 +105,6 @@ def list_users(
             "id": u.id, "username": u.username, "status": u.status,
             "quota_mb": u.quota_mb, "file_count": file_count,
             "used_mb": round(used_bytes / 1024 / 1024, 2),
-            "totp_enabled": u.totp_enabled,
             "ai_enabled": u.ai_enabled,
             "last_login": str(u.last_login_at).split(".")[0] if u.last_login_at else "",
             "created_at": str(u.created_at),
@@ -139,8 +147,7 @@ def update_user(user_id: str, req: UpdateUserRequest, request: Request, db: Sess
         pwd_err = validate_password(req.password, user.username)
         if pwd_err:
             raise HTTPException(400, pwd_err)
-        user.password_hash = hash_password(req.password)
-        _bump_password_version(db, user)
+        _set_user_password(db, user, req.password)  # 哈希+时间戳+bump 原子内聚
     db.commit()
     changes = []
     if req.status in ("active", "disabled"):
@@ -255,7 +262,6 @@ def user_detail(user_id: str, db: Session = Depends(get_db), admin=Depends(get_c
             "quota_mb": user.quota_mb,
             "used_mb": round(used / 1024 / 1024, 2),
             "file_count": db.query(File).filter_by(owner_id=user_id).count(),
-            "totp_enabled": user.totp_enabled,
             "ai_enabled": user.ai_enabled,
             "llm_provider_id": user.llm_provider_id or "",
             "has_security_question": bool(user.security_question),

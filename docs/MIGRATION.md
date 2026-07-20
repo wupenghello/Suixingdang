@@ -23,7 +23,7 @@
 
 | 内容 | 容器内路径 | 主机路径（`DATA_DIR=/data/suixingdang` 时） | 作用 |
 |------|------|------|------|
-| SQLite 数据库 | `/data/db.sqlite` | `/data/suixingdang/db.sqlite` | **账户资料全在这**：用户名、bcrypt 密码哈希、TOTP 双因子密钥、设备令牌、文件元数据、聊天记录、审计日志、存储配额、加密后的 LLM API Key、脱敏映射（`mask_mappings`） |
+| SQLite 数据库 | `/data/db.sqlite` | `/data/suixingdang/db.sqlite` | **账户资料全在这**：用户名、bcrypt 密码哈希、设备令牌、文件元数据、聊天记录、审计日志、存储配额、加密后的 LLM API Key、脱敏映射（`mask_mappings`） |
 | 用户文件本体 | `/data/files/<user_id>/` | `/data/suixingdang/files/<user_id>/` | 上传的所有文件 + 笔记（`.md`/`.txt`），按用户分目录隔离 |
 | Chroma 向量库 | `/data/chroma/` | `/data/suixingdang/chroma/` | 语义搜索的向量索引，按用户分集合 |
 | 备份（可选） | `/data/backups/` | `/data/suixingdang/backups/` | `scripts/backup.sh` 生成的 SQLite 备份（若启用） |
@@ -42,7 +42,7 @@
 | `JWT_SECRET` | 所有用户/管理员的登录 token 立即失效，需要全员重新登录（数据不丢，只是麻烦）。 |
 | `SECRET_KEY` | 兼容回退用。代码对历史密文有多种兼容解密路径，**把整个 `.env` 原样搬过去能覆盖所有历史加密版本**，最保险。 |
 
-密码哈希、TOTP 密钥、设备令牌都是不可逆或独立存储的，**与上述密钥无关，账户资料本身不会因换机器而丢失**。
+密码哈希、设备令牌都是不可逆或独立存储的，**与上述密钥无关，账户资料本身不会因换机器而丢失**。
 
 > 三把密钥的完整说明（用途、生成方式、轮换影响）以 [DEPLOY_SECURITY.md](DEPLOY_SECURITY.md) 第三节为权威源。
 
@@ -148,7 +148,7 @@ docker compose up -d --build
 3. 家里守护进程的 `SERVER_URL` 改成新域名。
 4. 在各用户设备的浏览器里重新登录（域名变了，旧域名下的 cookie/token 不可用）。
 
-> 若同时启用 TOTP 双因子，用户手机上的验证器 App 不受域名更换影响（TOTP 种子存在数据库、随账户迁移）。
+> 注：账户资料（密码哈希、设备令牌等）随账户迁移，换机器/换域名不影响登录凭证。
 
 ---
 

@@ -1,4 +1,4 @@
-"""认证 API（多账户版）：用户登录/注册、忘记密码、管理员登录、设备令牌、TOTP。"""
+"""认证 API（多账户版）：用户登录/注册、忘记密码、管理员登录、设备令牌。"""
 
 from datetime import datetime, timedelta
 from typing import Optional
@@ -7,10 +7,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import hashlib
-import qrcode
-import qrcode.image.svg
-import io
-import base64
 
 import time
 
@@ -21,8 +17,7 @@ from ..db.models import (
 )
 from ..core.security import (
     verify_password, hash_password, create_access_token, create_refresh_token,
-    decode_token, generate_token_hash, generate_totp_secret,
-    get_totp_uri, verify_totp, validate_password,
+    decode_token, generate_token_hash, validate_password,
 )
 from ..config import settings
 
@@ -34,7 +29,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 class LoginRequest(BaseModel):
     username: str
     password: str
-    totp_code: str = ""
+    totp_code: str = ""  # 已废弃，保留以兼容旧客户端，后端忽略
 
 
 class RegisterRequest(BaseModel):
@@ -47,13 +42,7 @@ class RegisterRequest(BaseModel):
 class AdminLoginRequest(BaseModel):
     username: str
     password: str
-    totp_code: str = ""
-
-
-class TOTPSetupResponse(BaseModel):
-    secret: str
-    qr_code: str
-    uri: str
+    totp_code: str = ""  # 已废弃，保留以兼容旧客户端，后端忽略
 
 
 class DeviceTokenResponse(BaseModel):
@@ -191,6 +180,45 @@ def _bump_password_version(db: Session, user: User):
         AccessToken.kind == "session",
         AccessToken.revoked.is_(False),
     ).update({"revoked": True}, synchronize_session=False)
+
+
+def _set_user_password(db: Session, user: User, new_password: str):
+    """修改/重置密码的统一入口：哈希 + 盖修改时间戳 + bump 版本号，三者原子内聚。
+
+    避免任何新的密码写入路径漏盖 password_changed_at（注册初始设置不走这里，
+    保持 NULL=「从未修改」语义）。不含 commit，由调用方事务统一提交。"""
+    user.password_hash = hash_password(new_password)
+    user.password_changed_at = datetime.utcnow()
+    _bump_password_version(db, user)
+
+
+def verify_stepup_password(db: Session, user: User, password: str, request: Request,
+                           action: str, fail_action: str = "stepup_failed",
+                           missing_msg: str = "需要密码验证"):
+    """敏感操作的步骤验证（step-up）：重输登录密码确认本人。
+
+    统一入口，改密 / 吊销全部 / 下载授权共用同一 stepup scope——同一凭证只有一份
+    猜测预算，防跨端点交替调用叠加配额。key 只按用户名（会话认证不绑 IP，
+    按 IP 计会让攻击者用 IP 池刷新预算；而这些端点都要求已持有效会话，
+    按用户名锁定不影响正常登录可用性）。
+
+    - 缺失/空密码视为客户端错误（400）且不计入爆破计数——防空 body 的旧调用方
+      误报式自锁（5 次空调用锁 15 分钟）；
+    - 密码错误计入计数并审计，锁定后拒绝请求但不再逐条写审计行（防拒绝风暴
+      打爆审计表）；
+    - 通过后清零计数（成功自证身份）。
+    """
+    key = _limiter_key("stepup", user.username)
+    locked = login_limiter_check(db, key)
+    if locked:
+        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
+    if not password:
+        raise HTTPException(400, missing_msg)
+    if not verify_password(password, user.password_hash):
+        login_limiter_record(db, key)
+        _log(db, user.id, fail_action, f"{action}（密码错误）", request)
+        raise HTTPException(400, "密码错误")
+    login_limiter_reset(db, key)
 
 
 def _enforce_session_limit(db: Session, user: User):
@@ -438,10 +466,11 @@ def get_current_admin(
 
 # ---- 限流 key 构造 ----
 
-def _limiter_key(scope: str, username: str, ip: str) -> str:
-    """限流 key：按 scope 隔离 login / adminlogin / reset，
-    避免用户登录锁定连累密码重置，或用户表爆破连累管理员登录。"""
-    return f"{scope}:{username}|{ip or ''}"
+def _limiter_key(scope: str, username: str, ip: str = "") -> str:
+    """限流 key：按 scope 隔离 login / adminlogin / reset / stepup，
+    避免用户登录锁定连累密码重置，或用户表爆破连累管理员登录。
+    ip 缺省时按纯用户名计（stepup 场景：端点已要求有效会话，防 IP 池刷新预算）。"""
+    return f"{scope}:{username}|{ip}" if ip else f"{scope}:{username}"
 
 
 # ---- 客户端 IP（信任代理感知）----
@@ -521,11 +550,6 @@ def login(req: LoginRequest, request: Request, response: Response, db: Session =
     if user.status == "disabled":
         _log(db, user.id, "login_blocked", "账号已被禁用", request)
         raise HTTPException(403, "账户已被禁用")
-    if user.totp_enabled:
-        if not req.totp_code or not verify_totp(user.totp_secret, req.totp_code):
-            login_limiter_record(db, key)
-            _log(db, user.id, "login_totp_failed", "动态验证码错误", request)
-            raise HTTPException(401, "需要双因子验证码")
 
     user.last_login_at = datetime.utcnow()
     db.commit()
@@ -644,8 +668,7 @@ def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Sessio
     if pwd_err:
         raise HTTPException(400, pwd_err)
 
-    user.password_hash = hash_password(req.new_password)
-    _bump_password_version(db, user)
+    _set_user_password(db, user, req.new_password)  # 哈希+时间戳+bump 原子内聚
     # 顺带把旧 sha256 密保答案升级为 bcrypt（sha256 预哈希）
     if _is_legacy_answer(user.security_answer):
         user.security_answer = _hash_security_answer(req.answer)
@@ -747,10 +770,6 @@ def admin_login(req: AdminLoginRequest, request: Request, response: Response, db
         login_limiter_record(db, key)
         _log(db, None, "admin_login_failed", f"{req.username}（账号或密码错误）", request)
         raise HTTPException(401, "管理员用户名或密码错误")
-    if admin.totp_enabled:
-        if not req.totp_code or not verify_totp(admin.totp_secret, req.totp_code):
-            login_limiter_record(db, key)
-            raise HTTPException(401, "需要双因子验证码")
 
     login_limiter_reset(db, key)
     token_data = {"sub": admin.id, "username": admin.username, "role": "admin"}
@@ -776,42 +795,6 @@ def register_status(db: Session = Depends(get_db)):
     else:
         allow = settings.ALLOW_REGISTER
     return {"allow_register": allow}
-
-
-# ---- TOTP ----
-
-@router.get("/totp/setup", response_model=TOTPSetupResponse)
-def setup_totp():
-    secret = generate_totp_secret()
-    uri = get_totp_uri(secret)
-    factory = qrcode.image.svg.SvgImage
-    img = qrcode.make(uri, image_factory=factory)
-    buf = io.BytesIO()
-    img.save(buf)
-    qr_b64 = base64.b64encode(buf.getvalue()).decode()
-    return TOTPSetupResponse(
-        secret=secret,
-        qr_code=f"data:image/svg+xml;base64,{qr_b64}",
-        uri=uri,
-    )
-
-
-@router.post("/totp/enable")
-def enable_totp(secret: str, code: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    if not verify_totp(secret, code):
-        raise HTTPException(400, "验证码错误")
-    user.totp_secret = secret
-    user.totp_enabled = True
-    db.commit()
-    return {"message": "双因子验证已开启"}
-
-
-@router.post("/totp/disable")
-def disable_totp(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    user.totp_enabled = False
-    user.totp_secret = ""
-    db.commit()
-    return {"message": "双因子验证已关闭"}
 
 
 # ---- 设备令牌 ----
@@ -878,9 +861,18 @@ def revoke_other_tokens(request: Request, db: Session = Depends(get_db), user=De
     return {"message": f"已退出 {count} 台其他设备", "count": count}
 
 
+class RevokeAllRequest(BaseModel):
+    password: str = ""
+
+
 @router.delete("/tokens")
-def revoke_all_tokens(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """吊销当前用户的全部有效令牌（紧急下线所有设备）。"""
+def revoke_all_tokens(request: Request, req: Optional[RevokeAllRequest] = None, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """吊销当前用户的全部有效令牌（紧急下线所有设备）。
+
+    步骤验证：破坏面最大的不可逆操作要求重输登录密码，走统一 stepup 入口
+    （限流 + 审计 + 防爆破）。空 body / 空密码为客户端错误，不计入爆破计数。
+    """
+    verify_stepup_password(db, user, req.password if req else "", request, action="revoke-all")
     tokens = db.query(AccessToken).filter_by(user_id=user.id, revoked=False).all()
     for t in tokens:
         t.revoked = True
@@ -900,18 +892,22 @@ class ChangePasswordRequest(BaseModel):
 
 @router.post("/change-password")
 def change_password(req: ChangePasswordRequest, request: Request, response: Response, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    if not verify_password(req.old_password, user.password_hash):
-        raise HTTPException(400, "原密码错误")
+    # 步骤验证：旧密码即登录密码，走统一 stepup 入口（限流 + 审计 + 防爆破）
+    verify_stepup_password(db, user, req.old_password, request, action="change-password")
     pwd_err = validate_password(req.new_password, user.username)
     if pwd_err:
-        raise HTTPException(400, pwd_err)
-    user.password_hash = hash_password(req.new_password)
-    _bump_password_version(db, user)  # 旧 access/refresh 立即失效；旧会话行标记吊销
+        # 422（区别于 400 旧密码错误）：前端按状态码把错误定位到新密码字段，
+        # 不依赖 detail 文案字符串匹配
+        raise HTTPException(422, pwd_err)
+    _set_user_password(db, user, req.new_password)  # 哈希+时间戳+bump 原子内聚
     # 为调用者签发新会话令牌，避免改密码后立即被踢下线
     access, refresh = _issue_session_tokens(db, user, request)
     db.commit()
+    # detail 刻意留空：零痕迹原则，审计只记事件不记任何密码相关信息
+    _log(db, user.id, "password_changed", "", request)
     _set_session_cookies(response, access, refresh)
-    return {"message": "密码已修改"}
+    # 随响应返回新时间戳，前端免再请求 /me（消除多余往返与失败致状态陈旧）
+    return {"message": "密码已修改", "password_changed_at": str(user.password_changed_at)}
 
 
 # ---- 用户信息 ----
@@ -924,9 +920,9 @@ def get_me(user=Depends(get_current_user)):
         "role": user.role,
         "status": user.status,
         "quota_mb": user.quota_mb,
-        "totp_enabled": user.totp_enabled,
         "ai_enabled": user.ai_enabled,
         "last_login_at": str(user.last_login_at) if user.last_login_at else "",
+        "password_changed_at": str(user.password_changed_at) if user.password_changed_at else "",
         "created_at": str(user.created_at) if user.created_at else "",
     }
 

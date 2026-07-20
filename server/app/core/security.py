@@ -1,4 +1,4 @@
-"""安全与认证工具：JWT 签发/验证、密码哈希、TOTP。"""
+"""安全与认证工具：JWT 签发/验证、密码哈希。"""
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -6,7 +6,6 @@ import hashlib
 import secrets
 
 import jwt
-import pyotp
 import bcrypt as _bcrypt
 
 from ..config import settings
@@ -126,20 +125,6 @@ def generate_token_hash():
 
 def verify_token_hash(raw: str, h: str) -> bool:
     return hashlib.sha256(raw.encode()).hexdigest() == h
-
-
-def generate_totp_secret() -> str:
-    return pyotp.random_base32()
-
-
-def get_totp_uri(secret: str, label: str = "Suixingdang") -> str:
-    totp = pyotp.TOTP(secret)
-    return totp.provisioning_uri(name=label, issuer_name="Suixingdang")
-
-
-def verify_totp(secret: str, code: str) -> bool:
-    totp = pyotp.TOTP(secret)
-    return totp.verify(code, valid_window=1)
 
 
 # ---- 密码强度校验 ----

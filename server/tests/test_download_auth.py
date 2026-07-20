@@ -26,11 +26,12 @@ def _upload(client, token, name="a.txt", content=b"hello"):
 
 
 def test_grant_wrong_password_rejected(client):
-    """密码错误时 download-grant 返回 403，不开启窗口。"""
+    """密码错误时 download-grant 返回 400（统一 stepup 验证），不开启窗口。"""
     access, _r, _ = _reg(client, password=PWD)
     h = _upload(client, access)
     r = client.post("/api/files/download-grant", headers=h, json={"password": "wrong-pwd", "minutes": 0})
-    assert r.status_code == 403
+    assert r.status_code == 400
+    assert r.json()["detail"] == "密码错误"
     assert client.get("/api/files/download-status", headers=h).json()["granted"] is False
 
 
@@ -83,12 +84,13 @@ def test_single_download_grant_success(client):
 
 
 def test_single_download_wrong_password_rejected(client):
-    """单次下载密码错误返回 403。"""
+    """单次下载密码错误返回 400（统一 stepup 验证）。"""
     access, _r, _ = _reg(client, password=PWD)
     h = _upload(client, access)
     r = client.post("/api/files/download-grant-single", headers=h,
                     json={"password": "wrong", "path": "a.txt"})
-    assert r.status_code == 403
+    assert r.status_code == 400
+    assert r.json()["detail"] == "密码错误"
 
 
 def test_single_download_nonexistent_file_404(client):

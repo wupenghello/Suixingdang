@@ -116,7 +116,7 @@ if WEB_DIR.exists():
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
         if full_path.startswith("api/"):
-            return {"detail": "Not Found"}
+            raise HTTPException(status_code=404, detail="Not Found")
         # 落地页独立访问入口
         if full_path == "welcome":
             if _landing_html.exists():

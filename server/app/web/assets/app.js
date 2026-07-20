@@ -13,11 +13,15 @@ import { formatSize, formatDate, formatDateTime, stripExt } from './utils/format
 import { parseServerTs } from './utils/time.js?v=60';
 import { escapeHtml } from './utils/dom.js?v=60';
 import { getPreviewType, fileTypeBadge } from './utils/file-classify.js?v=60';
-import { ICONS, getFileIcon } from './utils/icons.js?v=63';
+import { ICONS, getFileIcon } from './utils/icons.js?v=64';
 import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=61';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
 import { createTrashSelection } from './utils/trash-selection.js?v=66';
+import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=93';
+import { mountPasswordField } from './utils/password-field.js?v=95';
+import { auditLabel, auditCls, auditCategory } from './utils/audit-actions.js?v=96';
+import { changePasswordFormHTML, wireChangePasswordForm } from './utils/password-dialog.js?v=96';
 
 // ============ API 层 ============
 const API = {
@@ -51,7 +55,10 @@ const API = {
     return this.request(url, { method: 'PUT', body: typeof body === 'string' ? body : JSON.stringify(body) });
   },
   async postForm(url, formData) { return this.request(url, { method: 'POST', body: formData }); },
-  async del(url) { return this.request(url, { method: 'DELETE' }); },
+  // body 可选（如吊销全部的步骤验证密码）；options 透传（如 _skipLogoutRedirect）
+  async del(url, body, options = {}) {
+    return this.request(url, { ...options, method: 'DELETE', body: body ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined });
+  },
 };
 
 // ============ Toast ============
@@ -287,7 +294,7 @@ async function openAccountPopover(anchor) {
     <div class="ap-login" id="ap-login"></div>
     <div class="ap-menu" role="none">
       <button class="ap-item" role="menuitem" data-ap="account">${ICONS.user}<span>账户详情</span></button>
-      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全与会话</span></button>
+      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全与隐私</span></button>
       <button class="ap-item" role="menuitem" data-ap="others">${ICONS.logout}<span>退出其他设备</span></button>
     </div>
     <div class="ap-divider"></div>
@@ -313,7 +320,7 @@ async function openAccountPopover(anchor) {
       if (action === 'account') App.openSettings('account');
       else if (action === 'security') App.openSettings('security');
       else if (action === 'others') revokeOtherTokens();
-      else if (action === 'logout') App.logout();
+      else if (action === 'logout') confirmLogout();  // 与设置页/侧栏同一确认入口，防误点掉线
     });
   });
 
@@ -363,10 +370,11 @@ function loadPopoverStats(pop) {
 function computeStorageFill(used, quota) {
   const limited = quota > 0;
   const pct = limited ? Math.min((used / quota) * 100, 100) : 0;
+  const remaining = limited ? Math.max(quota - used, 0) : 0;
   let fill = 'success';
   if (pct >= 90) fill = 'danger';
   else if (pct >= 70) fill = 'warning';
-  return { limited, pct, fill };
+  return { limited, pct, fill, remaining };
 }
 
 // 弹层紧凑版存储条
@@ -659,7 +667,6 @@ function renderLanding() {
     db:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/></svg>',
     audit:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
     cite:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
-    twofa:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 12l2 2 4-4"/></svg>',
     arrow:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   };
 
@@ -820,7 +827,7 @@ function renderLanding() {
           <div class="sx-list">
             <div class="sx-list-row"><div class="sx-list-ico">${ic.lock}</div><div><h3>落盘 · AES 加密</h3><p>文件、SQLite 数据库、Chroma 向量索引一体化 AES 加密。可选挂 LUKS/dm-crypt 加密卷，磁盘被偷也读不出内容。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.key}</div><div><h3>令牌 · 可远程吊销</h3><p>会话和设备令牌皆可单条或一键吊销，旧凭证立即失效。改密码后旧会话同步失效。离职换机，一个按钮切断全部。</p></div></div>
-            <div class="sx-list-row"><div class="sx-list-ico">${ic.twofa}</div><div><h3>登录 · TOTP 双因子</h3><p>支持 TOTP 验证器（Google Authenticator 等），密码泄露也进不来。登录限流防爆破。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.shield}</div><div><h3>登录 · 限流防爆破</h3><p>登录限流 + 新设备告警 + 可吊销设备令牌，密码泄露也难持久。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.trace}</div><div><h3>本地 · 默认不落盘</h3><p>浏览器端默认禁止下载，预览走 no-store。需要时验证密码后下载，可选单次或时间窗口。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.audit}</div><div><h3>审计 · 全量留痕</h3><p>登录、上传、删除、令牌操作全程记录。管理员后台可查，谁在什么时候干了什么一目了然。</p></div></div>
           </div>
@@ -923,17 +930,13 @@ function renderLogin() {
             <label>密码</label>
             <input type="password" id="login-password" class="form-input" placeholder="输入密码" autocomplete="current-password">
           </div>
-          <div class="form-group" id="totp-group" style="display:none">
-            <label>双因子验证码</label>
-            <input type="text" id="login-totp" class="form-input" placeholder="6位数字">
-          </div>
           <button type="submit" class="btn btn-primary btn-block" id="login-btn">登录</button>
         </form>
         <div id="auth-links" class="login-links">
           <a href="#" data-action="renderForgotPassword">忘记密码？</a>
           <a href="#" data-action="renderRegister" id="register-link">注册新账号</a>
         </div>
-        <a class="login-back" href="/welcome">← 返回官网</a>
+        <a class="login-back" href="/welcome"><svg class="sx-ico sx-ico--arrow-back" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg> 返回官网</a>
       </div>
     `);
   // 动态检查注册是否开放
@@ -942,6 +945,9 @@ function renderLogin() {
     if (link) link.style.display = d.allow_register ? '' : 'none';
   }).catch(() => {});
 
+  // 密码框增强：明文切换 + CapsLock 提示（与设置页弹窗同一组件）
+  mountPasswordField(document.getElementById('login-password'), { eyeIcon: ICONS.eye, eyeOffIcon: ICONS.eyeOff });
+
   const loginLogo = document.getElementById('login-logo');
   if (loginLogo) { loginLogo.href = '/welcome'; loginLogo.removeAttribute('onclick'); }
 
@@ -949,24 +955,19 @@ function renderLogin() {
     e.preventDefault();
     const username = document.getElementById('login-username').value;
     const password = document.getElementById('login-password').value;
-    const totp_code = document.getElementById('login-totp').value;
     const btn = document.getElementById('login-btn');
     btn.disabled = true;
     btn.textContent = '登录中...';
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, totp_code }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
       if (res.ok) {
         Toast.show('登录成功', 'success');
         App.init();
       } else {
-        if (data.detail && data.detail.includes('双因子')) {
-          document.getElementById('totp-group').style.display = 'block';
-          document.getElementById('login-totp').focus();
-        }
         Toast.show(data.detail || '登录失败', 'error');
       }
     } catch (err) {
@@ -2020,6 +2021,10 @@ function openCommandPalette() {
       { type: 'action', label: '传输助手', icon: ICONS.transfer, detail: '打开文件传输助手', onClick: () => App.navigate('transfer') },
       { type: 'action', label: '导出全部文件', icon: ICONS.exportIco, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
       { type: 'action', label: '设置', icon: ICONS.settings, detail: '打开设置页', onClick: () => App.navigate('settings') },
+      { type: 'action', label: '设置 · 账户', icon: ICONS.user, detail: '账户信息、配额与登录记录', onClick: () => App.openSettings('account') },
+      { type: 'action', label: '设置 · 安全与隐私', icon: ICONS.shield, detail: '修改密码、PII 脱敏、临时下载', onClick: () => App.openSettings('security') },
+      { type: 'action', label: '设置 · 设备与会话', icon: ICONS.monitor, detail: '设备令牌与紧急吊销', onClick: () => App.openSettings('devices') },
+      { type: 'action', label: '设置 · 存储与索引', icon: ICONS.database, detail: '存储统计与索引重建', onClick: () => App.openSettings('storage') },
       { type: 'action', label: '快捷键帮助', icon: ICONS.keyboard, detail: '查看所有键盘快捷键', onClick: () => showShortcutHelp() },
     ];
     return actions.filter(a => !(a.label === 'AI 对话' && !(App.currentUser && App.currentUser.ai_enabled)));
@@ -2044,31 +2049,71 @@ function openCommandPalette() {
 // 统一弹窗生命周期：创建遮罩/弹窗、点击遮罩与 ESC 撤销、幂等 close、移除 keydown 监听。
 // opts.width 设置 .modal 宽度；opts.onDismiss 在用户以遮罩点击/ESC 撤销时触发一次（用于 resolve 取消值）。
 // 返回 { overlay, modal, close }；close 幂等，调用方填充 modal 内容并绑定按钮（按钮内自行 resolve 后调 close）。
-function openModal({ width, onDismiss } = {}) {
+let _modalSeq = 0;
+// 模态栈：叠加弹窗（如笔记编辑器上叠确认框）时只让最上层响应 Esc / 焦点陷阱，
+// 避免多层 trapHandler 互抢焦点把 Tab 钉死、一次 Esc 连带关闭所有层。
+const _modalStack = [];
+function openModal({ width, onDismiss, canDismiss } = {}) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const modal = document.createElement('div');
   modal.className = 'modal';
   if (width) modal.style.width = typeof width === 'number' ? width + 'px' : width;
+  // a11y：声明对话框语义。h3 由调用方在 openModal 返回后同步注入，
+  // 故 aria-labelledby 推迟到微任务（此时调用方 innerHTML 已赋值）再关联；
+  // 始终指向真实 id（调用方自带的或新赋的），绝不产生悬空引用。
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  const titleId = 'modal-title-' + (++_modalSeq);
+  queueMicrotask(() => {
+    const h3 = modal.querySelector('h3');
+    if (!h3) return;
+    if (!h3.id) h3.id = titleId;
+    modal.setAttribute('aria-labelledby', h3.id);
+  });
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
+  _modalStack.push(overlay);
+  const isTop = () => _modalStack[_modalStack.length - 1] === overlay;
 
+  const prevFocus = document.activeElement;  // 关闭后焦点归还触发元素（键盘用户动线连续）
   let closed = false;
   function close() {
     if (closed) return;
     closed = true;
     document.removeEventListener('keydown', escHandler);
+    document.removeEventListener('keydown', trapHandler);
+    const idx = _modalStack.indexOf(overlay);
+    if (idx >= 0) _modalStack.splice(idx, 1);
     overlay.remove();
+    // 最后一层关闭时广播（设置页借此补渲染被推迟的深链跳转）
+    if (!_modalStack.length) document.dispatchEvent(new CustomEvent('sx-modal-close'));
+    if (prevFocus && document.contains(prevFocus) && typeof prevFocus.focus === 'function') prevFocus.focus();
   }
-  // 撤销路径（遮罩点击 / ESC）：先通知调用方（如 resolve(null)），再拆除弹窗
+  // 撤销路径（遮罩点击 / ESC）：先通知调用方（如 resolve(null)），再拆除弹窗。
+  // canDismiss()===false 时拒绝撤销——用于在途变更请求（后端可能已执行不可逆操作，
+  // 「取消」一个已完成的操作比等待更糟）。
   function dismiss() {
     if (closed) return;
+    if (canDismiss && canDismiss() === false) return;
     if (onDismiss) onDismiss();
     close();
   }
-  const escHandler = (e) => { if (e.key === 'Escape') dismiss(); };
+  const escHandler = (e) => { if (e.key === 'Escape' && isTop()) dismiss(); };
+  // 焦点陷阱：仅最顶层生效；Tab 循环限制在弹窗内，Shift+Tab 反向；焦点逃逸时拉回首个可聚焦元素
+  const trapHandler = (e) => {
+    if (e.key !== 'Tab' || !isTop()) return;
+    const list = Array.from(modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+      .filter(el => !el.disabled && el.offsetParent !== null);
+    if (!list.length) return;
+    const first = list[0], last = list[list.length - 1];
+    if (!modal.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
   overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
   document.addEventListener('keydown', escHandler);
+  document.addEventListener('keydown', trapHandler);
   return { overlay, modal, close };
 }
 
@@ -2143,6 +2188,104 @@ function confirmDialog({ title, message, confirmText = '确定', cancelText = '�
   });
 }
 
+// ============ Step-up Password Dialog ============
+// 步骤验证弹窗：破坏面大的不可逆操作（如吊销全部令牌）要求重输登录密码，
+// 防劫持会话者「一键清场」。verify(password) → {ok, status?, detail?, ...} 由调用方注入，
+// 验证失败不关窗——错误内联、已输保留、原地重试（失败惩罚最小化）。
+// 在途请求期间 canDismiss=false： destructive 请求已发出时，ESC 不能假装「取消」。
+// 429 → 按钮倒计时锁定（防反复点击叠 stepup 审计行）。
+function passwordConfirmDialog({ title, message, confirmText = '确认', danger = true, verify }) {
+  return new Promise((resolve) => {
+    let busy = false;
+    let locked = false;
+    let lockTimer = null;
+    const { modal, close } = openModal({
+      width: 420,
+      canDismiss: () => !busy,
+      onDismiss: () => resolve(null),
+    });
+    modal.innerHTML = `
+      <h3></h3>
+      <p class="confirm-message"></p>
+      <div class="form-group" style="margin-top:16px">
+        <input type="password" id="stepup-password" class="form-input" placeholder="输入登录密码" autocomplete="current-password">
+        <div class="input-error-msg" id="stepup-err"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="stepup-cancel">取消</button>
+        <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="stepup-ok" disabled></button>
+      </div>`;
+    modal.querySelector('h3').textContent = title;
+    modal.querySelector('.confirm-message').textContent = message;
+    const input = modal.querySelector('#stepup-password');
+    const errEl = modal.querySelector('#stepup-err');
+    const okBtn = modal.querySelector('#stepup-ok');
+    okBtn.textContent = confirmText;
+    mountPasswordField(input, { eyeIcon: ICONS.eye, eyeOffIcon: ICONS.eyeOff });
+
+    const syncOkBtn = () => { okBtn.disabled = busy || locked || !input.value; };
+    input.addEventListener('input', () => {
+      errEl.textContent = '';
+      input.classList.remove('error');
+      syncOkBtn();
+    });
+    // 零痕迹：清空密码值后 resolve（成功返回 verify 结果，取消/撤销返回 null）
+    const finish = (r) => {
+      if (lockTimer) clearTimeout(lockTimer);
+      input.value = '';
+      resolve(r);
+      close();
+    };
+    modal.querySelector('#stepup-cancel').addEventListener('click', () => finish(null));
+
+    const startLockdown = (detail) => {
+      const m = /(\d+)\s*秒/.exec(detail || '');
+      let secs = m ? parseInt(m[1], 10) : 30;
+      locked = true;
+      syncOkBtn();
+      const tick = () => {
+        if (secs <= 0 || !okBtn.isConnected) {
+          locked = false;
+          okBtn.textContent = confirmText;
+          syncOkBtn();
+          return;
+        }
+        okBtn.textContent = `${secs} 秒后可重试`;
+        secs -= 1;
+        lockTimer = setTimeout(tick, 1000);
+      };
+      tick();
+    };
+
+    const submit = async () => {
+      if (busy || !input.value) return;
+      busy = true;
+      syncOkBtn();
+      okBtn.textContent = '验证中…';
+      try {
+        const r = await verify(input.value);
+        if (r && r.ok) { finish(r); return; }
+        const detail = (r && r.detail) || '验证失败';
+        if (r && r.status === 429) startLockdown(detail);
+        else { errEl.textContent = detail; input.classList.add('error'); input.focus(); }
+      } catch {
+        errEl.textContent = '网络错误，请重试';
+        input.classList.add('error');
+      }
+      busy = false;
+      okBtn.textContent = confirmText;
+      syncOkBtn();
+    };
+    okBtn.addEventListener('click', submit);
+    // IME 组合守卫：中文用户按 Enter 上屏不提交半截密码（否则会白烧 stepup 限流计数）
+    input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter' && !okBtn.disabled) { e.preventDefault(); submit(); }
+    });
+    setTimeout(() => input.focus(), 0);
+  });
+}
+
 // ============ Clipboard ============
 // ============ Export (#11) ============
 async function exportAllFiles(groupId = '') {
@@ -2174,6 +2317,7 @@ function showShortcutHelp() {
       { key: 'Ctrl/Cmd + E', desc: '跳转到文件列表' },
       { key: 'Ctrl/Cmd + ,', desc: '打开设置' },
       { key: 'Alt + 1/2/3/4', desc: '切换视图（传输/AI/文件/设置）' },
+      { key: '/', desc: '聚焦页内搜索（设置页内）' },
       { key: '?', desc: '显示此快捷键帮助' },
     ]},
     { group: '笔记编辑器', items: [
@@ -2235,6 +2379,11 @@ function setupGlobalShortcuts() {
     }
     if (mod && e.key === 'e') { e.preventDefault(); App.navigate('files'); return; }
     if (mod && e.key === ',') { e.preventDefault(); App.navigate('settings'); return; }
+    if (!inInput && !mod && !e.altKey && !e.shiftKey && e.key === '/' && App.currentView === 'settings') {
+      // 设置页内按 / 聚焦页内搜索（Chrome 式）
+      const si = document.getElementById('settings-search-input');
+      if (si) { e.preventDefault(); si.focus(); si.select(); return; }
+    }
     if (e.altKey && !mod) {
       const views = ['transfer', 'chat', 'files', 'settings'];
       const idx = parseInt(e.key) - 1;
@@ -3359,7 +3508,11 @@ async function downloadFile(path, opts = {}) {
     if (res.status === 403) {
       // 就地弹出密码验证，验证通过后直接下载（不跳设置页）
       const auth = await requestDownloadAuth({ filePath: path, fileId: fid, defaultMode: 'single' });
-      if (!auth) return;  // 用户取消
+      if (!auth) {
+        // 用户取消：给出带深链的引导，一键直达设置页临时下载卡片
+        Toast.show('已取消下载授权', 'info', 5000, { label: '去设置开启', onClick: () => App.openSettings('security', 'download') });
+        return;
+      }
       if (auth.mode === 'window') {
         Toast.show(`已开启临时下载（${auth.minutes} 分钟）`, 'success');
         showDownloadBanner(auth.until);
@@ -4977,181 +5130,501 @@ function previewVideo(path, name, opts = {}) {
   document.addEventListener('keydown', esc);
 }
 
-// ============ Settings ============
-async function renderSettings(initialTab) {
-  const TAB_ICONS = {
-    general: ICONS.database,
-    security: ICONS.shield,
-    account: ICONS.user,
+// ============ Settings · Chrome 式双栏（左垂直导航 + 搜索框，右独立滚动内容区）============
+// IA：账户 / 安全与隐私 / 设备与会话 / 存储与索引 / 关于随行档（见 utils/settings-search.js）
+// 深链：#/settings/<section>[/<anchor>]；页内搜索为纯前端静态索引——不发请求、不落日志（零痕迹）。
+const APP_VERSION = '2.0.0';
+
+const SECTION_ICONS = {
+  account: ICONS.user,
+  security: ICONS.shield,
+  devices: ICONS.monitor,
+  storage: ICONS.database,
+  about: ICONS.info,
+};
+
+// ---- 全局事件（模块级单例，不随 DOM 重建重复挂监听）----
+let _settingsWired = false;
+let _pendingSettingsHash = false;  // 模态期间被推迟的设置深链跳转，关窗后补渲染
+function wireSettingsGlobal() {
+  if (_settingsWired) return;
+  _settingsWired = true;
+
+  // hashchange：深链跳转章节/锚点；不在设置视图时先导航进来。
+  // 模态守卫：弹窗打开时不重建面板——否则触发按钮被从 DOM 摘下，
+  // 关窗时焦点归还会失败（焦点掉回 body）。推迟到最后一层关闭后补渲染。
+  const handleSettingsHash = () => {
+    const h = location.hash || '';
+    if (!h.startsWith('#/settings/')) return;
+    const { section, anchor } = parseSettingsHash(h);
+    if (App.currentView !== 'settings') { App.navigate('settings', { section, anchor }); return; }
+    renderTab(section, anchor, { persist: true });
   };
-  const activeTab = initialTab || loadPref('settingsTab', 'general');
+  window.addEventListener('hashchange', () => {
+    if (document.querySelector('.modal-overlay')) { _pendingSettingsHash = true; return; }
+    handleSettingsHash();
+  });
+  document.addEventListener('sx-modal-close', () => {
+    if (_pendingSettingsHash) { _pendingSettingsHash = false; handleSettingsHash(); }
+  });
+
+  // 抽屉（窄屏）：Esc 关闭并归还焦点。
+  // 守卫：若有模态/预览/命令面板叠在抽屉之上，则把本次 Esc 让给该弹层自己的处理程序，
+  // 不在同一次按键里连带关闭背后的抽屉（否则一次 Esc 双重关闭）。与 setupGlobalShortcuts 的弹层守卫保持一致。
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (document.querySelector('.modal-overlay, .preview-overlay, .cmd-overlay')) return;
+    const nav = document.getElementById('settings-nav');
+    if (nav && nav.classList.contains('settings-drawer-open')) {
+      closeSettingsDrawer();
+      document.getElementById('settings-drawer-btn')?.focus();
+    }
+  });
+
+  // 遮罩点击关闭抽屉
+  document.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'settings-scrim') closeSettingsDrawer();
+  });
+
+  // 搜索结果：点击搜索区外部收起
+  document.addEventListener('mousedown', (e) => {
+    const box = document.getElementById('settings-search');
+    if (!box || box.contains(e.target)) return;
+    hideSettingsSearchResults();
+  });
+
+  // 窗口拉宽回桌面时清理抽屉态
+  const mq = window.matchMedia('(min-width: 900px)');
+  const onMq = (ev) => { if (ev.matches) closeSettingsDrawer(); };
+  if (mq.addEventListener) mq.addEventListener('change', onMq);
+  else if (mq.addListener) mq.addListener(onMq);
+}
+
+function isSettingsDrawerMode() {
+  return window.matchMedia('(max-width: 899.98px)').matches;
+}
+
+function openSettingsDrawer() {
+  const nav = document.getElementById('settings-nav');
+  const scrim = document.getElementById('settings-scrim');
+  const btn = document.getElementById('settings-drawer-btn');
+  if (!nav) return;
+  nav.classList.add('settings-drawer-open');
+  if (scrim) { scrim.hidden = false; requestAnimationFrame(() => scrim.classList.add('is-open')); }
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+  setTimeout(() => document.getElementById('settings-search-input')?.focus(), 60);
+}
+
+function closeSettingsDrawer() {
+  const nav = document.getElementById('settings-nav');
+  const scrim = document.getElementById('settings-scrim');
+  const btn = document.getElementById('settings-drawer-btn');
+  if (!nav) return;
+  nav.classList.remove('settings-drawer-open');
+  if (scrim) {
+    scrim.classList.remove('is-open');
+    setTimeout(() => { if (!scrim.classList.contains('is-open')) scrim.hidden = true; }, 220);
+  }
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+// ---- 页内搜索（输入即过滤导航 + 结果下拉，↑↓/Enter/Esc 键盘导航）----
+let _ssResults = [];
+let _ssActiveIdx = -1;
+
+function renderSettingsSearchResults(q) {
+  const list = document.getElementById('settings-search-results');
+  const input = document.getElementById('settings-search-input');
+  if (!list || !input) return;
+  const query = String(q || '').trim();
+  _ssResults = filterSettingsIndex(query);
+  _ssActiveIdx = _ssResults.length ? 0 : -1;
+  if (!_ssResults.length) {
+    list.innerHTML = query ? '<div class="settings-search-empty">未找到相关设置</div>' : '';
+    list.hidden = !query;
+  } else {
+    list.innerHTML = _ssResults.map((r, i) => {
+      const s = getSection(r.section);
+      return `<div class="settings-search-item${i === 0 ? ' is-active' : ''}" role="option" id="ss-opt-${i}" data-idx="${i}">
+        <span class="ss-title">${escapeHtml(r.title)}</span>
+        <span class="ss-crumb">${escapeHtml(s ? s.label : r.section)}</span>
+      </div>`;
+    }).join('');
+    list.hidden = false;
+    list.querySelectorAll('.settings-search-item').forEach(el => {
+      // mousedown + preventDefault：保持输入框焦点不丢，随后执行跳转
+      el.addEventListener('mousedown', (e) => { e.preventDefault(); gotoSettingsSearchResult(parseInt(el.dataset.idx, 10)); });
+    });
+  }
+  input.setAttribute('aria-expanded', String(!list.hidden));
+  syncSsActive();
+  // 搜索时同步过滤导航项（未命中章节淡出隐藏，Chrome 式实时过滤）
+  const hitSections = new Set(_ssResults.map(r => r.section));
+  document.querySelectorAll('.settings-nav-item[data-section]').forEach(btn => {
+    btn.classList.toggle('is-hidden', !!query && !hitSections.has(btn.dataset.section));
+  });
+}
+
+function syncSsActive() {
+  const input = document.getElementById('settings-search-input');
+  const list = document.getElementById('settings-search-results');
+  if (!input || !list) return;
+  list.querySelectorAll('.settings-search-item').forEach((el, i) => el.classList.toggle('is-active', i === _ssActiveIdx));
+  input.setAttribute('aria-activedescendant', _ssActiveIdx >= 0 ? `ss-opt-${_ssActiveIdx}` : '');
+  const act = list.querySelector('.settings-search-item.is-active');
+  if (act) act.scrollIntoView({ block: 'nearest' });
+}
+
+function gotoSettingsSearchResult(idx) {
+  const r = _ssResults[idx];
+  if (!r) return;
+  const input = document.getElementById('settings-search-input');
+  if (input) input.value = '';
+  renderSettingsSearchResults(''); // 恢复导航过滤、收起结果
+  renderTab(r.section, r.anchor, { persist: true });
+}
+
+function hideSettingsSearchResults() {
+  const list = document.getElementById('settings-search-results');
+  const input = document.getElementById('settings-search-input');
+  if (list) list.hidden = true;
+  if (input) input.setAttribute('aria-expanded', 'false');
+}
+
+// ---- 各章节模板（内容组件沿用既有 loader：loadStats/loadTokens/loadDownloadGrant/loadAccountInfo）----
+const SECTION_TEMPLATES = {
+  account: () => `
+    <div class="settings-panel-title">账户</div>
+    <div class="settings-panel-desc">查看账号身份、存储配额与最近登录记录。修改密码后所有旧会话自动失效。</div>
+    <div class="settings-section" data-anchor="profile">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.user}</div>
+        <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、存储配额、安全状态与登录记录</p></div>
+      </div>
+      <div class="setting-body" id="account-info">加载中...</div>
+    </div>
+    <div class="settings-section settings-section--danger" data-anchor="logout">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-danger">${ICONS.logout}</div>
+        <div class="setting-head-text"><h3>退出登录</h3><p class="section-desc">退出当前账户，需要重新登录</p></div>
+        <div class="setting-head-action"><button class="btn btn-danger" id="btn-logout">${ICONS.logout}<span>退出</span></button></div>
+      </div>
+    </div>`,
+
+  security: () => `
+    <div class="settings-panel-title">安全与隐私</div>
+    <div class="settings-panel-desc">修改密码后旧令牌与会话立即失效；浏览器端默认禁止下载（零痕迹），需要时开临时窗口；AI 回复中的 PII 在送达前端前自动遮罩。</div>
+    <div class="settings-section" data-anchor="password">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
+        <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">修改后本机保持登录，其他所有设备与会话立即退出</p></div>
+        <div class="setting-head-action"><button class="btn btn-secondary" id="btn-change-pwd">${ICONS.lock}<span>修改密码</span></button></div>
+      </div>
+      <div class="setting-body">
+        <p class="setting-meta" id="pwd-changed-at">加载中…</p>
+      </div>
+    </div>
+    <div class="settings-section" data-anchor="pii">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-neutral">${ICONS.shield}</div>
+        <div class="setting-head-text"><h3>PII 服务端脱敏</h3><p class="section-desc">AI 回复中的手机、邮箱、身份证、API Key、银行卡在送达浏览器前自动遮罩，真实值不落前端；需要时可点睛临时揭示。</p></div>
+      </div>
+      <div class="setting-body">
+        <figure class="sx-compare" role="figure" aria-label="PII 服务端脱敏对比：原始回答含明文，送达前端时已遮罩">
+          <figcaption class="sx-compare-cap">${ICONS.shield}PII 服务端脱敏 · 原文 → 前端</figcaption>
+          <div class="sx-compare-panes">
+            <div class="sx-pane">
+              <span class="sx-pane-tag">服务端 · 原始回答</span>
+              <ul class="sx-pane-list">
+                <li><span class="sx-pane-key">手机</span><span class="sx-raw">13800000815</span></li>
+                <li><span class="sx-pane-key">邮箱</span><span class="sx-raw">wangzhiqiang@example.com</span></li>
+                <li><span class="sx-pane-key">身份证</span><span class="sx-raw">110101199003071234</span></li>
+              </ul>
+            </div>
+            <div class="sx-compare-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+            <div class="sx-pane">
+              <span class="sx-pane-tag">前端可见</span>
+              <ul class="sx-pane-list">
+                <li><span class="sx-pane-key">手机</span><span class="sx-redact">138****0815</span></li>
+                <li><span class="sx-pane-key">邮箱</span><span class="sx-redact">w***@example.com</span></li>
+                <li><span class="sx-pane-key">身份证</span><span class="sx-redact">110***********1234</span></li>
+              </ul>
+            </div>
+          </div>
+        </figure>
+      </div>
+    </div>
+    <div class="settings-section" data-anchor="download">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-warning">${ICONS.download}</div>
+        <div class="setting-head-text"><h3>临时下载</h3><p class="section-desc">浏览器端默认禁止下载（零痕迹）。下载需验证登录密码，可选单次授权或时间窗口。</p></div>
+      </div>
+      <div class="setting-body" id="download-grant-content">加载中...</div>
+    </div>`,
+
+  devices: () => `
+    <div class="settings-panel-title">设备与会话</div>
+    <div class="settings-panel-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。离职时一键吊销全部，公司端不留痕迹。</div>
+    <div class="settings-section" data-anchor="tokens">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.monitor}</div>
+        <div class="setting-head-text"><h3>访问令牌</h3><p class="section-desc">守护进程与浏览器会话各对应一条令牌，创建设备令牌供家里同步使用</p></div>
+        <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
+      </div>
+      <div class="setting-body">
+        <div class="token-list" id="tokens-content"></div>
+      </div>
+    </div>
+    <div class="settings-section settings-section--danger" data-anchor="revoke-all">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-danger">${ICONS.shield}</div>
+        <div class="setting-head-text"><h3>紧急下线所有设备与会话</h3><p class="section-desc">吊销你的全部令牌（含当前浏览器会话），你也会立即登出。适合离职、设备丢失等紧急场景。</p></div>
+      </div>
+      <div class="setting-body">
+        <div class="token-danger-zone" id="revoke-all-zone" style="display:none">
+          <div class="token-danger-zone-text">
+            <strong>此操作立即生效且不可撤销</strong>
+            <span>所有设备与浏览器会话将被登出，守护进程将停止同步，直到创建新令牌。</span>
+          </div>
+          <button class="btn btn-danger" id="btn-revoke-all-tokens">${ICONS.shield}<span>吊销全部</span></button>
+        </div>
+      </div>
+    </div>`,
+
+  storage: () => `
+    <div class="settings-panel-title">存储与索引</div>
+    <div class="settings-panel-desc">查看存储用量与配额，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
+    <div class="settings-section" data-anchor="stats">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.database}</div>
+        <div class="setting-head-text"><h3>存储统计</h3><p class="section-desc">查看文件存储使用情况</p></div>
+        <div class="setting-head-action"><button class="btn btn-ghost btn-sm" id="btn-stats-refresh">${ICONS.refresh}<span>刷新</span></button></div>
+      </div>
+      <div class="setting-body" id="stats-content">加载中...</div>
+    </div>
+    <div class="settings-section" data-anchor="reindex">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-neutral">${ICONS.refresh}</div>
+        <div class="setting-head-text"><h3>全文索引</h3><p class="section-desc">重建文件索引以支持语义搜索</p></div>
+        <div class="setting-head-action"><button class="btn btn-secondary" id="btn-reindex">${ICONS.refresh}<span>重建索引</span></button></div>
+      </div>
+    </div>`,
+
+  about: () => `
+    <div class="settings-panel-title">关于随行档</div>
+    <div class="settings-panel-desc">一个长在你自己服务器上、靠浏览器访问、用对话驱动的私人文件中枢。</div>
+    <div class="settings-section">
+      <div class="about-brand">
+        <div class="about-avatar">随</div>
+        <div class="about-meta">
+          <div class="about-name">随行档 Suixingdang <span class="about-ver">v${APP_VERSION}</span></div>
+          <div class="about-slogan">私人文件中枢 · 自托管 · 多账户 · AI 驱动</div>
+        </div>
+      </div>
+      <ul class="about-dna">
+        <li>${ICONS.shield}<div><strong>零痕迹</strong><span>公司电脑默认只看不留，在线预览 no-store，离职一键吊销令牌即切断访问</span></div></li>
+        <li>${ICONS.ai}<div><strong>即问即得</strong><span>用自然语言告诉 agent 意图，它找到文件、传好、通知你</span></div></li>
+        <li>${ICONS.database}<div><strong>懂你的文件</strong><span>索引过文件名和内容，能分类、能提醒、能建议</span></div></li>
+      </ul>
+      <div class="about-links">
+        <a class="about-link" href="https://github.com/wupenghello/Suixingdang" target="_blank" rel="noopener noreferrer">${ICONS.fileCabinet}<span>GitHub 仓库</span></a>
+        <a class="about-link" href="https://github.com/wupenghello/Suixingdang/tree/main/docs" target="_blank" rel="noopener noreferrer">${ICONS.fileText}<span>部署文档</span></a>
+      </div>
+    </div>`,
+};
+
+// 修改密码：卡片只留入口按钮，表单收进弹窗（Chrome 设置范式——页面克制、动手专注）
+
+// 密码卡片状态行：password_changed_at 来自 /me，注册初始设置为 NULL → 从未修改
+function renderPasswordChangedAt() {
+  const el = document.getElementById('pwd-changed-at');
+  if (!el) return;
+  const at = App.currentUser && App.currentUser.password_changed_at;
+  el.textContent = at ? `上次修改：${formatDateTime(at)}` : '从未修改过密码';
+}
+
+// 修改密码弹窗：表单接线全部走共享层 utils/password-dialog.js（与管理端同源，
+// 避免双端复制漂移）。在途请求期间 canDismiss=false——ESC/遮罩点击不再能
+// 「取消」一个后端已执行的变更（此前会导致密码已改、其他设备已登出，UI 却无声无息）。
+function showChangePasswordDialog(username) {
+  return new Promise((resolve) => {
+    let ctl = null;
+    const { modal, close } = openModal({
+      width: 440,
+      canDismiss: () => !(ctl && ctl.isBusy()),
+      onDismiss: () => resolve(false),
+    });
+    modal.innerHTML = `
+      <h3>修改密码</h3>
+      <p class="confirm-message">修改后本机保持登录，其他所有设备与会话将立即退出登录。</p>
+      ${changePasswordFormHTML()}
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cp-cancel">取消</button>
+        <button class="btn btn-primary" id="cp-submit" disabled>修改密码</button>
+      </div>`;
+    ctl = wireChangePasswordForm(modal, {
+      username,
+      eyeIcon: ICONS.eye,
+      eyeOffIcon: ICONS.eyeOff,
+      submitBtn: modal.querySelector('#cp-submit'),
+      onSubmit: async (oldPwd, newPwd) => {
+        try {
+          const res = await API.post('/api/auth/change-password', { old_password: oldPwd, new_password: newPwd });
+          const d = await res.json().catch(() => ({}));
+          if (res && res.ok) return { ok: true, password_changed_at: (d && d.password_changed_at) || '' };
+          return { ok: false, status: res ? res.status : 0, detail: (d && d.detail) || '修改失败' };
+        } catch { return { ok: false, status: 0, detail: '网络错误，请重试' }; }
+      },
+      // 成功：时间戳随响应带回，就地更新缓存（免额外 /me 往返，也无失败致陈旧窗口）
+      onSuccess: (r) => { resolve(r); close(); },
+    });
+    modal.querySelector('#cp-cancel').addEventListener('click', () => { resolve(false); close(); });
+  });
+}
+
+async function openChangePasswordDialog() {
+  const username = (App.currentUser && App.currentUser.username) || '';
+  const r = await showChangePasswordDialog(username);
+  if (!r) return;
+  Toast.show('密码已修改，其他设备已全部退出登录', 'success');
+  if (App.currentUser) App.currentUser.password_changed_at = r.password_changed_at;
+  renderPasswordChangedAt();
+}
+
+// 锚点定位 + Chrome :target 式闪烁高亮；异步填充的卡片（账户信息）未就绪时重试最多 ~2s
+function flashAnchor(content, anchor, tries = 0) {
+  const target = content.querySelector(`[data-anchor="${anchor}"]`);
+  if (!target) {
+    if (tries < 120 && content.isConnected) requestAnimationFrame(() => flashAnchor(content, anchor, tries + 1));
+    return;
+  }
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  target.classList.add('settings-flash');
+  setTimeout(() => target.classList.remove('settings-flash'), 1400);
+}
+
+// 渲染章节面板（导航/搜索框不重建 → 搜索词跨章节保留）
+function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
+  const section = normalizeSectionId(sectionRaw);
+  const anchor = normalizeAnchor(section, anchorRaw);
+  if (persist) savePref('settingsTab', section); // 仅用户主动操作时持久化，深链初始渲染不覆盖偏好
+
+  const meta = getSection(section);
+  document.querySelectorAll('.settings-nav-item[data-section]').forEach(btn => {
+    const on = btn.dataset.section === section;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-current', on ? 'page' : 'false');
+  });
+  const titleEl = document.getElementById('settings-topbar-title');
+  if (titleEl) titleEl.textContent = meta ? meta.label : '设置';
+  try { history.replaceState(null, '', serializeSettingsHash(section, anchor)); } catch {}
+
+  const panel = document.getElementById('settings-panel');
+  const content = document.getElementById('settings-panel-content');
+  if (!content) return;
+  const tpl = SECTION_TEMPLATES[section];
+  content.innerHTML = tpl ? tpl() : '';
+  if (panel && !anchor) panel.scrollTop = 0;
+
+  // 章节事件绑定 + 数据加载
+  if (section === 'account') {
+    document.getElementById('btn-logout')?.addEventListener('click', confirmLogout);
+    loadAccountInfo();
+  } else if (section === 'security') {
+    document.getElementById('btn-change-pwd')?.addEventListener('click', openChangePasswordDialog);
+    renderPasswordChangedAt();
+    loadDownloadGrant();
+  } else if (section === 'devices') {
+    document.getElementById('btn-create-token')?.addEventListener('click', createToken);
+    document.getElementById('btn-revoke-all-tokens')?.addEventListener('click', revokeAllTokens);
+    loadTokens();
+  } else if (section === 'storage') {
+    document.getElementById('btn-reindex')?.addEventListener('click', rebuildIndex);
+    document.getElementById('btn-stats-refresh')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.classList.add('btn-loading');
+      loadStats().finally(() => { btn.disabled = false; btn.classList.remove('btn-loading'); });
+    });
+    loadStats();
+  }
+
+  if (anchor) requestAnimationFrame(() => flashAnchor(content, anchor));
+}
+
+async function renderSettings(initialSection, initialAnchor) {
+  wireSettingsGlobal();
+
+  // 章节解析优先级：显式参数（openSettings/命令面板）> 当前 URL 深链 > localStorage 偏好 > 默认 account
+  let section = null, anchor = initialAnchor || null;
+  if (initialSection) section = normalizeSectionId(initialSection);
+  else if ((location.hash || '').startsWith('#/settings/')) {
+    const fromHash = parseSettingsHash(location.hash);
+    section = fromHash.section;
+    anchor = anchor || fromHash.anchor;
+  }
+  if (!section) section = normalizeSectionId(loadPref('settingsTab', 'account'));
+
+  const navItems = SETTINGS_SECTIONS.map(s => `
+    <button class="settings-nav-item" data-section="${s.id}" aria-current="false">${SECTION_ICONS[s.icon] || ''}<span>${escapeHtml(s.label)}</span></button>`).join('');
+
   document.getElementById('main-content').innerHTML = `
     <div class="settings-layout">
-      <nav class="settings-nav" id="settings-nav">
-        <button class="settings-nav-item" data-tab="general">${TAB_ICONS.general}存储与索引</button>
-        <button class="settings-nav-item" data-tab="security">${TAB_ICONS.security}安全</button>
-        <button class="settings-nav-item" data-tab="account">${TAB_ICONS.account}账户</button>
+      <div class="settings-topbar">
+        <button class="settings-topbar-btn" id="settings-drawer-btn" aria-label="打开设置导航" aria-expanded="false" aria-controls="settings-nav">${ICONS.settings}</button>
+        <span class="settings-topbar-title" id="settings-topbar-title">设置</span>
+      </div>
+      <div class="settings-scrim" id="settings-scrim" hidden></div>
+      <nav class="settings-nav" id="settings-nav" aria-label="设置导航">
+        <div class="settings-search" id="settings-search" role="search">
+          <div class="settings-search-box">
+            ${ICONS.search}
+            <input id="settings-search-input" type="text" placeholder="搜索设置" autocomplete="off" spellcheck="false"
+                   role="combobox" aria-expanded="false" aria-controls="settings-search-results" aria-autocomplete="list" aria-label="搜索设置">
+            <kbd>/</kbd>
+          </div>
+          <div class="settings-search-results" id="settings-search-results" role="listbox" aria-label="设置搜索结果" hidden></div>
+        </div>
+        <div class="settings-nav-list">${navItems}</div>
       </nav>
-      <div class="settings-panel">
+      <div class="settings-panel" id="settings-panel">
         <div class="settings-panel-content" id="settings-panel-content"></div>
       </div>
     </div>`;
 
-  // 渲染对应标签面板内容
-  function renderTab(tab, persist = true) {
-    if (persist) savePref('settingsTab', tab); // 仅用户主动点击时持久化，深链初始渲染不覆盖偏好
-    document.querySelectorAll('.settings-nav-item').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.tab === tab);
-    });
-    const content = document.getElementById('settings-panel-content');
-    if (tab === 'general') {
-      content.innerHTML = `
-        <div class="settings-panel-title">存储与索引</div>
-        <div class="settings-panel-desc">查看存储用量与配额，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-primary">${ICONS.database}</div>
-            <div class="setting-head-text"><h3>存储统计</h3><p class="section-desc">查看文件存储使用情况</p></div>
-          </div>
-          <div class="setting-body" id="stats-content">加载中...</div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-neutral">${ICONS.refresh}</div>
-            <div class="setting-head-text"><h3>全文索引</h3><p class="section-desc">重建文件索引以支持语义搜索</p></div>
-            <div class="setting-head-action"><button class="btn btn-secondary" id="btn-reindex">${ICONS.refresh}<span>重建索引</span></button></div>
-          </div>
-        </div>`;
-      document.getElementById('btn-reindex').addEventListener('click', rebuildIndex);
-      loadStats();
-    } else if (tab === 'security') {
-      content.innerHTML = `
-        <div class="settings-panel-title">安全</div>
-        <div class="settings-panel-desc">设备令牌可单条或一键吊销；浏览器默认禁止下载（零痕迹），需要时开临时窗口；建议在公用设备上开启双因子验证。</div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-neutral">${ICONS.shield}</div>
-            <div class="setting-head-text"><h3>PII 服务端脱敏</h3><p class="section-desc">AI 回复中的手机、邮箱、身份证、API Key、银行卡在送达浏览器前自动遮罩，真实值不落前端；需要时可点睛临时揭示。</p></div>
-          </div>
-          <div class="setting-body">
-            <figure class="sx-compare" role="figure" aria-label="PII 服务端脱敏对比：原始回答含明文，送达前端时已遮罩">
-              <figcaption class="sx-compare-cap">${ICONS.shield}PII 服务端脱敏 · 原文 → 前端</figcaption>
-              <div class="sx-compare-panes">
-                <div class="sx-pane">
-                  <span class="sx-pane-tag">服务端 · 原始回答</span>
-                  <ul class="sx-pane-list">
-                    <li><span class="sx-pane-key">手机</span><span class="sx-raw">13800000815</span></li>
-                    <li><span class="sx-pane-key">邮箱</span><span class="sx-raw">wangzhiqiang@example.com</span></li>
-                    <li><span class="sx-pane-key">身份证</span><span class="sx-raw">110101199003071234</span></li>
-                  </ul>
-                </div>
-                <div class="sx-compare-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
-                <div class="sx-pane">
-                  <span class="sx-pane-tag">前端可见</span>
-                  <ul class="sx-pane-list">
-                    <li><span class="sx-pane-key">手机</span><span class="sx-redact">138****0815</span></li>
-                    <li><span class="sx-pane-key">邮箱</span><span class="sx-redact">w***@example.com</span></li>
-                    <li><span class="sx-pane-key">身份证</span><span class="sx-redact">110***********1234</span></li>
-                  </ul>
-                </div>
-              </div>
-            </figure>
-          </div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-success">${ICONS.key}</div>
-            <div class="setting-head-text"><h3>访问令牌与会话</h3><p class="section-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。</p></div>
-            <div class="setting-head-action"><button class="btn btn-primary" id="btn-create-token">${ICONS.upload}<span>创建令牌</span></button></div>
-          </div>
-          <div class="setting-body">
-            <div class="token-list" id="tokens-content"></div>
-            <div class="token-danger-zone" id="revoke-all-zone" style="display:none">
-              <div class="token-danger-zone-text">
-                <strong>紧急下线所有设备与会话</strong>
-                <span>吊销你的全部令牌（含当前浏览器会话），你也会立即登出。</span>
-              </div>
-              <button class="btn btn-danger" id="btn-revoke-all-tokens">${ICONS.shield}<span>吊销全部</span></button>
-            </div>
-          </div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-warning">${ICONS.download}</div>
-            <div class="setting-head-text"><h3>临时下载</h3><p class="section-desc">浏览器端默认禁止下载（零痕迹）。下载需验证登录密码，可选单次授权或时间窗口。</p></div>
-          </div>
-          <div class="setting-body" id="download-grant-content">加载中...</div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-warning">${ICONS.shield}</div>
-            <div class="setting-head-text"><h3>双因子验证</h3><p class="section-desc">用 Google Authenticator 等验证器扫码绑定，开启后登录需额外输入验证码。</p></div>
-          </div>
-          <div class="setting-body" id="totp-content">加载中...</div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
-            <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">修改后旧令牌与会话自动失效，需用新密码重新登录</p></div>
-          </div>
-          <div class="setting-body">
-            <div class="setting-form">
-              <div class="form-group"><label>原密码</label><input type="password" id="old-pass" class="form-input" placeholder="请输入原密码"></div>
-              <div class="form-group"><label>新密码</label><input type="password" id="new-pass" class="form-input" placeholder="请输入新密码"></div>
-              <button class="btn btn-primary" id="btn-change-pwd">修改密码</button>
-            </div>
-          </div>
-        </div>`;
-      document.getElementById('btn-create-token').addEventListener('click', createToken);
-      document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
-      bindChangePassword();
-      loadTokens(); loadTOTP(); loadDownloadGrant();
-    } else if (tab === 'account') {
-      content.innerHTML = `
-        <div class="settings-panel-title">账户</div>
-        <div class="settings-panel-desc">查看账号身份、存储配额与最近登录记录。修改密码后所有旧会话自动失效。</div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-primary">${ICONS.user}</div>
-            <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、存储配额、安全状态与登录记录</p></div>
-          </div>
-          <div class="setting-body" id="account-info">加载中...</div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
-            <div class="setting-head-icon icon-danger">${ICONS.logout}</div>
-            <div class="setting-head-text"><h3>退出登录</h3><p class="section-desc">退出当前账户，需要重新登录</p></div>
-            <div class="setting-head-action"><button class="btn btn-danger" id="btn-logout">${ICONS.logout}<span>退出</span></button></div>
-          </div>
-        </div>`;
-      document.getElementById('btn-logout').addEventListener('click', () => App.logout());
-      loadAccountInfo();
+  // 搜索框：输入即过滤，键盘 ↑↓/Enter/Esc
+  const searchInput = document.getElementById('settings-search-input');
+  searchInput.addEventListener('input', () => renderSettingsSearchResults(searchInput.value));
+  searchInput.addEventListener('focus', () => { if (searchInput.value.trim()) renderSettingsSearchResults(searchInput.value); });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    const list = document.getElementById('settings-search-results');
+    const open = list && !list.hidden && _ssResults.length > 0;
+    if (e.key === 'ArrowDown' && open) { e.preventDefault(); _ssActiveIdx = Math.min(_ssActiveIdx + 1, _ssResults.length - 1); syncSsActive(); }
+    else if (e.key === 'ArrowUp' && open) { e.preventDefault(); _ssActiveIdx = Math.max(_ssActiveIdx - 1, 0); syncSsActive(); }
+    else if (e.key === 'Enter' && open) { e.preventDefault(); gotoSettingsSearchResult(_ssActiveIdx); }
+    else if (e.key === 'Escape' && (searchInput.value || open)) {
+      e.stopPropagation(); // 消费掉，避免连带关闭抽屉
+      searchInput.value = '';
+      renderSettingsSearchResults('');
     }
-  }
-
-  // 修改密码事件绑定（抽出来，切到 security 时复用）
-  function bindChangePassword() {
-    document.getElementById('btn-change-pwd')?.addEventListener('click', async () => {
-      const oldP = document.getElementById('old-pass').value;
-      const newP = document.getElementById('new-pass').value;
-      if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
-      try {
-        const res = await API.post('/api/auth/change-password', { old_password: oldP, new_password: newP });
-        if (res.ok) {
-          const d = await res.json();
-          Toast.show('密码已修改', 'success');
-          document.getElementById('old-pass').value = '';
-          document.getElementById('new-pass').value = '';
-        }
-        else { const d = await res.json(); Toast.show(d.detail || '修改失败', 'error'); }
-      } catch { Toast.show('网络错误', 'error'); }
-    });
-  }
-
-  document.querySelectorAll('.settings-nav-item').forEach(btn => {
-    btn.addEventListener('click', () => renderTab(btn.dataset.tab));
   });
-  renderTab(activeTab, false); // 初始渲染（含深链）不覆盖用户偏好
+
+  document.querySelectorAll('.settings-nav-item[data-section]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      renderTab(btn.dataset.section, null, { persist: true });
+      if (isSettingsDrawerMode()) closeSettingsDrawer();
+    });
+  });
+
+  document.getElementById('settings-drawer-btn').addEventListener('click', () => {
+    const nav = document.getElementById('settings-nav');
+    if (nav.classList.contains('settings-drawer-open')) closeSettingsDrawer();
+    else openSettingsDrawer();
+  });
+
+  renderTab(section, anchor, { persist: false }); // 初始渲染（含深链）不覆盖用户偏好
 }
 
 async function loadAccountInfo() {
@@ -5170,9 +5643,6 @@ async function loadAccountInfo() {
       ? '<span class="badge badge-success">正常</span>'
       : '<span class="badge badge-danger">已禁用</span>';
     const quotaText = me.quota_mb && me.quota_mb > 0 ? `${me.quota_mb} MB` : '不限';
-    const totpBadge = me.totp_enabled
-      ? '<span class="badge badge-success">已开启</span>'
-      : '<span class="badge badge-warning">未开启</span>';
     const roleText = escapeHtml(roleMap[me.role] || me.role); // 统一转义，与弹层保持一致
 
     // 先渲染主体（不阻塞），再异步填充存储用量
@@ -5190,14 +5660,13 @@ async function loadAccountInfo() {
           <div class="account-field"><span class="account-label">角色</span><span class="account-value">${roleText}</span></div>
           <div class="account-field"><span class="account-label">账户状态</span><span class="account-value">${statusBadge}</span></div>
           <div class="account-field"><span class="account-label">存储配额</span><span class="account-value">${quotaText}</span></div>
-          <div class="account-field"><span class="account-label">双因子验证</span><span class="account-value">${totpBadge}</span></div>
           <div class="account-field"><span class="account-label">最近登录</span><span class="account-value">${me.last_login_at ? formatDateTime(me.last_login_at) : '-'}</span></div>
           <div class="account-field"><span class="account-label">注册时间</span><span class="account-value">${me.created_at ? formatDateTime(me.created_at) : '-'}</span></div>
           <div class="account-field"><span class="account-label">已用空间</span><span class="account-value" id="acct-used">-</span></div>
           <div class="account-field"><span class="account-label">剩余配额</span><span class="account-value" id="acct-remain">-</span></div>
         </div>
-        <div id="acct-storage"></div>
-        <div class="login-history" id="login-history"></div>
+        <div id="acct-storage" data-anchor="quota"></div>
+        <div class="login-history" id="login-history" data-anchor="history"></div>
       </div>`;
 
     // 异步填充存储用量（失败降级，不阻塞主体）
@@ -5230,43 +5699,51 @@ async function fillAccountStorage() {
 }
 
 // 登录历史：读 /api/auth/login-history，仅当前用户自身记录（后端强制 user_id 过滤）
+// 筛选 chip（全部/登录/安全）纯前端过滤已取回的记录，不发新请求（零痕迹）。
+// 事件标签/色点/分类全部来自共享词表 utils/audit-actions.js（与管理端同源）。
 let _loginHistorySeq = 0; // 竞态防护：丢弃过期响应
+let _lhLogs = [];
+let _lhFilter = 'all';
+
 async function loadLoginHistory() {
   const el = document.getElementById('login-history');
   if (!el) return;
   const seq = ++_loginHistorySeq;
-  const ACTION_MAP = {
-    login_success: { cls: 'ok', text: '登录成功' },
-    login_failed: { cls: 'fail', text: '登录失败' },
-    login_locked: { cls: 'fail', text: '登录锁定' },
-    login_blocked: { cls: 'fail', text: '登录被拒（账号禁用）' },
-    login_totp_failed: { cls: 'fail', text: '二次验证失败' },
-    login_new_device: { cls: 'warn', text: '新设备登录' },
-    register: { cls: 'ok', text: '注册账号' },
-    password_reset_success: { cls: 'warn', text: '重置密码成功' },
-    password_reset_failed: { cls: 'fail', text: '重置密码失败' },
-    password_reset_locked: { cls: 'fail', text: '重置锁定' },
-    revoke_other_tokens: { cls: 'warn', text: '退出其他设备' },
-    revoke_all_tokens: { cls: 'warn', text: '吊销全部令牌' },
-  };
   try {
-    const res = await API.get('/api/auth/login-history?limit=10');
+    const res = await API.get('/api/auth/login-history?limit=30');
     if (seq !== _loginHistorySeq) return; // 已有更新请求，丢弃本响应
     if (!res || !res.ok) { el.innerHTML = '<div class="lh-empty">登录记录加载失败</div>'; return; }
-    const logs = await res.json();
-    if (!logs || !logs.length) { el.innerHTML = '<div class="lh-empty">暂无登录记录</div>'; return; }
-    el.innerHTML = `<div class="lh-title">最近登录记录</div>
-      <div class="lh-list">${logs.map(l => {
-        const m = ACTION_MAP[l.action] || { cls: '', text: l.action };
-        const detail = (l.detail || '').trim();
-        return `<div class="lh-item">
-          <span class="lh-dot ${m.cls}"></span>
-          <span class="lh-text">${escapeHtml(m.text)}</span>
-          ${detail ? `<span class="lh-detail">${escapeHtml(detail)}</span>` : ''}
-          <span class="lh-time">${l.created_at ? formatDateTime(l.created_at) : ''}</span>
-        </div>`;
-      }).join('')}</div>`;
+    _lhLogs = (await res.json()) || [];
+    renderLoginHistoryList();
   } catch { if (seq === _loginHistorySeq) el.innerHTML = '<div class="lh-empty">登录记录加载失败</div>'; }
+}
+
+function renderLoginHistoryList() {
+  const el = document.getElementById('login-history');
+  if (!el) return;
+  const logs = _lhFilter === 'all' ? _lhLogs : _lhLogs.filter(l => auditCategory(l.action) === _lhFilter);
+  const chip = (f, label) => `<button class="lh-chip${_lhFilter === f ? ' is-active' : ''}" data-filter="${f}">${label}</button>`;
+  // 空态区分「真无记录」与「该分类无记录」——隐私产品里不能让人误以为记录被清
+  const emptyText = _lhFilter === 'all' ? '暂无登录记录' : '该分类下暂无记录';
+  el.innerHTML = `
+    <div class="lh-head">
+      <div class="lh-title">最近登录记录</div>
+      <div class="lh-filters">${chip('all', '全部')}${chip('login', '登录')}${chip('security', '安全')}</div>
+    </div>
+    ${logs.length ? `<div class="lh-list">${logs.map(l => {
+      const detail = (l.detail || '').trim();
+      return `<div class="lh-item">
+        <span class="lh-dot ${auditCls(l.action)}"></span>
+        <span class="lh-text">${escapeHtml(auditLabel(l.action))}</span>
+        ${detail ? `<span class="lh-detail">${escapeHtml(detail)}</span>` : ''}
+        <span class="lh-time">${l.created_at ? formatDateTime(l.created_at) : ''}</span>
+      </div>`;
+    }).join('')}</div>` : `<div class="lh-empty">${emptyText}</div>`}`;
+  el.querySelectorAll('.lh-chip').forEach(c => c.addEventListener('click', () => {
+    if (_lhFilter === c.dataset.filter) return;
+    _lhFilter = c.dataset.filter;
+    renderLoginHistoryList();
+  }));
 }
 
 async function loadStats() {
@@ -5450,14 +5927,29 @@ function showTokenResult(token, label) {
 }
 
 async function revokeAllTokens() {
-  if (!await confirmDialog({ title: '吊销全部令牌', message: '将吊销你的全部令牌（含当前浏览器会话），你也会立即登出。确定继续？', confirmText: '全部吊销', danger: true })) return;
-  try {
-    const res = await API.del('/api/auth/tokens');
-    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); return; }
-    const data = await res.json();
-    Toast.show(data.message || '已吊销全部令牌', 'success');
-    App.logout();  // 紧急下线：清 cookie + 吊销，自己的 access 也已失效
-  } catch { Toast.show('操作失败', 'error'); }
+  // 步骤验证（Q1-B）：破坏面最大的操作要求重输登录密码，验证失败原地重试不关窗
+  const r = await passwordConfirmDialog({
+    title: '紧急下线所有设备',
+    message: '将吊销你的全部令牌（含当前浏览器会话），所有设备立即登出且不可撤销。请输入登录密码确认是本人操作。',
+    confirmText: '全部吊销',
+    verify: async (password) => {
+      try {
+        // _skipLogoutRedirect：双 cookie 过期时不能在弹窗背后静默跳走——
+        // 否则用户以为完成了紧急吊销，实际什么都没发生
+        const res = await API.del('/api/auth/tokens', { password }, { _skipLogoutRedirect: true });
+        if (res && res.status === 401) return { ok: false, status: 401, detail: '登录状态已失效，请重新登录后再试' };
+        if (res && res.ok) {
+          const d = await res.json().catch(() => ({}));
+          return { ok: true, message: (d && d.message) || '已吊销全部令牌' };
+        }
+        const d = res ? await res.json().catch(() => ({})) : {};
+        return { ok: false, status: res ? res.status : 0, detail: (d && d.detail) || '操作失败' };
+      } catch { return { ok: false, status: 0, detail: '网络错误' }; }
+    },
+  });
+  if (!r) return;
+  Toast.show(r.message || '已吊销全部令牌', 'success');  // 保留后端的吊销数量（安全信号）
+  App.logout();  // 紧急下线：清 cookie + 吊销，自己的 access 也已失效
 }
 
 // ---- 临时下载授权（浏览器端默认禁下载，设置页开启短期窗口）----
@@ -5487,6 +5979,7 @@ function downloadAuthDialog({ filePath = null, defaultMode = 'single' } = {}) {
     const passwordInput = modal.querySelector('#dl-auth-password');
     const cancelBtn = modal.querySelector('.btn-secondary');
     const okBtn = modal.querySelector('#dl-auth-confirm');
+    mountPasswordField(passwordInput, { eyeIcon: ICONS.eye, eyeOffIcon: ICONS.eyeOff });
     cancelBtn.textContent = '取消';
     okBtn.textContent = '验证并继续';
     const submit = async () => {
@@ -5677,93 +6170,30 @@ async function revokeOtherTokens() {
   } catch { Toast.show('操作失败', 'error'); }
 }
 
-async function loadTOTP() {
-  const el = document.getElementById('totp-content');
-  if (!el) return;
-  const enabled = App.currentUser && App.currentUser.totp_enabled;
-  if (enabled) {
-    el.innerHTML = `
-      <div class="totp-status">
-        <span class="badge badge-success">已开启</span>
-        <p class="setting-empty" style="margin:0">登录时需要额外的动态验证码。关闭后立即生效。</p>
-      </div>
-      <button class="btn btn-danger" id="btn-disable-totp">关闭双因子验证</button>`;
-    document.getElementById('btn-disable-totp').addEventListener('click', disableTOTP);
-  } else {
-    el.innerHTML = `
-      <p class="setting-empty">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。公用设备强烈建议开启。</p>
-      <button class="btn btn-primary" id="btn-setup-totp">设置双因子验证</button>`;
-    document.getElementById('btn-setup-totp').addEventListener('click', setupTOTP);
-  }
-}
-
-async function disableTOTP() {
-  if (!await confirmDialog({ title: '关闭双因子验证', message: '关闭后，登录将不再需要动态验证码，账户安全性会降低。确定关闭？', confirmText: '关闭', danger: true })) return;
-  try {
-    const res = await API.post('/api/auth/totp/disable');
-    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '关闭失败', 'error'); return; }
-    if (App.currentUser) App.currentUser.totp_enabled = false;
-    Toast.show('双因子验证已关闭', 'success');
-    loadTOTP();
-    loadAccountInfo();
-  } catch { Toast.show('网络错误', 'error'); }
-}
-
-async function setupTOTP() {
-  let data;
-  try {
-    const res = await API.get('/api/auth/totp/setup');
-    data = await res.json();
-  } catch { Toast.show('设置失败', 'error'); return; }
-  const { modal, close } = openModal({ width: 420 });
-  modal.innerHTML = `
-    <h3>设置双因子验证</h3>
-    <p class="confirm-message">用验证器 App（如 Google Authenticator）扫描以下二维码：</p>
-    <div style="text-align:center;margin:16px 0"><img src="${data.qr_code}" style="width:200px;height:200px" alt="QR"></div>
-    <p style="font-size:12px;color:var(--text-muted)">或手动输入：<code id="totp-secret"></code></p>
-    <div class="form-group" style="margin-top:16px">
-      <label>输入验证器显示的 6 位代码</label>
-      <input type="text" class="form-input" id="totp-verify-code" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" id="totp-cancel">取消</button>
-      <button class="btn btn-primary" id="btn-confirm-totp">确认绑定</button>
-    </div>`;
-  modal.querySelector('#totp-secret').textContent = data.secret;
-  const codeInput = modal.querySelector('#totp-verify-code');
-  const confirmBtn = modal.querySelector('#btn-confirm-totp');
-  const submit = async () => {
-    const code = codeInput.value.trim();
-    if (!code) { Toast.show('请输入验证码', 'error'); return; }
-    confirmBtn.disabled = true;
-    try {
-      const res = await API.post(`/api/auth/totp/enable?secret=${encodeURIComponent(data.secret)}&code=${encodeURIComponent(code)}`);
-      if (res.ok) {
-        if (App.currentUser) App.currentUser.totp_enabled = true;
-        Toast.show('双因子验证已开启', 'success');
-        close();
-        loadTOTP();
-        loadAccountInfo();
-      } else {
-        const d = await res.json();
-        Toast.show(d.detail || '验证码错误', 'error');
-      }
-    } catch { Toast.show('网络错误', 'error'); }
-    finally { if (modal.isConnected) confirmBtn.disabled = false; }
-  };
-  modal.querySelector('#totp-cancel').addEventListener('click', close);
-  confirmBtn.addEventListener('click', submit);
-  codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-  setTimeout(() => codeInput.focus(), 0);
+// 退出登录（危险操作收口：二次确认，防误点直接掉线）
+async function confirmLogout() {
+  const ok = await confirmDialog({ title: '退出登录', message: '退出后需要重新输入用户名和密码登录。确定退出当前账户？', confirmText: '退出' });
+  if (ok) App.logout();
 }
 
 async function rebuildIndex() {
-  Toast.show('开始重建索引...', 'info');
+  // 重建是重操作（大库可能数分钟）：先确认，再给明确的加载态，避免「点了像没反应」
+  const ok = await confirmDialog({ title: '重建全文索引', message: '将为全部文件重建语义索引，支持自然语言搜索。文件较多时可能耗时数分钟，期间可正常使用其他功能。确定重建？', confirmText: '重建' });
+  if (!ok) return;
+  const btn = document.getElementById('btn-reindex');
+  const label = btn && btn.querySelector('span');
+  if (btn) { btn.disabled = true; btn.classList.add('btn-loading'); }
+  if (label) label.textContent = '重建中…';
   try {
     const res = await API.post('/api/files/index-all');
-    const data = await res.json();
-    Toast.show(data.message, 'success');
+    const data = await res.json().catch(() => ({}));
+    if (res && res.ok) Toast.show((data && data.message) || '索引重建完成', 'success');
+    else Toast.show((data && data.detail) || '重建失败', 'error');
   } catch { Toast.show('重建失败', 'error'); }
+  finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('btn-loading'); }
+    if (label) label.textContent = '重建索引';
+  }
 }
 
 // ============ App ============
@@ -5783,6 +6213,11 @@ const App = {
     }
     this.renderLayout();
     this.navigate('transfer');
+    // 设置深链冷启动直达：#/settings/<section>[/<anchor>]（其他 hash 不受影响）
+    if ((location.hash || '').startsWith('#/settings/')) {
+      const { section, anchor } = parseSettingsHash(location.hash);
+      this.navigate('settings', { section, anchor });
+    }
     setupDragDrop();
     setupPaste();
     setupGlobalShortcuts();
@@ -5849,7 +6284,7 @@ const App = {
       if (!btn.dataset.view) return;
       btn.addEventListener('click', () => this.navigate(btn.dataset.view));
     });
-    document.getElementById('btn-sidebar-logout').addEventListener('click', () => this.logout());
+    document.getElementById('btn-sidebar-logout').addEventListener('click', () => confirmLogout());
     // 侧栏账户区：点击 / Enter / Space 打开账户弹层（退出按钮已自带逻辑，点击它不触发弹层）
     const userBtn = document.getElementById('sidebar-user');
     if (userBtn) {
@@ -5877,6 +6312,10 @@ const App = {
  navigate(view, opts = {}) {
    // 离开聊天视图时中止进行中的流式回复，避免向已分离的 DOM 继续写入
    if (this.currentView === 'chat' && view !== 'chat' && currentChatAbort) currentChatAbort.abort();
+   // 离开设置视图时清除深链 hash（防返回键意外回到旧章节；hash 仅在设置视图内有意义）
+   if (this.currentView === 'settings' && view !== 'settings') {
+     try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+   }
    this.currentView = view;
     document.querySelectorAll('.sidebar .nav-item[data-view]').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
    if (view === 'chat' && !(this.currentUser && this.currentUser.ai_enabled)) {
@@ -5887,13 +6326,13 @@ const App = {
     else if (view === 'trash') renderTrash();
     else if (view === 'chat') renderChat();
     else if (view === 'transfer') renderTransfer();
-    else if (view === 'settings') renderSettings(opts.tab);
+    else if (view === 'settings') renderSettings(opts.section || opts.tab, opts.anchor);
     else if (view === 'notes') renderNotes();
   },
-  openSettings(tab) {
-    // 校验 tab 值，避免非法值经 renderTab 被持久化到偏好（修复：openSettings tab 未校验）
-    const validTab = ['general', 'security', 'account'].includes(tab) ? tab : 'general';
-    this.navigate('settings', { tab: validTab });
+  openSettings(section, anchor) {
+    // normalizeSectionId 同时兼容旧 tab id（general→storage）；非法值回落 account，避免坏值持久化到偏好
+    const validSection = normalizeSectionId(section);
+    this.navigate('settings', { section: validSection, anchor: normalizeAnchor(validSection, anchor) });
   },
   logout() {
     if (currentChatAbort) currentChatAbort.abort();
