@@ -66,7 +66,7 @@ def test_revoke_all_failure_is_audited(client):
     logs = client.get(
         "/api/auth/login-history?limit=50",
         headers={"Authorization": f"Bearer {new_access}"},
-    ).json()
+    ).json()["items"]
     actions = [l["action"] for l in logs]
     assert "stepup_failed" in actions
     assert "revoke_all_tokens" in actions

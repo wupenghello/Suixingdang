@@ -11,10 +11,16 @@ import {
 } from '../../app/web/assets/utils/settings-search.js';
 
 describe('SETTINGS_SECTIONS / SETTINGS_INDEX（数据完整性）', () => {
-  it('章节 id 唯一且含 account/security/devices/storage/about', () => {
+  it('章节 id 唯一且为拆分后的 7 章（导航顺序即数组顺序）', () => {
     const ids = SETTINGS_SECTIONS.map(s => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(expect.arrayContaining(['account', 'security', 'devices', 'storage', 'about']));
+    expect(ids).toEqual(['account', 'security', 'privacy', 'devices', 'storage', 'index', 'about']);
+  });
+
+  it('导航条目单项化：label 不得为「X与Y」复合命名', () => {
+    for (const s of SETTINGS_SECTIONS) {
+      expect(s.label).not.toContain('与');
+    }
   });
 
   it('每个章节都有 label/icon/desc，icon 键非空', () => {
@@ -73,7 +79,9 @@ describe('normalizeSectionId（章节归一 + 旧 tab 兼容）', () => {
 
 describe('normalizeAnchor（锚点白名单校验）', () => {
   it('登记过的锚点通过', () => {
-    expect(normalizeAnchor('security', 'download')).toBe('download');
+    expect(normalizeAnchor('privacy', 'download')).toBe('download');
+    expect(normalizeAnchor('privacy', 'pii')).toBe('pii');
+    expect(normalizeAnchor('index', 'reindex')).toBe('reindex');
     expect(normalizeAnchor('devices', 'revoke-all')).toBe('revoke-all');
     expect(normalizeAnchor('account', 'history')).toBe('history');
   });
@@ -85,7 +93,7 @@ describe('normalizeAnchor（锚点白名单校验）', () => {
   });
 
   it('未登记锚点返回 null（防 hash 注入 / 跨章节错配）', () => {
-    expect(normalizeAnchor('account', 'download')).toBeNull(); // download 属于 security
+    expect(normalizeAnchor('account', 'download')).toBeNull(); // download 属于 privacy
     expect(normalizeAnchor('account', '"><img onerror>')).toBeNull();
     expect(normalizeAnchor('security', 'nonexistent')).toBeNull();
   });
@@ -93,13 +101,13 @@ describe('normalizeAnchor（锚点白名单校验）', () => {
 
 describe('parseSettingsHash（深链解析）', () => {
   it('合法深链：章节 + 锚点', () => {
-    expect(parseSettingsHash('#/settings/security/download')).toEqual({ section: 'security', anchor: 'download' });
+    expect(parseSettingsHash('#/settings/privacy/download')).toEqual({ section: 'privacy', anchor: 'download' });
     expect(parseSettingsHash('#/settings/account')).toEqual({ section: 'account', anchor: null });
   });
 
   it('尾斜杠容忍 + 大小写不敏感', () => {
     expect(parseSettingsHash('#/settings/storage/')).toEqual({ section: 'storage', anchor: null });
-    expect(parseSettingsHash('#/settings/Security/Download')).toEqual({ section: 'security', anchor: 'download' });
+    expect(parseSettingsHash('#/settings/Privacy/Download')).toEqual({ section: 'privacy', anchor: 'download' });
   });
 
   it('旧 tab 深链兼容（general → storage）', () => {
@@ -116,6 +124,22 @@ describe('parseSettingsHash（深链解析）', () => {
     expect(parseSettingsHash('#/settings/security/xxx')).toEqual({ section: 'security', anchor: null });
   });
 
+  it('IA 拆分旧深链救援：锚点搬家后章节自动纠正（书签永久有效）', () => {
+    expect(parseSettingsHash('#/settings/security/pii')).toEqual({ section: 'privacy', anchor: 'pii' });
+    expect(parseSettingsHash('#/settings/security/download')).toEqual({ section: 'privacy', anchor: 'download' });
+    expect(parseSettingsHash('#/settings/storage/reindex')).toEqual({ section: 'index', anchor: 'reindex' });
+    expect(parseSettingsHash('#/settings/Security/PII')).toEqual({ section: 'privacy', anchor: 'pii' });
+  });
+
+  it('救援不放宽白名单：未登记锚点仍丢弃，不做任意跨章节匹配', () => {
+    expect(parseSettingsHash('#/settings/security/nonexistent')).toEqual({ section: 'security', anchor: null });
+    expect(parseSettingsHash('#/settings/privacy/xxx')).toEqual({ section: 'privacy', anchor: null });
+  });
+
+  it('已删除锚点的重定向：account/quota → storage/stats（配额卡收敛到存储章）', () => {
+    expect(parseSettingsHash('#/settings/account/quota')).toEqual({ section: 'storage', anchor: 'stats' });
+  });
+
   it('null/undefined 输入安全', () => {
     expect(parseSettingsHash(null)).toEqual({ section: 'account', anchor: null });
     expect(parseSettingsHash(undefined)).toEqual({ section: 'account', anchor: null });
@@ -124,7 +148,7 @@ describe('parseSettingsHash（深链解析）', () => {
 
 describe('serializeSettingsHash（深链序列化）', () => {
   it('章节 + 锚点', () => {
-    expect(serializeSettingsHash('security', 'download')).toBe('#/settings/security/download');
+    expect(serializeSettingsHash('privacy', 'download')).toBe('#/settings/privacy/download');
     expect(serializeSettingsHash('account', null)).toBe('#/settings/account');
   });
 
@@ -152,7 +176,14 @@ describe('filterSettingsIndex（页内搜索）', () => {
   it('中文关键词命中（标题优先）', () => {
     const r = filterSettingsIndex('下载');
     expect(r.length).toBeGreaterThan(0);
-    expect(r[0]).toMatchObject({ section: 'security', anchor: 'download', title: '临时下载' });
+    expect(r[0]).toMatchObject({ section: 'privacy', anchor: 'download', title: '临时下载' });
+  });
+
+  it('新章节可被口语词搜到（隐私 / 索引）', () => {
+    expect(filterSettingsIndex('隐私').some(it => it.anchor === 'pii')).toBe(true);
+    expect(filterSettingsIndex('privacy').some(it => it.anchor === 'pii')).toBe(true);
+    expect(filterSettingsIndex('重建 索引')[0]).toMatchObject({ section: 'index', anchor: 'reindex' });
+    expect(filterSettingsIndex('搜索不准').some(it => it.anchor === 'reindex')).toBe(true);
   });
 
   it('英文关键词命中', () => {
@@ -169,7 +200,8 @@ describe('filterSettingsIndex（页内搜索）', () => {
   it('多词 AND 语义：全部命中才返回', () => {
     const r = filterSettingsIndex('存储 配额');
     expect(r.length).toBeGreaterThan(0);
-    expect(r.every(it => ['account', 'storage'].includes(it.section))).toBe(true);
+    // 配额已收敛到存储章（账户卡去重后不再命中 account）
+    expect(r.every(it => it.section === 'storage')).toBe(true);
     expect(filterSettingsIndex('下载 不存在的词xyz')).toEqual([]);
   });
 
@@ -186,7 +218,7 @@ describe('filterSettingsIndex（页内搜索）', () => {
   });
 
   it('每个搜索结果都能被 normalizeAnchor 接受（索引与锚点白名单一致）', () => {
-    for (const q of ['下载', '令牌', '密码', '索引', '账户', '脱敏', '退出']) {
+    for (const q of ['下载', '令牌', '密码', '索引', '账户', '脱敏', '退出', '隐私', '存储']) {
       for (const it of filterSettingsIndex(q)) {
         expect(normalizeAnchor(it.section, it.anchor)).toBe(it.anchor);
       }
@@ -197,6 +229,10 @@ describe('filterSettingsIndex（页内搜索）', () => {
 describe('getSection', () => {
   it('返回章节元数据，未知 id 返回 null', () => {
     expect(getSection('account')).toMatchObject({ id: 'account', label: '账户' });
+    expect(getSection('privacy')).toMatchObject({ id: 'privacy', label: '隐私' });
+    expect(getSection('index')).toMatchObject({ id: 'index', label: '索引' });
+    expect(getSection('devices')).toMatchObject({ id: 'devices', label: '设备' });
+    expect(getSection('about')).toMatchObject({ id: 'about', label: '关于' });
     expect(getSection('nope')).toBeNull();
     expect(getSection(null)).toBeNull();
   });

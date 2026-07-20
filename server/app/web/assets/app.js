@@ -18,9 +18,9 @@ import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=61';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
 import { createTrashSelection } from './utils/trash-selection.js?v=66';
-import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=93';
+import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=95';
 import { mountPasswordField } from './utils/password-field.js?v=95';
-import { auditLabel, auditCls, auditCategory } from './utils/audit-actions.js?v=96';
+import { auditLabel, auditCls } from './utils/audit-actions.js?v=96';
 import { changePasswordFormHTML, wireChangePasswordForm } from './utils/password-dialog.js?v=96';
 
 // ============ API 层 ============
@@ -294,7 +294,7 @@ async function openAccountPopover(anchor) {
     <div class="ap-login" id="ap-login"></div>
     <div class="ap-menu" role="none">
       <button class="ap-item" role="menuitem" data-ap="account">${ICONS.user}<span>账户详情</span></button>
-      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全与隐私</span></button>
+      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全</span></button>
       <button class="ap-item" role="menuitem" data-ap="others">${ICONS.logout}<span>退出其他设备</span></button>
     </div>
     <div class="ap-divider"></div>
@@ -2021,10 +2021,12 @@ function openCommandPalette() {
       { type: 'action', label: '传输助手', icon: ICONS.transfer, detail: '打开文件传输助手', onClick: () => App.navigate('transfer') },
       { type: 'action', label: '导出全部文件', icon: ICONS.exportIco, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
       { type: 'action', label: '设置', icon: ICONS.settings, detail: '打开设置页', onClick: () => App.navigate('settings') },
-      { type: 'action', label: '设置 · 账户', icon: ICONS.user, detail: '账户信息、配额与登录记录', onClick: () => App.openSettings('account') },
-      { type: 'action', label: '设置 · 安全与隐私', icon: ICONS.shield, detail: '修改密码、PII 脱敏、临时下载', onClick: () => App.openSettings('security') },
-      { type: 'action', label: '设置 · 设备与会话', icon: ICONS.monitor, detail: '设备令牌与紧急吊销', onClick: () => App.openSettings('devices') },
-      { type: 'action', label: '设置 · 存储与索引', icon: ICONS.database, detail: '存储统计与索引重建', onClick: () => App.openSettings('storage') },
+      { type: 'action', label: '设置 · 账户', icon: ICONS.user, detail: '账户信息、安全状态与登录历史', onClick: () => App.openSettings('account') },
+      { type: 'action', label: '设置 · 安全', icon: ICONS.shield, detail: '修改密码，旧会话立即失效', onClick: () => App.openSettings('security') },
+      { type: 'action', label: '设置 · 隐私', icon: ICONS.eye, detail: 'PII 服务端脱敏、零痕迹临时下载', onClick: () => App.openSettings('privacy') },
+      { type: 'action', label: '设置 · 设备', icon: ICONS.monitor, detail: '访问令牌与紧急吊销', onClick: () => App.openSettings('devices') },
+      { type: 'action', label: '设置 · 存储', icon: ICONS.database, detail: '存储用量与配额', onClick: () => App.openSettings('storage') },
+      { type: 'action', label: '设置 · 索引', icon: ICONS.search, detail: '语义索引状态与重建', onClick: () => App.openSettings('index') },
       { type: 'action', label: '快捷键帮助', icon: ICONS.keyboard, detail: '查看所有键盘快捷键', onClick: () => showShortcutHelp() },
     ];
     return actions.filter(a => !(a.label === 'AI 对话' && !(App.currentUser && App.currentUser.ai_enabled)));
@@ -3510,7 +3512,7 @@ async function downloadFile(path, opts = {}) {
       const auth = await requestDownloadAuth({ filePath: path, fileId: fid, defaultMode: 'single' });
       if (!auth) {
         // 用户取消：给出带深链的引导，一键直达设置页临时下载卡片
-        Toast.show('已取消下载授权', 'info', 5000, { label: '去设置开启', onClick: () => App.openSettings('security', 'download') });
+        Toast.show('已取消下载授权', 'info', 5000, { label: '去设置开启', onClick: () => App.openSettings('privacy', 'download') });
         return;
       }
       if (auth.mode === 'window') {
@@ -5131,15 +5133,18 @@ function previewVideo(path, name, opts = {}) {
 }
 
 // ============ Settings · Chrome 式双栏（左垂直导航 + 搜索框，右独立滚动内容区）============
-// IA：账户 / 安全与隐私 / 设备与会话 / 存储与索引 / 关于随行档（见 utils/settings-search.js）
+// IA：账户 / 安全 / 隐私 / 设备 / 存储 / 索引 / 关于（见 utils/settings-search.js）
+// 条目单项化：一条目一概念，旧深链 security/pii、security/download→privacy，storage/reindex→index 自动救援
 // 深链：#/settings/<section>[/<anchor>]；页内搜索为纯前端静态索引——不发请求、不落日志（零痕迹）。
 const APP_VERSION = '2.0.0';
 
 const SECTION_ICONS = {
   account: ICONS.user,
   security: ICONS.shield,
+  privacy: ICONS.eye,
   devices: ICONS.monitor,
   storage: ICONS.database,
+  index: ICONS.search,
   about: ICONS.info,
 };
 
@@ -5299,7 +5304,7 @@ const SECTION_TEMPLATES = {
     <div class="settings-section" data-anchor="profile">
       <div class="setting-head">
         <div class="setting-head-icon icon-primary">${ICONS.user}</div>
-        <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、存储配额、安全状态与登录记录</p></div>
+        <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、安全状态与登录历史</p></div>
       </div>
       <div class="setting-body" id="account-info">加载中...</div>
     </div>
@@ -5312,8 +5317,8 @@ const SECTION_TEMPLATES = {
     </div>`,
 
   security: () => `
-    <div class="settings-panel-title">安全与隐私</div>
-    <div class="settings-panel-desc">修改密码后旧令牌与会话立即失效；浏览器端默认禁止下载（零痕迹），需要时开临时窗口；AI 回复中的 PII 在送达前端前自动遮罩。</div>
+    <div class="settings-panel-title">安全</div>
+    <div class="settings-panel-desc">凭据相关：修改密码后本机保持登录，其他所有设备与会话立即退出，旧令牌同时失效。</div>
     <div class="settings-section" data-anchor="password">
       <div class="setting-head">
         <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
@@ -5323,7 +5328,11 @@ const SECTION_TEMPLATES = {
       <div class="setting-body">
         <p class="setting-meta" id="pwd-changed-at">加载中…</p>
       </div>
-    </div>
+    </div>`,
+
+  privacy: () => `
+    <div class="settings-panel-title">隐私</div>
+    <div class="settings-panel-desc">数据不外流：AI 回复中的 PII 在送达浏览器前自动遮罩，真实值不落前端；浏览器端默认禁止下载（零痕迹），需要时验证密码开临时窗口。</div>
     <div class="settings-section" data-anchor="pii">
       <div class="setting-head">
         <div class="setting-head-icon icon-neutral">${ICONS.shield}</div>
@@ -5363,8 +5372,8 @@ const SECTION_TEMPLATES = {
     </div>`,
 
   devices: () => `
-    <div class="settings-panel-title">设备与会话</div>
-    <div class="settings-panel-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。离职时一键吊销全部，公司端不留痕迹。</div>
+    <div class="settings-panel-title">设备</div>
+    <div class="settings-panel-desc">每台机器或浏览器会话各对应一条访问令牌，吊销即切断访问。离职时一键吊销全部，公司端不留痕迹。</div>
     <div class="settings-section" data-anchor="tokens">
       <div class="setting-head">
         <div class="setting-head-icon icon-primary">${ICONS.monitor}</div>
@@ -5392,8 +5401,8 @@ const SECTION_TEMPLATES = {
     </div>`,
 
   storage: () => `
-    <div class="settings-panel-title">存储与索引</div>
-    <div class="settings-panel-desc">查看存储用量与配额，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
+    <div class="settings-panel-title">存储</div>
+    <div class="settings-panel-desc">查看文件存储用量与配额。</div>
     <div class="settings-section" data-anchor="stats">
       <div class="setting-head">
         <div class="setting-head-icon icon-primary">${ICONS.database}</div>
@@ -5401,7 +5410,11 @@ const SECTION_TEMPLATES = {
         <div class="setting-head-action"><button class="btn btn-ghost btn-sm" id="btn-stats-refresh">${ICONS.refresh}<span>刷新</span></button></div>
       </div>
       <div class="setting-body" id="stats-content">加载中...</div>
-    </div>
+    </div>`,
+
+  index: () => `
+    <div class="settings-panel-title">索引</div>
+    <div class="settings-panel-desc">上传的文件自动建立语义索引，支持自然语言搜索；文件大量变动或搜索不准时可重建。</div>
     <div class="settings-section" data-anchor="reindex">
       <div class="setting-head">
         <div class="setting-head-icon icon-neutral">${ICONS.refresh}</div>
@@ -5411,25 +5424,22 @@ const SECTION_TEMPLATES = {
     </div>`,
 
   about: () => `
-    <div class="settings-panel-title">关于随行档</div>
+    <div class="settings-panel-title">关于</div>
     <div class="settings-panel-desc">一个长在你自己服务器上、靠浏览器访问、用对话驱动的私人文件中枢。</div>
     <div class="settings-section">
       <div class="about-brand">
         <div class="about-avatar">随</div>
         <div class="about-meta">
-          <div class="about-name">随行档 Suixingdang <span class="about-ver">v${APP_VERSION}</span></div>
+          <div class="about-name">随行档 Suixingdang</div>
           <div class="about-slogan">私人文件中枢 · 自托管 · 多账户 · AI 驱动</div>
         </div>
       </div>
+      <div class="about-version"><span class="about-version-label">当前版本</span><strong>v${APP_VERSION}</strong></div>
       <ul class="about-dna">
         <li>${ICONS.shield}<div><strong>零痕迹</strong><span>公司电脑默认只看不留，在线预览 no-store，离职一键吊销令牌即切断访问</span></div></li>
         <li>${ICONS.ai}<div><strong>即问即得</strong><span>用自然语言告诉 agent 意图，它找到文件、传好、通知你</span></div></li>
         <li>${ICONS.database}<div><strong>懂你的文件</strong><span>索引过文件名和内容，能分类、能提醒、能建议</span></div></li>
       </ul>
-      <div class="about-links">
-        <a class="about-link" href="https://github.com/wupenghello/Suixingdang" target="_blank" rel="noopener noreferrer">${ICONS.fileCabinet}<span>GitHub 仓库</span></a>
-        <a class="about-link" href="https://github.com/wupenghello/Suixingdang/tree/main/docs" target="_blank" rel="noopener noreferrer">${ICONS.fileText}<span>部署文档</span></a>
-      </div>
     </div>`,
 };
 
@@ -5534,13 +5544,13 @@ function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
   } else if (section === 'security') {
     document.getElementById('btn-change-pwd')?.addEventListener('click', openChangePasswordDialog);
     renderPasswordChangedAt();
+  } else if (section === 'privacy') {
     loadDownloadGrant();
   } else if (section === 'devices') {
     document.getElementById('btn-create-token')?.addEventListener('click', createToken);
     document.getElementById('btn-revoke-all-tokens')?.addEventListener('click', revokeAllTokens);
     loadTokens();
   } else if (section === 'storage') {
-    document.getElementById('btn-reindex')?.addEventListener('click', rebuildIndex);
     document.getElementById('btn-stats-refresh')?.addEventListener('click', (e) => {
       const btn = e.currentTarget;
       btn.disabled = true;
@@ -5548,6 +5558,8 @@ function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
       loadStats().finally(() => { btn.disabled = false; btn.classList.remove('btn-loading'); });
     });
     loadStats();
+  } else if (section === 'index') {
+    document.getElementById('btn-reindex')?.addEventListener('click', rebuildIndex);
   }
 
   if (anchor) requestAnimationFrame(() => flashAnchor(content, anchor));
@@ -5642,10 +5654,9 @@ async function loadAccountInfo() {
     const statusBadge = me.status === 'active'
       ? '<span class="badge badge-success">正常</span>'
       : '<span class="badge badge-danger">已禁用</span>';
-    const quotaText = me.quota_mb && me.quota_mb > 0 ? `${me.quota_mb} MB` : '不限';
     const roleText = escapeHtml(roleMap[me.role] || me.role); // 统一转义，与弹层保持一致
 
-    // 先渲染主体（不阻塞），再异步填充存储用量
+    // 配额/用量收敛在「存储」章节，账户卡只保留身份信息（2026-07 去重）
     el.innerHTML = `
       <div class="account-info">
         <div class="account-row">
@@ -5659,78 +5670,73 @@ async function loadAccountInfo() {
           <div class="account-field"><span class="account-label">用户名</span><span class="account-value">${escapeHtml(me.username)}</span></div>
           <div class="account-field"><span class="account-label">角色</span><span class="account-value">${roleText}</span></div>
           <div class="account-field"><span class="account-label">账户状态</span><span class="account-value">${statusBadge}</span></div>
-          <div class="account-field"><span class="account-label">存储配额</span><span class="account-value">${quotaText}</span></div>
           <div class="account-field"><span class="account-label">最近登录</span><span class="account-value">${me.last_login_at ? formatDateTime(me.last_login_at) : '-'}</span></div>
           <div class="account-field"><span class="account-label">注册时间</span><span class="account-value">${me.created_at ? formatDateTime(me.created_at) : '-'}</span></div>
-          <div class="account-field"><span class="account-label">已用空间</span><span class="account-value" id="acct-used">-</span></div>
-          <div class="account-field"><span class="account-label">剩余配额</span><span class="account-value" id="acct-remain">-</span></div>
         </div>
-        <div id="acct-storage" data-anchor="quota"></div>
         <div class="login-history" id="login-history" data-anchor="history"></div>
       </div>`;
 
-    // 异步填充存储用量（失败降级，不阻塞主体）
-    fillAccountStorage();
-
-    // 加载登录历史（带竞态防护）
+    // 加载登录历史（服务端分页 + 竞态防护）
     loadLoginHistory();
   } catch {
     renderErrorState(el, '账户信息加载失败', () => loadAccountInfo());
   }
 }
 
-// 异步填充账户页存储用量（共享 renderStorageBar）
-async function fillAccountStorage() {
-  const usedEl = document.getElementById('acct-used');
-  if (!usedEl) return;
-  try {
-    const d = await getStats();
-    if (!usedEl.isConnected) return; // 已离开账户页
-    if (!d) return;
-    const used = Number(d.total_size_mb) || 0;
-    const quota = Number(d.quota_mb) || 0;
-    const { limited, remaining } = computeStorageFill(used, quota);
-    usedEl.textContent = used + ' MB';
-    const remainEl = document.getElementById('acct-remain');
-    if (remainEl) remainEl.textContent = limited ? remaining + ' MB' : '不限';
-    const storageEl = document.getElementById('acct-storage');
-    if (storageEl) storageEl.innerHTML = renderStorageBar(d);
-  } catch { /* 失败保持「-」降级 */ }
-}
-
-// 登录历史：读 /api/auth/login-history，仅当前用户自身记录（后端强制 user_id 过滤）
-// 筛选 chip（全部/登录/安全）纯前端过滤已取回的记录，不发新请求（零痕迹）。
-// 事件标签/色点/分类全部来自共享词表 utils/audit-actions.js（与管理端同源）。
+// 登录历史：读 /api/auth/login-history（服务端分页信封 {items,total,offset,limit}），
+// 仅当前用户自身记录（后端强制 user_id 过滤）。
+// 筛选 chip（全部/登录/安全）走 kind 参数由后端分类过滤（词表与 utils/audit-actions.js 同源）；
+// 事件标签/色点来自共享词表 utils/audit-actions.js（与管理端同源）。
+const LH_PAGE_SIZE = 10;
 let _loginHistorySeq = 0; // 竞态防护：丢弃过期响应
 let _lhLogs = [];
+let _lhTotal = 0;
 let _lhFilter = 'all';
+let _lhOffset = 0;
 
-async function loadLoginHistory() {
+async function loadLoginHistory({ resetPage = false } = {}) {
   const el = document.getElementById('login-history');
   if (!el) return;
+  if (resetPage) _lhOffset = 0;
   const seq = ++_loginHistorySeq;
+  el.classList.add('is-loading');
   try {
-    const res = await API.get('/api/auth/login-history?limit=30');
+    const res = await API.get(`/api/auth/login-history?offset=${_lhOffset}&limit=${LH_PAGE_SIZE}&kind=${_lhFilter}`);
     if (seq !== _loginHistorySeq) return; // 已有更新请求，丢弃本响应
-    if (!res || !res.ok) { el.innerHTML = '<div class="lh-empty">登录记录加载失败</div>'; return; }
-    _lhLogs = (await res.json()) || [];
+    el.classList.remove('is-loading');
+    if (!res || !res.ok) { el.innerHTML = '<div class="lh-empty">登录历史加载失败</div>'; return; }
+    const d = (await res.json()) || {};
+    _lhLogs = d.items || [];
+    _lhTotal = Number(d.total) || 0;
     renderLoginHistoryList();
-  } catch { if (seq === _loginHistorySeq) el.innerHTML = '<div class="lh-empty">登录记录加载失败</div>'; }
+  } catch {
+    if (seq === _loginHistorySeq) { el.classList.remove('is-loading'); el.innerHTML = '<div class="lh-empty">登录历史加载失败</div>'; }
+  }
 }
 
 function renderLoginHistoryList() {
   const el = document.getElementById('login-history');
   if (!el) return;
-  const logs = _lhFilter === 'all' ? _lhLogs : _lhLogs.filter(l => auditCategory(l.action) === _lhFilter);
   const chip = (f, label) => `<button class="lh-chip${_lhFilter === f ? ' is-active' : ''}" data-filter="${f}">${label}</button>`;
   // 空态区分「真无记录」与「该分类无记录」——隐私产品里不能让人误以为记录被清
   const emptyText = _lhFilter === 'all' ? '暂无登录记录' : '该分类下暂无记录';
+  const pages = Math.max(1, Math.ceil(_lhTotal / LH_PAGE_SIZE));
+  const page = Math.min(Math.floor(_lhOffset / LH_PAGE_SIZE) + 1, pages);
+  // 有记录才给分页条：上一页/下一页 + 「共 N 条 · 第 x/y 页」，首页/末页对应禁用
+  const pager = _lhTotal > 0 ? `
+    <div class="lh-pager">
+      <span class="lh-pager-info">共 ${_lhTotal} 条 · 第 ${page}/${pages} 页</span>
+      <span class="lh-pager-btns">
+        <button class="lh-page-btn" data-page="prev" ${page <= 1 ? 'disabled' : ''}>‹ 上一页</button>
+        <button class="lh-page-btn" data-page="next" ${page >= pages ? 'disabled' : ''}>下一页 ›</button>
+      </span>
+    </div>` : '';
   el.innerHTML = `
     <div class="lh-head">
-      <div class="lh-title">最近登录记录</div>
+      <div class="lh-title">登录历史</div>
       <div class="lh-filters">${chip('all', '全部')}${chip('login', '登录')}${chip('security', '安全')}</div>
     </div>
-    ${logs.length ? `<div class="lh-list">${logs.map(l => {
+    ${_lhLogs.length ? `<div class="lh-list">${_lhLogs.map(l => {
       const detail = (l.detail || '').trim();
       return `<div class="lh-item">
         <span class="lh-dot ${auditCls(l.action)}"></span>
@@ -5738,11 +5744,16 @@ function renderLoginHistoryList() {
         ${detail ? `<span class="lh-detail">${escapeHtml(detail)}</span>` : ''}
         <span class="lh-time">${l.created_at ? formatDateTime(l.created_at) : ''}</span>
       </div>`;
-    }).join('')}</div>` : `<div class="lh-empty">${emptyText}</div>`}`;
+    }).join('')}</div>` : `<div class="lh-empty">${emptyText}</div>`}
+    ${pager}`;
   el.querySelectorAll('.lh-chip').forEach(c => c.addEventListener('click', () => {
     if (_lhFilter === c.dataset.filter) return;
     _lhFilter = c.dataset.filter;
-    renderLoginHistoryList();
+    loadLoginHistory({ resetPage: true }); // 换分类回第一页
+  }));
+  el.querySelectorAll('.lh-page-btn').forEach(b => b.addEventListener('click', () => {
+    _lhOffset = Math.max(0, _lhOffset + (b.dataset.page === 'prev' ? -LH_PAGE_SIZE : LH_PAGE_SIZE));
+    loadLoginHistory();
   }));
 }
 

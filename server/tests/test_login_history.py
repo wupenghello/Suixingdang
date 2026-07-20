@@ -3,9 +3,10 @@
 覆盖：
 - 鉴权：未登录 401、禁用账号 403；
 - 隔离（IDOR）：用户 A 只能看到自己的记录，看不到用户 B 与管理员（user_id=None）的记录；
-- limit 钳制：超界值回落到 1..50，默认 20；
+- 分页信封：{items, total, offset, limit}；offset/limit 钳制；切片正确；
+- 分类过滤：kind=login/security 与前端 audit-actions.js 词表一致，非法 kind 回落全量；
 - 排序：按 created_at 倒序；
-- 字段：返回 {action, detail, ip, created_at}，不含敏感内部字段。
+- 字段：items 内每条 {action, detail, ip, created_at}，不含敏感内部字段。
 
 后端实现强制 filter(AccessLog.user_id == user.id)，是隔离的核心防线。
 """
@@ -15,11 +16,25 @@ from pathlib import Path
 from auth_helpers import register as _reg, login as _login, admin_login
 
 
-def _history(client, access, limit=None):
+def _change_pw(client, access, old_password, new_password):
+    """改密（产生 security 类 password_changed / stepup_failed 审计记录）。"""
+    return client.post(
+        "/api/auth/change-password",
+        json={"old_password": old_password, "new_password": new_password},
+        headers={"Authorization": f"Bearer {access}"},
+    )
+
+
+def _history(client, access, limit=None, offset=None, kind=None):
     h = {"Authorization": f"Bearer {access}"}
-    url = "/api/auth/login-history"
+    params = []
     if limit is not None:
-        url += f"?limit={limit}"
+        params.append(f"limit={limit}")
+    if offset is not None:
+        params.append(f"offset={offset}")
+    if kind is not None:
+        params.append(f"kind={kind}")
+    url = "/api/auth/login-history" + ("?" + "&".join(params) if params else "")
     return client.get(url, headers=h)
 
 
@@ -74,7 +89,7 @@ def test_login_history_isolation(client):
 
     r = _history(client, access_a)
     assert r.status_code == 200, r.text
-    logs = r.json()
+    logs = r.json()["items"]
     assert len(logs) > 0, "A 应至少有注册+登录记录"
     actions = {l["action"] for l in logs}
     # 隔离性：只能看到自己的 register/login_success，绝不能看到 admin 动作
@@ -90,18 +105,69 @@ def test_login_history_admin_log_not_leaked(client):
     admin_login(client)  # 产生 admin_login_success（user_id=None）
     r = _history(client, access)
     assert r.status_code == 200
-    actions = [l["action"] for l in r.json()]
+    actions = [l["action"] for l in r.json()["items"]]
     assert "admin_login_success" not in actions, "管理员记录泄露给用户"
 
 
-# ---- limit 钳制 ----
+# ---- 分页信封 ----
+
+def test_login_history_envelope_shape(client):
+    """响应为 {items, total, offset, limit} 信封，total 为过滤后总数。"""
+    access, _uid, _ = _make_user_with_logs(client, username="envelope")
+    r = _history(client, access, limit=2)
+    assert r.status_code == 200
+    d = r.json()
+    assert set(d.keys()) == {"items", "total", "offset", "limit"}, f"信封字段异常：{d.keys()}"
+    assert isinstance(d["items"], list)
+    assert d["total"] >= 2  # register + 再次登录的 login_success
+    assert d["offset"] == 0
+    assert d["limit"] == 2
+    assert len(d["items"]) == 2
+
+
+def test_login_history_pagination_slices(client):
+    """offset/limit 切片正确：两页拼起来等于整页，且不重不漏。"""
+    access, _uid, _ = _make_user_with_logs(client, username="pageslice")
+    full = _history(client, access, limit=50).json()
+    total, all_actions = full["total"], full["items"]
+
+    p1 = _history(client, access, limit=2, offset=0).json()
+    p2 = _history(client, access, limit=2, offset=2).json()
+    assert p1["total"] == p2["total"] == total
+    assert len(p1["items"]) == min(2, total)
+    # 不重不漏：拼接后与整页一致
+    stitched = p1["items"] + p2["items"] + _history(client, access, limit=50, offset=4).json()["items"]
+    assert stitched == all_actions, "分页拼接与整页不一致"
+
+
+def test_login_history_offset_past_end(client):
+    """offset 超出总数返回空 items，total 不变（前端据此回落末页）。"""
+    access, _uid, _ = _make_user_with_logs(client, username="pastend")
+    r = _history(client, access, limit=10, offset=9999)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["items"] == []
+    assert d["total"] >= 2
+    assert d["offset"] == 9999
+
+
+def test_login_history_offset_clamp_negative(client):
+    """offset 负数回落到 0。"""
+    access, _uid, _ = _make_user_with_logs(client, username="offneg")
+    r = _history(client, access, offset=-7)
+    assert r.status_code == 200
+    assert r.json()["offset"] == 0
+    assert len(r.json()["items"]) >= 1
+
 
 def test_login_history_limit_clamp_high(client):
     """limit 超界（999）回落到上限 50。"""
     access, _uid, _ = _reg(client, username="limhigh")
     r = _history(client, access, limit=999)
     assert r.status_code == 200
-    assert len(r.json()) <= 50
+    d = r.json()
+    assert d["limit"] == 50
+    assert len(d["items"]) <= 50
 
 
 def test_login_history_limit_clamp_negative(client):
@@ -109,15 +175,71 @@ def test_login_history_limit_clamp_negative(client):
     access, _uid, _ = _reg(client, username="limneg")
     r = _history(client, access, limit=-5)
     assert r.status_code == 200
-    assert len(r.json()) >= 1
+    d = r.json()
+    assert d["limit"] == 1
+    assert len(d["items"]) == 1
 
 
-def test_login_history_default_limit(client):
-    """默认 limit=20。"""
+def test_login_history_default_paging(client):
+    """默认 offset=0 / limit=10 / kind=all。"""
     access, _uid, _ = _reg(client, username="limdef")
     r = _history(client, access)
     assert r.status_code == 200
-    assert 1 <= len(r.json()) <= 20
+    d = r.json()
+    assert d["offset"] == 0 and d["limit"] == 10
+    assert 1 <= len(d["items"]) <= 10
+
+
+# ---- 分类过滤 ----
+
+def test_login_history_kind_login_only(client):
+    """kind=login 只返回登录类事件（与前端 audit-actions.js 词表一致）。"""
+    access, _uid, username = _make_user_with_logs(client, username="kindlogin")
+    _change_pw(client, access, "Test1234pass", "New5678pass")  # 产生 security 类 password_changed
+    access2, _ = _login(client, username, "New5678pass")
+    r = _history(client, access2, kind="login")
+    assert r.status_code == 200
+    d = r.json()
+    login_actions = {"login_success", "login_failed", "login_locked", "login_blocked",
+                     "login_new_device", "register"}
+    got = {l["action"] for l in d["items"]}
+    assert got <= login_actions, f"kind=login 混入非登录类事件：{got - login_actions}"
+    assert "password_changed" not in got
+    assert d["total"] == len(d["items"])  # 记录少时一页即全量，total 与条数一致
+
+
+def test_login_history_kind_security_only(client):
+    """kind=security 只返回密码/授权/令牌类事件。"""
+    access, _uid, _ = _make_user_with_logs(client, username="kindsec")
+    _change_pw(client, access, "Test1234pass", "New5678pass")
+    access2, _ = _login(client, "kindsec", "New5678pass")
+    r = _history(client, access2, kind="security")
+    assert r.status_code == 200
+    d = r.json()
+    got = {l["action"] for l in d["items"]}
+    assert got == {"password_changed"}, f"期望仅 password_changed，实际 {got}"
+    assert d["total"] == 1
+
+
+def test_login_history_kind_invalid_falls_back_all(client):
+    """非法 kind 不报错，回落全量（白名单外一律不过滤）。"""
+    access, _uid, _ = _make_user_with_logs(client, username="kindbad")
+    r_all = _history(client, access)
+    r_bad = _history(client, access, kind="drop-table")
+    assert r_bad.status_code == 200
+    assert r_bad.json()["total"] == r_all.json()["total"]
+
+
+def test_login_history_kind_isolated_total(client):
+    """total 为过滤后的总数，且分页跨类不串：login 与 security 的 total 之和 <= 全量 total。"""
+    access, _uid, _ = _make_user_with_logs(client, username="kindtotal")
+    _change_pw(client, access, "Test1234pass", "New5678pass")
+    access2, _ = _login(client, "kindtotal", "New5678pass")
+    t_all = _history(client, access2).json()["total"]
+    t_login = _history(client, access2, kind="login").json()["total"]
+    t_sec = _history(client, access2, kind="security").json()["total"]
+    # 该用户只产生 login 类与 security 类事件（无 file 类），两者恰好互补
+    assert t_login + t_sec == t_all, f"{t_login} + {t_sec} != {t_all}"
 
 
 # ---- 排序 ----
@@ -130,7 +252,7 @@ def test_login_history_desc_order(client):
     access, _ = _login(client, username, "Test1234pass")
     r = _history(client, access)
     assert r.status_code == 200
-    logs = r.json()
+    logs = r.json()["items"]
     assert len(logs) >= 2
     # 倒序：前面记录的时间 >= 后面记录的时间（ISO 字符串可直接比）
     for i in range(len(logs) - 1):
@@ -141,11 +263,11 @@ def test_login_history_desc_order(client):
 # ---- 字段完整性 ----
 
 def test_login_history_field_shape(client):
-    """返回字段恰好 {action, detail, ip, created_at}，不多不少。"""
+    """items 内每条字段恰好 {action, detail, ip, created_at}，不多不少。"""
     access, _uid, _ = _reg(client, username="fieldshape")
     r = _history(client, access)
     assert r.status_code == 200
-    logs = r.json()
+    logs = r.json()["items"]
     assert len(logs) >= 1
     for l in logs:
         assert set(l.keys()) == {"action", "detail", "ip", "created_at"}, f"字段异常：{l.keys()}"

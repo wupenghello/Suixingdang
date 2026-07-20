@@ -929,20 +929,52 @@ def get_me(user=Depends(get_current_user)):
 
 # ---- 登录历史（仅当前用户自身的 access_logs；强制 user_id 过滤，防 IDOR）----
 
+# 分类筛选词表：与前端单一真源 web/assets/utils/audit-actions.js 的 category 保持同步
+# （login=登录类 · security=密码/授权/令牌类）。admin_* 事件 user_id=None，本就不进用户历史。
+_LOGIN_HISTORY_KINDS = {
+    "login": {
+        "login_success", "login_failed", "login_locked", "login_blocked",
+        "login_new_device", "register",
+    },
+    "security": {
+        "password_changed", "password_reset_success", "password_reset_failed",
+        "password_reset_locked", "stepup_failed", "revoke_other_tokens",
+        "revoke_all_tokens", "download_grant", "download_grant_failed",
+        "download_grant_single", "download_revoke",
+    },
+}
+
+
 @router.get("/login-history")
-def login_history(limit: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def login_history(
+    offset: int = 0,
+    limit: int = 10,
+    kind: str = "all",
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    offset = max(0, int(offset))
     limit = max(1, min(int(limit), 50))  # 钳制 1..50，规避超大 limit 拖库
+    q = db.query(AccessLog).filter(AccessLog.user_id == user.id)
+    actions = _LOGIN_HISTORY_KINDS.get(kind)
+    if actions:
+        q = q.filter(AccessLog.action.in_(actions))
+    total = q.count()
     logs = (
-        db.query(AccessLog)
-        .filter(AccessLog.user_id == user.id)
-        .order_by(AccessLog.created_at.desc())
+        q.order_by(AccessLog.created_at.desc())
+        .offset(offset)
         .limit(limit)
         .all()
     )
-    return [
-        {"action": l.action, "detail": l.detail, "ip": l.ip or "", "created_at": str(l.created_at)}
-        for l in logs
-    ]
+    return {
+        "items": [
+            {"action": l.action, "detail": l.detail, "ip": l.ip or "", "created_at": str(l.created_at)}
+            for l in logs
+        ],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 # ---- 日志 ----

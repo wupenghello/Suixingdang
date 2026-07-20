@@ -845,8 +845,8 @@ body.view-shell { overflow: hidden; background: var(--bg-surface); }
   100% { box-shadow: 0 0 0 0 rgba(51, 112, 255, 0); }
 }
 
-/* —— 关于随行档卡片 —— */
-.about-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+/* —— 关于卡片 —— */
+.about-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 .about-avatar {
   width: 44px; height: 44px; flex-shrink: 0; border-radius: var(--radius);
   display: flex; align-items: center; justify-content: center;
@@ -855,12 +855,19 @@ body.view-shell { overflow: hidden; background: var(--bg-surface); }
   box-shadow: var(--shadow-xs);
 }
 .about-name { font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
-.about-ver {
-  font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; vertical-align: 2px;
-  padding: 1px 7px; margin-left: 6px; border-radius: var(--radius-pill);
+.about-slogan { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+/* 版本号独立成行：左侧标签 + 右侧等宽字体徽标，灰底凹槽与卡片分层 */
+.about-version {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 18px; padding: 10px 14px;
+  background: var(--bg-surface-hover); border-radius: var(--radius);
+  font-size: 12.5px; color: var(--text-secondary);
+}
+.about-version strong {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: .3px;
+  padding: 2px 9px; border-radius: var(--radius-pill);
   background: var(--primary-light); color: var(--primary);
 }
-.about-slogan { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
 .about-dna { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .about-dna li {
   display: flex; gap: 12px; align-items: flex-start; padding: 10px 8px;
@@ -870,15 +877,6 @@ body.view-shell { overflow: hidden; background: var(--bg-surface); }
 .about-dna li > svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 2px; color: var(--primary); }
 .about-dna strong { display: block; font-size: 13.5px; font-weight: 600; color: var(--text); }
 .about-dna span { display: block; font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; margin-top: 1px; }
-.about-links { display: flex; gap: 10px; flex-wrap: wrap; }
-.about-link {
-  display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px;
-  border: 1px solid var(--border); border-radius: var(--radius-pill);
-  color: var(--text-secondary); font-size: 12.5px; font-weight: 500; text-decoration: none;
-  transition: border-color .14s, color .14s, background .14s;
-}
-.about-link svg { width: 14px; height: 14px; }
-.about-link:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-lighter); }
 
 /* —— 卡片内行/头部（沿用旧组件语义）—— */
 .setting-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
@@ -887,7 +885,7 @@ body.view-shell { overflow: hidden; background: var(--bg-surface); }
 @media (prefers-reduced-motion: reduce) {
   .settings-panel-content > .settings-section { animation: none; }
   .settings-flash { animation: none; }
-  .settings-nav, .settings-scrim, .settings-search-box, .settings-nav-item, .about-link, .about-dna li { transition: none; }
+  .settings-nav, .settings-scrim, .settings-search-box, .settings-nav-item, .about-dna li, .lh-page-btn { transition: none; }
 }
 .setting-head-icon {
   width: 36px; height: 36px; border-radius: var(--radius);
@@ -1170,6 +1168,22 @@ body.view-shell { overflow: hidden; background: var(--bg-surface); }
 }
 .lh-chip:hover { background: var(--bg-surface-hover); }
 .lh-chip.is-active { background: var(--primary-light); color: var(--primary); font-weight: 500; }
+/* 分页条：与列表同底，细分隔线衔接；切页/切分类时整块短暂降透明度示意在途，不闪布局 */
+.login-history { transition: opacity .15s; }
+.login-history.is-loading { opacity: .5; }
+.lh-pager {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 16px; background: var(--bg-surface); border-top: 1px solid var(--border-light);
+}
+.lh-pager-info { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lh-pager-btns { display: flex; gap: 6px; }
+.lh-page-btn {
+  cursor: pointer; font-family: inherit; font-size: 12px; color: var(--text-secondary);
+  padding: 4px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: transparent; transition: border-color .15s, color .15s, background .15s;
+}
+.lh-page-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+.lh-page-btn:disabled { opacity: .4; cursor: default; }
 
 /* ---- Transfer Assistant (文件传输助手) ---- */
 .transfer-container { background: var(--bg); }
