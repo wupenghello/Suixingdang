@@ -36,6 +36,7 @@ class User(Base):
     security_question = Column(Text, default="")      # 密保问题
     security_answer = Column(Text, default="")        # 密保答案（哈希存储）
     password_version = Column(Integer, default=1)     # 密码版本号：改/重置密码时 +1，使旧 refresh/access 立即失效
+    password_changed_at = Column(DateTime, nullable=True)  # 最近一次修改/重置密码时间（注册初始设置不计，NULL=从未修改）
     last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -459,6 +460,7 @@ def _migrate_columns():
         "ai_enabled": "BOOLEAN DEFAULT 1",
         "llm_provider_id": "TEXT",
         "password_version": "INTEGER DEFAULT 1",
+        "password_changed_at": "DATETIME",
     }
     for col, coltype in additions.items():
         if col not in cols:

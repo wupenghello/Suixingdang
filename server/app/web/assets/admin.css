@@ -219,3 +219,29 @@ body.view-shell { overflow: hidden; }
 }
 
 .btn-block { width: 100%; justify-content: center; }
+
+/* ---- 账户页·修改密码弹窗（与用户端同源范式；token 共用 tokens.css）---- */
+.admin-setting-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.admin-setting-desc { font-size: 13px; color: var(--text-muted); margin: 2px 0 0; }
+.input-error-msg { font-size: 12px; color: var(--danger); margin-top: 6px; min-height: 16px; }
+.pwd-strength { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.pwd-strength[hidden] { display: none; }
+.pwd-strength-bar { flex: 0 0 96px; height: 4px; border-radius: var(--radius-pill); background: var(--bg-sunken); overflow: hidden; }
+.pwd-strength-bar i { display: block; height: 100%; width: 0; border-radius: var(--radius-pill); transition: width .2s ease, background .2s ease; }
+.pwd-strength-label { font-size: 12px; min-width: 1em; color: var(--text-muted); }
+.pwd-strength.lvl-1 .pwd-strength-bar i { width: 33%; background: var(--danger); }
+.pwd-strength.lvl-2 .pwd-strength-bar i { width: 66%; background: var(--warning); }
+.pwd-strength.lvl-3 .pwd-strength-bar i { width: 100%; background: var(--success); }
+.pwd-strength.lvl-1 .pwd-strength-label { color: var(--danger); }
+.pwd-strength.lvl-2 .pwd-strength-label { color: var(--warning); }
+.pwd-strength.lvl-3 .pwd-strength-label { color: var(--success); }
+.pwd-field-inner { position: relative; display: flex; }
+.pwd-field-inner > .form-input { flex: 1; min-width: 0; padding-right: 42px; }
+.pwd-eye { position: absolute; top: 0; right: 0; bottom: 0; width: 38px; display: flex; align-items: center; justify-content: center; border: none; background: transparent; cursor: pointer; color: var(--text-muted); }
+.pwd-eye:hover { color: var(--text-secondary); }
+.pwd-eye svg { width: 18px; height: 18px; }
+.pwd-capslock { margin-top: 6px; font-size: 12px; color: var(--warning); }
+.pwd-capslock[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .pwd-strength-bar i { transition: none; }
+}

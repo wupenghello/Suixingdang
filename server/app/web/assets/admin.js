@@ -1,5 +1,9 @@
 // 随行档 - 管理员后台 SPA (v3)
 
+// 与用户端共享的密码纯函数层（结构校验/强度）与密码框增强（眼睛切换/CapsLock）
+import { validatePasswordClient, scorePasswordStrength } from './utils/password.js?v=95';
+import { mountPasswordField } from './utils/password-field.js?v=95';
+
 const API = {
   // 管理员令牌存 HttpOnly cookie（与用户端一致），前端 JS 不可读，防 XSS 偷令牌。
   // 同源 fetch 自动带 cookie，无需手动附加 Authorization 头。
@@ -25,12 +29,23 @@ const API = {
 const ACTION_LABELS = {
   login_success: '登录成功',
   login_failed: '登录失败',
+  login_locked: '登录锁定',
   login_blocked: '登录被拒（账号禁用）',
+  login_new_device: '新设备登录',
   register: '注册账号',
   password_reset_success: '重置密码成功',
   password_reset_failed: '重置密码失败',
+  password_changed: '修改密码',
+  password_change_failed: '修改密码失败',
+  password_change_locked: '修改密码限流锁定',
+  revoke_other_tokens: '退出其他设备',
+  revoke_all_tokens: '吊销全部令牌',
+  stepup_failed: '安全验证失败',
+  stepup_locked: '安全验证限流锁定',
   admin_login_success: '管理员登录',
   admin_login_failed: '管理员登录失败',
+  admin_password_change: '管理员修改密码',
+  admin_password_change_failed: '管理员修改密码失败',
   admin_create_user: '创建用户',
   admin_update_user: '修改用户',
   admin_delete_user: '删除用户',
@@ -73,6 +88,9 @@ const ICONS = {
  account: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
  refresh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
  llm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4v1h1a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4h-1v1a4 4 0 0 1-4 4 4 4 0 0 1-4-4v-1H7a4 4 0 0 1-4-4v0a4 4 0 0 1 4-4h1V6a4 4 0 0 1 4-4z"/><circle cx="12" cy="11" r="2" fill="currentColor" stroke="none"/></svg>',
+ lock: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm2-9H8V6a2 2 0 0 1 4 0v2z"/></svg>',
+ eye: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>',
+ eyeOff: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>',
 };
 
 let currentView = 'dashboard';
@@ -941,36 +959,98 @@ async function renderAccount() {
         </table>
       </div>
       <div class="settings-section settings-group-gap" style="max-width:460px">
-        <h3>修改密码</h3>
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">修改密码后需用新密码重新登录。</p>
-        <div class="form-group"><label>原密码</label><input type="password" id="acc-old-pass" class="form-input" placeholder="请输入原密码"></div>
-        <div class="form-group"><label>新密码</label><input type="password" id="acc-new-pass" class="form-input" placeholder="8个字符以上"></div>
-        <div class="form-group"><label>确认新密码</label><input type="password" id="acc-confirm-pass" class="form-input" placeholder="再次输入新密码"></div>
-        <button class="btn btn-primary" id="btn-admin-change-pwd">修改密码</button>
+        <div class="admin-setting-head">
+          <div>
+            <h3 style="margin:0">修改密码</h3>
+            <p class="admin-setting-desc">修改后当前会话保持有效，下次登录需使用新密码</p>
+          </div>
+          <button class="btn btn-primary" id="btn-admin-change-pwd">${ICONS.lock}<span style="margin-left:6px">修改密码</span></button>
+        </div>
       </div>`;
-    document.getElementById('btn-admin-change-pwd').addEventListener('click', async () => {
-      const oldP = document.getElementById('acc-old-pass').value;
-      const newP = document.getElementById('acc-new-pass').value;
-      const confirmP = document.getElementById('acc-confirm-pass').value;
-      if (!oldP || !newP) { Toast.show('请填写完整', 'error'); return; }
-      if (newP !== confirmP) { Toast.show('两次输入的新密码不一致', 'error'); return; }
-      const btn = document.getElementById('btn-admin-change-pwd');
-      btn.disabled = true;
-      try {
-        const res = await API.put('/api/admin/me/password', { old_password: oldP, new_password: newP });
-        if (res.ok) {
-          Toast.show('密码已修改', 'success');
-          document.getElementById('acc-old-pass').value = '';
-          document.getElementById('acc-new-pass').value = '';
-          document.getElementById('acc-confirm-pass').value = '';
-        } else {
-          const d = await res.json();
-          Toast.show(d.detail || '修改失败', 'error');
-        }
-      } catch { Toast.show('网络错误', 'error'); }
-      finally { btn.disabled = false; }
-    });
+    document.getElementById('btn-admin-change-pwd').addEventListener('click', showAdminChangePasswordDialog);
   } catch { document.getElementById('account-content').innerHTML = '<p>加载失败</p>'; }
+}
+
+// 修改密码弹窗：与用户端同源范式（当前密码 → 新密码+强度 → 确认，错误内联、失败保留输入）
+function showAdminChangePasswordDialog() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <h3>修改密码</h3>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">修改后当前会话保持有效，下次登录需使用新密码。</p>
+      <div class="form-group"><label>当前密码</label>
+        <input type="password" id="acp-old" class="form-input" placeholder="请输入当前密码" autocomplete="current-password">
+        <div class="input-error-msg" id="acp-old-err"></div>
+      </div>
+      <div class="form-group"><label>新密码</label>
+        <input type="password" id="acp-new" class="form-input" placeholder="至少 8 个字符" autocomplete="new-password">
+        <div class="pwd-strength" id="acp-strength" aria-live="polite" hidden>
+          <div class="pwd-strength-bar"><i></i></div><span class="pwd-strength-label"></span>
+        </div>
+        <div class="input-error-msg" id="acp-new-err"></div>
+      </div>
+      <div class="form-group"><label>确认新密码</label>
+        <input type="password" id="acp-confirm" class="form-input" placeholder="再次输入新密码" autocomplete="new-password">
+        <div class="input-error-msg" id="acp-confirm-err"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="acp-cancel">取消</button>
+        <button class="btn btn-primary" id="acp-submit" disabled>修改密码</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const q = (s) => overlay.querySelector(s);
+  const oldIn = q('#acp-old'), newIn = q('#acp-new'), confirmIn = q('#acp-confirm');
+  const oldErr = q('#acp-old-err'), newErr = q('#acp-new-err'), confirmErr = q('#acp-confirm-err');
+  const strengthEl = q('#acp-strength'), submitBtn = q('#acp-submit');
+  const username = (document.getElementById('admin-username-display') || {}).textContent || '';
+  [oldIn, newIn, confirmIn].forEach(inp => mountPasswordField(inp, { eyeIcon: ICONS.eye, eyeOffIcon: ICONS.eyeOff }));
+
+  const close = () => { oldIn.value = ''; newIn.value = ''; confirmIn.value = ''; overlay.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', esc);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  q('#acp-cancel').addEventListener('click', close);
+
+  const setErr = (input, errEl, msg) => { errEl.textContent = msg || ''; input.classList.toggle('error', !!msg); };
+  const check = () => {
+    const newPwdErr = validatePasswordClient(newIn.value, username);
+    const confirmOk = !!confirmIn.value && confirmIn.value === newIn.value;
+    setErr(newIn, newErr, newIn.value ? newPwdErr : '');
+    setErr(confirmIn, confirmErr, confirmIn.value && !confirmOk ? '两次输入的密码不一致' : '');
+    const s = scorePasswordStrength(newIn.value, username);
+    strengthEl.classList.remove('lvl-1', 'lvl-2', 'lvl-3');
+    if (s.level) strengthEl.classList.add('lvl-' + s.level);
+    strengthEl.querySelector('.pwd-strength-label').textContent = s.label;
+    strengthEl.hidden = !newIn.value;
+    submitBtn.disabled = !(!!oldIn.value && !newPwdErr && confirmOk);
+  };
+  [oldIn, newIn, confirmIn].forEach(inp => inp.addEventListener('input', check));
+  oldIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); newIn.focus(); } });
+  newIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); confirmIn.focus(); } });
+  confirmIn.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter' && !submitBtn.disabled) { e.preventDefault(); submit(); } });
+
+  let busy = false;
+  async function submit() {
+    if (busy) return;
+    busy = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = '修改中…';
+    try {
+      const res = await API.put('/api/admin/me/password', { old_password: oldIn.value, new_password: newIn.value });
+      if (res && res.ok) { close(); Toast.show('密码已修改', 'success'); return; }
+      const d = await res.json().catch(() => ({}));
+      const detail = (d && d.detail) || '修改失败';
+      if (detail === '原密码错误') { setErr(oldIn, oldErr, detail); oldIn.focus(); }
+      else { setErr(newIn, newErr, detail); newIn.focus(); }
+    } catch { Toast.show('网络错误，请重试', 'error'); }
+    busy = false;
+    submitBtn.textContent = '修改密码';
+    check();
+  }
+  submitBtn.addEventListener('click', submit);
+  setTimeout(() => oldIn.focus(), 0);
 }
 
 // ============ Logs ============

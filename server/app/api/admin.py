@@ -139,6 +139,7 @@ def update_user(user_id: str, req: UpdateUserRequest, request: Request, db: Sess
         if pwd_err:
             raise HTTPException(400, pwd_err)
         user.password_hash = hash_password(req.password)
+        user.password_changed_at = datetime.utcnow()
         _bump_password_version(db, user)
     db.commit()
     changes = []

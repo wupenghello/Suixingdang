@@ -989,6 +989,47 @@ body.view-shell { overflow: hidden; background: var(--bg-surface); }
 .setting-form { display: flex; flex-direction: column; gap: 14px; max-width: 360px; }
 .setting-form .form-group { margin-bottom: 0; }
 .setting-empty { color: var(--text-muted); font-size: 13px; margin-top: 10px; }
+.setting-meta { color: var(--text-muted); font-size: 13px; margin: 2px 0 0; }
+
+/* ---- 修改密码弹窗 · 强度条（弱=红 中=橙 强=绿，走语义 token）---- */
+.pwd-strength { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.pwd-strength[hidden] { display: none; }
+.pwd-strength-bar { flex: 0 0 96px; height: 4px; border-radius: var(--radius-pill); background: var(--bg-sunken); overflow: hidden; }
+.pwd-strength-bar i { display: block; height: 100%; width: 0; border-radius: var(--radius-pill); transition: width .2s ease, background .2s ease; }
+.pwd-strength-label { font-size: 12px; color: var(--text-muted); min-width: 1em; }
+.pwd-strength.lvl-1 .pwd-strength-bar i { width: 33%; background: var(--danger); }
+.pwd-strength.lvl-2 .pwd-strength-bar i { width: 66%; background: var(--warning); }
+.pwd-strength.lvl-3 .pwd-strength-bar i { width: 100%; background: var(--success); }
+.pwd-strength.lvl-1 .pwd-strength-label { color: var(--danger); }
+.pwd-strength.lvl-2 .pwd-strength-label { color: var(--warning); }
+.pwd-strength.lvl-3 .pwd-strength-label { color: var(--success); }
+@media (prefers-reduced-motion: reduce) {
+  .pwd-strength-bar i { transition: none; }
+}
+
+/* ---- 密码框组件 · 眼睛切换 + CapsLock 提示（mountPasswordField 装饰既有 input）---- */
+.pwd-field { display: block; }
+.pwd-field-inner { position: relative; display: flex; }
+.pwd-field-inner > .form-input { flex: 1; min-width: 0; padding-right: 42px; }
+.pwd-eye {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 38px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; background: transparent; cursor: pointer;
+  color: var(--text-muted); border-radius: 0 var(--radius) var(--radius) 0;
+}
+.pwd-eye:hover { color: var(--text-secondary); background: var(--bg-surface-hover); }
+.pwd-eye svg { width: 18px; height: 18px; }
+.pwd-eye.is-on { color: var(--primary); }
+.pwd-capslock { margin-top: 6px; font-size: 12px; color: var(--warning); display: flex; align-items: center; gap: 4px; }
+.pwd-capslock::before { content: "⇪"; font-size: 13px; }
+.pwd-capslock[hidden] { display: none; }
+
+/* ---- 按钮 loading 态（重建索引等长任务）---- */
+.btn-loading svg { animation: btnSpin 1s linear infinite; }
+@keyframes btnSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .btn-loading svg { animation: none; }
+}
 
 /* 徽章 */
 .badge { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 500; white-space: nowrap; }
@@ -1118,6 +1159,17 @@ body.view-shell { overflow: hidden; background: var(--bg-surface); }
 .lh-detail { color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lh-time { color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .lh-empty { padding: 16px; text-align: center; font-size: 13px; color: var(--text-muted); }
+.lh-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 10px; background: var(--bg-surface); border-bottom: 1px solid var(--border-light); }
+.lh-head .lh-title { border-bottom: none; }
+.lh-filters { display: flex; gap: 4px; }
+.lh-chip {
+  border: 1px solid transparent; background: transparent; cursor: pointer;
+  padding: 3px 10px; border-radius: var(--radius-pill);
+  font-size: 12px; color: var(--text-secondary); font-family: inherit;
+  transition: background .15s, color .15s;
+}
+.lh-chip:hover { background: var(--bg-surface-hover); }
+.lh-chip.is-active { background: var(--primary-light); color: var(--primary); font-weight: 500; }
 
 /* ---- Transfer Assistant (文件传输助手) ---- */
 .transfer-container { background: var(--bg); }
