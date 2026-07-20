@@ -31,10 +31,17 @@ def test_revoke_all_requires_correct_password(client):
 
 
 def test_revoke_all_missing_password_rejected(client):
-    """无 body / 空密码（旧客户端兼容路径）→ 400 而非 422/放行。"""
+    """无 body / 空密码（旧客户端兼容路径）→ 400「需要密码验证」，且不计入爆破计数。"""
     access, _, _ = _reg(client, password="Right1234pass")
     assert _revoke_all(client, access, None).status_code == 400
-    assert _revoke_all(client, access, "").status_code == 400
+    r = _revoke_all(client, access, "")
+    assert r.status_code == 400
+    assert r.json()["detail"] == "需要密码验证"
+    # 空密码是客户端错误而非猜测：连发 5 次空调用后正确密码仍通过（未被锁）
+    for _ in range(LIMIT_MAX):
+        assert _revoke_all(client, access, None).status_code == 400
+    r = _revoke_all(client, access, "Right1234pass")
+    assert r.status_code == 200, r.text
 
 
 def test_revoke_all_wrong_password_counts_and_locks(client):
@@ -63,3 +70,25 @@ def test_revoke_all_failure_is_audited(client):
     actions = [l["action"] for l in logs]
     assert "stepup_failed" in actions
     assert "revoke_all_tokens" in actions
+
+
+def test_stepup_budget_shared_across_endpoints(client):
+    """同一凭证一份预算：改密与吊销共享 stepup scope，失败计数跨端点累加。
+
+    回归 D2：此前 change-pwd 与 stepup 是独立 scope，攻击者交替调用两个端点
+    即可把 5 次猜测预算翻倍。"""
+    access, _, _ = _reg(client, password="Right1234pass")
+    h = {"Authorization": f"Bearer {access}"}
+    # 改密端点错 3 次
+    for i in range(3):
+        r = client.post("/api/auth/change-password", headers=h,
+                        json={"old_password": f"WrongPass{i}x", "new_password": "New1234pass"})
+        assert r.status_code == 400
+    # 吊销端点再错 2 次 → 共享计数达阈值
+    for i in range(2):
+        assert _revoke_all(client, access, f"WrongPass{i}x").status_code == 400
+    # 两个端点同时被锁：正确密码也 429
+    assert _revoke_all(client, access, "Right1234pass").status_code == 429
+    r = client.post("/api/auth/change-password", headers=h,
+                    json={"old_password": "Right1234pass", "new_password": "New1234pass"})
+    assert r.status_code == 429

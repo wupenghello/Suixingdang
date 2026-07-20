@@ -182,6 +182,45 @@ def _bump_password_version(db: Session, user: User):
     ).update({"revoked": True}, synchronize_session=False)
 
 
+def _set_user_password(db: Session, user: User, new_password: str):
+    """修改/重置密码的统一入口：哈希 + 盖修改时间戳 + bump 版本号，三者原子内聚。
+
+    避免任何新的密码写入路径漏盖 password_changed_at（注册初始设置不走这里，
+    保持 NULL=「从未修改」语义）。不含 commit，由调用方事务统一提交。"""
+    user.password_hash = hash_password(new_password)
+    user.password_changed_at = datetime.utcnow()
+    _bump_password_version(db, user)
+
+
+def verify_stepup_password(db: Session, user: User, password: str, request: Request,
+                           action: str, fail_action: str = "stepup_failed",
+                           missing_msg: str = "需要密码验证"):
+    """敏感操作的步骤验证（step-up）：重输登录密码确认本人。
+
+    统一入口，改密 / 吊销全部 / 下载授权共用同一 stepup scope——同一凭证只有一份
+    猜测预算，防跨端点交替调用叠加配额。key 只按用户名（会话认证不绑 IP，
+    按 IP 计会让攻击者用 IP 池刷新预算；而这些端点都要求已持有效会话，
+    按用户名锁定不影响正常登录可用性）。
+
+    - 缺失/空密码视为客户端错误（400）且不计入爆破计数——防空 body 的旧调用方
+      误报式自锁（5 次空调用锁 15 分钟）；
+    - 密码错误计入计数并审计，锁定后拒绝请求但不再逐条写审计行（防拒绝风暴
+      打爆审计表）；
+    - 通过后清零计数（成功自证身份）。
+    """
+    key = _limiter_key("stepup", user.username)
+    locked = login_limiter_check(db, key)
+    if locked:
+        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
+    if not password:
+        raise HTTPException(400, missing_msg)
+    if not verify_password(password, user.password_hash):
+        login_limiter_record(db, key)
+        _log(db, user.id, fail_action, f"{action}（密码错误）", request)
+        raise HTTPException(400, "密码错误")
+    login_limiter_reset(db, key)
+
+
 def _enforce_session_limit(db: Session, user: User):
     """并发会话数上限：超出时自动吊销最早的活跃会话（保留最新 N 个）。
 
@@ -427,10 +466,11 @@ def get_current_admin(
 
 # ---- 限流 key 构造 ----
 
-def _limiter_key(scope: str, username: str, ip: str) -> str:
-    """限流 key：按 scope 隔离 login / adminlogin / reset，
-    避免用户登录锁定连累密码重置，或用户表爆破连累管理员登录。"""
-    return f"{scope}:{username}|{ip or ''}"
+def _limiter_key(scope: str, username: str, ip: str = "") -> str:
+    """限流 key：按 scope 隔离 login / adminlogin / reset / stepup，
+    避免用户登录锁定连累密码重置，或用户表爆破连累管理员登录。
+    ip 缺省时按纯用户名计（stepup 场景：端点已要求有效会话，防 IP 池刷新预算）。"""
+    return f"{scope}:{username}|{ip}" if ip else f"{scope}:{username}"
 
 
 # ---- 客户端 IP（信任代理感知）----
@@ -628,9 +668,7 @@ def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Sessio
     if pwd_err:
         raise HTTPException(400, pwd_err)
 
-    user.password_hash = hash_password(req.new_password)
-    user.password_changed_at = datetime.utcnow()
-    _bump_password_version(db, user)
+    _set_user_password(db, user, req.new_password)  # 哈希+时间戳+bump 原子内聚
     # 顺带把旧 sha256 密保答案升级为 bcrypt（sha256 预哈希）
     if _is_legacy_answer(user.security_answer):
         user.security_answer = _hash_security_answer(req.answer)
@@ -831,21 +869,10 @@ class RevokeAllRequest(BaseModel):
 def revoke_all_tokens(request: Request, req: Optional[RevokeAllRequest] = None, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """吊销当前用户的全部有效令牌（紧急下线所有设备）。
 
-    步骤验证：破坏面最大的不可逆操作要求重输登录密码，防劫持会话者一键清场。
-    与改密同源的威胁模型，故同样走限流（独立 stepup scope，不牵连登录/改密限流）。
-    密码验证失败记审计；成功吊销的审计维持原 revoke_all_tokens 事件。
+    步骤验证：破坏面最大的不可逆操作要求重输登录密码，走统一 stepup 入口
+    （限流 + 审计 + 防爆破）。空 body / 空密码为客户端错误，不计入爆破计数。
     """
-    password = req.password if req else ""
-    key = _limiter_key("stepup", user.username, _client_ip(request))
-    locked = login_limiter_check(db, key)
-    if locked:
-        _log(db, user.id, "stepup_locked", f"revoke-all（限流锁定 {locked}s）", request)
-        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
-    if not password or not verify_password(password, user.password_hash):
-        login_limiter_record(db, key)
-        _log(db, user.id, "stepup_failed", "revoke-all（密码错误或缺失）", request)
-        raise HTTPException(400, "密码错误")
-    login_limiter_reset(db, key)
+    verify_stepup_password(db, user, req.password if req else "", request, action="revoke-all")
     tokens = db.query(AccessToken).filter_by(user_id=user.id, revoked=False).all()
     for t in tokens:
         t.revoked = True
@@ -865,32 +892,22 @@ class ChangePasswordRequest(BaseModel):
 
 @router.post("/change-password")
 def change_password(req: ChangePasswordRequest, request: Request, response: Response, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    # 限流：防「持有有效会话（如窃取 cookie）在线爆破旧密码」。
-    # 独立 scope，不被登录锁定连累，也不拖累登录限流。
-    key = _limiter_key("change-pwd", user.username, _client_ip(request))
-    locked = login_limiter_check(db, key)
-    if locked:
-        _log(db, user.id, "password_change_locked", f"{user.username}（限流锁定 {locked}s）", request)
-        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
-    if not verify_password(req.old_password, user.password_hash):
-        login_limiter_record(db, key)
-        _log(db, user.id, "password_change_failed", "原密码错误", request)
-        raise HTTPException(400, "原密码错误")
+    # 步骤验证：旧密码即登录密码，走统一 stepup 入口（限流 + 审计 + 防爆破）
+    verify_stepup_password(db, user, req.old_password, request, action="change-password")
     pwd_err = validate_password(req.new_password, user.username)
     if pwd_err:
-        # 旧密码已验证正确（身份已确认），新密码不合规不计入爆破计数
-        raise HTTPException(400, pwd_err)
-    login_limiter_reset(db, key)
-    user.password_hash = hash_password(req.new_password)
-    user.password_changed_at = datetime.utcnow()
-    _bump_password_version(db, user)  # 旧 access/refresh 立即失效；旧会话行标记吊销
+        # 422（区别于 400 旧密码错误）：前端按状态码把错误定位到新密码字段，
+        # 不依赖 detail 文案字符串匹配
+        raise HTTPException(422, pwd_err)
+    _set_user_password(db, user, req.new_password)  # 哈希+时间戳+bump 原子内聚
     # 为调用者签发新会话令牌，避免改密码后立即被踢下线
     access, refresh = _issue_session_tokens(db, user, request)
     db.commit()
     # detail 刻意留空：零痕迹原则，审计只记事件不记任何密码相关信息
     _log(db, user.id, "password_changed", "", request)
     _set_session_cookies(response, access, refresh)
-    return {"message": "密码已修改"}
+    # 随响应返回新时间戳，前端免再请求 /me（消除多余往返与失败致状态陈旧）
+    return {"message": "密码已修改", "password_changed_at": str(user.password_changed_at)}
 
 
 # ---- 用户信息 ----

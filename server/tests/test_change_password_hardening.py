@@ -29,7 +29,7 @@ def test_wrong_old_password_counts_and_locks(client):
     for i in range(LIMIT_MAX):
         r = _change(client, access, f"WrongPass{i}x", "New1234pass")
         assert r.status_code == 400, r.text
-        assert r.json()["detail"] == "原密码错误"
+        assert r.json()["detail"] == "密码错误"
     r = _change(client, access, "Old1234pass", "New1234pass")
     assert r.status_code == 429
     assert "尝试过于频繁" in r.json()["detail"]
@@ -50,11 +50,11 @@ def test_success_resets_failure_count(client):
 
 
 def test_weak_new_password_does_not_count_toward_lockout(client):
-    """新密码不合规是用户失误（旧密码已验证正确），不计入爆破计数。"""
+    """新密码不合规是用户失误（旧密码已验证正确），不计入爆破计数。返回 422。"""
     access, _, _ = _reg(client, password="Old1234pass")
     for _ in range(LIMIT_MAX + 2):
         r = _change(client, access, "Old1234pass", "short")
-        assert r.status_code == 400
+        assert r.status_code == 422
         assert "8" in r.json()["detail"]  # 「密码至少 8 个字符」
     # 未被锁定：旧密码仍被接受，正常改密成功
     r = _change(client, access, "Old1234pass", "New1234pass")
@@ -62,11 +62,14 @@ def test_weak_new_password_does_not_count_toward_lockout(client):
 
 
 def test_audit_log_records_change_events(client):
-    """审计落库：成功/失败都有记录；成功事件 detail 恒为空（零痕迹）。"""
+    """审计落库：成功/失败都有记录；成功事件 detail 恒为空（零痕迹）。
+    失败走统一 stepup 审计词（stepup_failed）。"""
     access, _, _ = _reg(client, password="Old1234pass")
     _change(client, access, "WrongPass0x", "New1234pass")  # 失败
     r = _change(client, access, "Old1234pass", "New1234pass")  # 成功
     assert r.status_code == 200, r.text
+    # 响应随带新时间戳（前端免再请求 /me）
+    assert r.json().get("password_changed_at")
     new_access, _ = _grab(client)  # 旧 access 已被 password_version bump 作废
     logs = client.get(
         "/api/auth/login-history?limit=50",
@@ -74,7 +77,7 @@ def test_audit_log_records_change_events(client):
     ).json()
     actions = [l["action"] for l in logs]
     assert "password_changed" in actions
-    assert "password_change_failed" in actions
+    assert "stepup_failed" in actions
     ok = next(l for l in logs if l["action"] == "password_changed")
     assert ok["detail"] == ""  # 绝不记录密码相关信息
 

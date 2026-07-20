@@ -1,8 +1,8 @@
 // 随行档 - 管理员后台 SPA (v3)
 
-// 与用户端共享的密码纯函数层（结构校验/强度）与密码框增强（眼睛切换/CapsLock）
-import { validatePasswordClient, scorePasswordStrength } from './utils/password.js?v=95';
-import { mountPasswordField } from './utils/password-field.js?v=95';
+// 与用户端共享的模块：改密弹窗接线（消灭双端复制漂移）+ 审计词表单一真源
+import { changePasswordFormHTML, wireChangePasswordForm } from './utils/password-dialog.js?v=96';
+import { AUDIT_ACTIONS, auditLabel } from './utils/audit-actions.js?v=96';
 
 const API = {
   // 管理员令牌存 HttpOnly cookie（与用户端一致），前端 JS 不可读，防 XSS 偷令牌。
@@ -26,40 +26,9 @@ const API = {
   del(u) { return this.req(u, { method: 'DELETE' }); },
 };
 
-const ACTION_LABELS = {
-  login_success: '登录成功',
-  login_failed: '登录失败',
-  login_locked: '登录锁定',
-  login_blocked: '登录被拒（账号禁用）',
-  login_new_device: '新设备登录',
-  register: '注册账号',
-  password_reset_success: '重置密码成功',
-  password_reset_failed: '重置密码失败',
-  password_changed: '修改密码',
-  password_change_failed: '修改密码失败',
-  password_change_locked: '修改密码限流锁定',
-  revoke_other_tokens: '退出其他设备',
-  revoke_all_tokens: '吊销全部令牌',
-  stepup_failed: '安全验证失败',
-  stepup_locked: '安全验证限流锁定',
-  admin_login_success: '管理员登录',
-  admin_login_failed: '管理员登录失败',
-  admin_password_change: '管理员修改密码',
-  admin_password_change_failed: '管理员修改密码失败',
-  admin_create_user: '创建用户',
-  admin_update_user: '修改用户',
-  admin_delete_user: '删除用户',
-  admin_create_token: '创建令牌',
-  admin_revoke_token: '吊销令牌',
-  admin_revoke_all_tokens: '全部吊销令牌',
-  admin_update_settings: '修改系统设置',
-  group_create: '创建分组',
-  group_rename: '重命名分组',
-  group_delete: '删除分组',
-  file_move_group: '移动到分组',
-  admin_delete_group: '管理员删除分组',
-};
-function actionLabel(a) { return ACTION_LABELS[a] || a; }
+// 审计事件标签来自共享词表 utils/audit-actions.js（与用户端单一真源，不再手同步）
+const ACTION_LABELS = Object.fromEntries(Object.entries(AUDIT_ACTIONS).map(([k, v]) => [k, v.label]));
+function actionLabel(a) { return ACTION_LABELS[a] || auditLabel(a); }
 
 const Toast = {
   show(msg, type = 'info', dur = 3000) {
@@ -967,90 +936,49 @@ async function renderAccount() {
           <button class="btn btn-primary" id="btn-admin-change-pwd">${ICONS.lock}<span style="margin-left:6px">修改密码</span></button>
         </div>
       </div>`;
-    document.getElementById('btn-admin-change-pwd').addEventListener('click', showAdminChangePasswordDialog);
+    document.getElementById('btn-admin-change-pwd').addEventListener('click', () => showAdminChangePasswordDialog(me.username));
   } catch { document.getElementById('account-content').innerHTML = '<p>加载失败</p>'; }
 }
 
-// 修改密码弹窗：与用户端同源范式（当前密码 → 新密码+强度 → 确认，错误内联、失败保留输入）
-function showAdminChangePasswordDialog() {
+// 修改密码弹窗：与用户端共用 utils/password-dialog.js 接线层（D14：消灭复制漂移）。
+// 弹窗壳仍用管理端自有的 modal-overlay（admin 无 openModal），但 busy 期间 Esc 不可撤销。
+function showAdminChangePasswordDialog(username) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true">
       <h3>修改密码</h3>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">修改后当前会话保持有效，下次登录需使用新密码。</p>
-      <div class="form-group"><label>当前密码</label>
-        <input type="password" id="acp-old" class="form-input" placeholder="请输入当前密码" autocomplete="current-password">
-        <div class="input-error-msg" id="acp-old-err"></div>
-      </div>
-      <div class="form-group"><label>新密码</label>
-        <input type="password" id="acp-new" class="form-input" placeholder="至少 8 个字符" autocomplete="new-password">
-        <div class="pwd-strength" id="acp-strength" aria-live="polite" hidden>
-          <div class="pwd-strength-bar"><i></i></div><span class="pwd-strength-label"></span>
-        </div>
-        <div class="input-error-msg" id="acp-new-err"></div>
-      </div>
-      <div class="form-group"><label>确认新密码</label>
-        <input type="password" id="acp-confirm" class="form-input" placeholder="再次输入新密码" autocomplete="new-password">
-        <div class="input-error-msg" id="acp-confirm-err"></div>
-      </div>
+      ${changePasswordFormHTML()}
       <div class="modal-actions">
         <button class="btn btn-secondary" id="acp-cancel">取消</button>
         <button class="btn btn-primary" id="acp-submit" disabled>修改密码</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
-  const q = (s) => overlay.querySelector(s);
-  const oldIn = q('#acp-old'), newIn = q('#acp-new'), confirmIn = q('#acp-confirm');
-  const oldErr = q('#acp-old-err'), newErr = q('#acp-new-err'), confirmErr = q('#acp-confirm-err');
-  const strengthEl = q('#acp-strength'), submitBtn = q('#acp-submit');
-  const username = (document.getElementById('admin-username-display') || {}).textContent || '';
-  [oldIn, newIn, confirmIn].forEach(inp => mountPasswordField(inp, { eyeIcon: ICONS.eye, eyeOffIcon: ICONS.eyeOff }));
-
-  const close = () => { oldIn.value = ''; newIn.value = ''; confirmIn.value = ''; overlay.remove(); document.removeEventListener('keydown', esc); };
-  const esc = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => { document.removeEventListener('keydown', esc); overlay.remove(); };
+  let ctl = null;
+  // 在途请求期间 Esc 不可撤销（后端可能已执行变更）
+  const esc = (e) => { if (e.key === 'Escape' && !(ctl && ctl.isBusy())) close(); };
   document.addEventListener('keydown', esc);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  q('#acp-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && !(ctl && ctl.isBusy())) close(); });
+  overlay.querySelector('#acp-cancel').addEventListener('click', close);
 
-  const setErr = (input, errEl, msg) => { errEl.textContent = msg || ''; input.classList.toggle('error', !!msg); };
-  const check = () => {
-    const newPwdErr = validatePasswordClient(newIn.value, username);
-    const confirmOk = !!confirmIn.value && confirmIn.value === newIn.value;
-    setErr(newIn, newErr, newIn.value ? newPwdErr : '');
-    setErr(confirmIn, confirmErr, confirmIn.value && !confirmOk ? '两次输入的密码不一致' : '');
-    const s = scorePasswordStrength(newIn.value, username);
-    strengthEl.classList.remove('lvl-1', 'lvl-2', 'lvl-3');
-    if (s.level) strengthEl.classList.add('lvl-' + s.level);
-    strengthEl.querySelector('.pwd-strength-label').textContent = s.label;
-    strengthEl.hidden = !newIn.value;
-    submitBtn.disabled = !(!!oldIn.value && !newPwdErr && confirmOk);
-  };
-  [oldIn, newIn, confirmIn].forEach(inp => inp.addEventListener('input', check));
-  oldIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); newIn.focus(); } });
-  newIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); confirmIn.focus(); } });
-  confirmIn.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter' && !submitBtn.disabled) { e.preventDefault(); submit(); } });
-
-  let busy = false;
-  async function submit() {
-    if (busy) return;
-    busy = true;
-    submitBtn.disabled = true;
-    submitBtn.textContent = '修改中…';
-    try {
-      const res = await API.put('/api/admin/me/password', { old_password: oldIn.value, new_password: newIn.value });
-      if (res && res.ok) { close(); Toast.show('密码已修改', 'success'); return; }
-      const d = await res.json().catch(() => ({}));
-      const detail = (d && d.detail) || '修改失败';
-      if (detail === '原密码错误') { setErr(oldIn, oldErr, detail); oldIn.focus(); }
-      else { setErr(newIn, newErr, detail); newIn.focus(); }
-    } catch { Toast.show('网络错误，请重试', 'error'); }
-    busy = false;
-    submitBtn.textContent = '修改密码';
-    check();
-  }
-  submitBtn.addEventListener('click', submit);
-  setTimeout(() => oldIn.focus(), 0);
+  ctl = wireChangePasswordForm(overlay, {
+    username,  // 真实管理员用户名：激活「不与用户名相同」校验与强度罚分（D7）
+    eyeIcon: ICONS.eye,
+    eyeOffIcon: ICONS.eyeOff,
+    submitBtn: overlay.querySelector('#acp-submit'),
+    onSubmit: async (oldPwd, newPwd) => {
+      try {
+        const res = await API.put('/api/admin/me/password', { old_password: oldPwd, new_password: newPwd });
+        const d = await res.json().catch(() => ({}));
+        if (res.ok) return { ok: true };
+        return { ok: false, status: res.status, detail: (d && d.detail) || '修改失败' };
+      } catch { return { ok: false, status: 0, detail: '网络错误，请重试' }; }
+    },
+    onSuccess: () => { close(); Toast.show('密码已修改', 'success'); },
+  });
 }
 
 // ============ Logs ============

@@ -281,56 +281,64 @@ LOGIN_LIMIT_WINDOW = 15 * 60        # 失败计数窗口（秒）
 LOGIN_LIMIT_MAX_FAILURES = 5        # 窗口内失败上限
 LOGIN_LIMIT_LOCK_SECONDS = 15 * 60  # 锁定时长（秒）
 
+# 进程内串行化限流的 read-modify-write，避免并发请求同时读到旧计数而漏计。
+# 多进程（多 worker）仍由 SQLite 写锁兜底，残余竞争只导致少量放行，非硬性绕过。
+# 登录限流与下方通用请求限流共用同一把锁（同表同结构，串行化互不影响语义）。
+_rate_limit_lock = threading.Lock()
+
 
 def login_limiter_check(db, key: str) -> int:
     """返回剩余锁定秒数；未锁定返回 0。过期锁自动清零。"""
-    row = db.query(LoginAttempt).filter_by(key=key).first()
-    if not row or not row.locked_until:
+    with _rate_limit_lock:
+        row = db.query(LoginAttempt).filter_by(key=key).first()
+        if not row or not row.locked_until:
+            return 0
+        now = datetime.utcnow()
+        if row.locked_until > now:
+            return int((row.locked_until - now).total_seconds()) + 1
+        row.locked_until = None
+        row.fail_count = 0
+        row.first_fail_at = None
+        db.commit()
         return 0
-    now = datetime.utcnow()
-    if row.locked_until > now:
-        return int((row.locked_until - now).total_seconds()) + 1
-    row.locked_until = None
-    row.fail_count = 0
-    row.first_fail_at = None
-    db.commit()
-    return 0
 
 
 def login_limiter_record(db, key: str):
     """记录一次失败，达到阈值则锁定；顺带清理陈旧记录防表膨胀。"""
-    now = datetime.utcnow()
-    row = db.query(LoginAttempt).filter_by(key=key).first()
-    if row:
-        if row.first_fail_at and (now - row.first_fail_at).total_seconds() > LOGIN_LIMIT_WINDOW:
-            row.fail_count = 0
-            row.first_fail_at = now
-        if not row.first_fail_at:
-            row.first_fail_at = now
-        row.fail_count = (row.fail_count or 0) + 1
-    else:
-        row = LoginAttempt(key=key, fail_count=1, first_fail_at=now)
-        db.add(row)
-    if row.fail_count >= LOGIN_LIMIT_MAX_FAILURES:
-        row.locked_until = now + timedelta(seconds=LOGIN_LIMIT_LOCK_SECONDS)
-    db.commit()
-    # 机会性清理：删除无锁且超出窗口两倍的陈旧记录
-    cutoff = now - timedelta(seconds=LOGIN_LIMIT_WINDOW * 2)
-    db.query(LoginAttempt).filter(
-        LoginAttempt.locked_until.is_(None),
-        or_(LoginAttempt.first_fail_at.is_(None), LoginAttempt.first_fail_at < cutoff),
-    ).delete(synchronize_session=False)
-    db.commit()
+    with _rate_limit_lock:
+        now = datetime.utcnow()
+        row = db.query(LoginAttempt).filter_by(key=key).first()
+        if row:
+            if row.first_fail_at and (now - row.first_fail_at).total_seconds() > LOGIN_LIMIT_WINDOW:
+                row.fail_count = 0
+                row.first_fail_at = now
+            if not row.first_fail_at:
+                row.first_fail_at = now
+            row.fail_count = (row.fail_count or 0) + 1
+        else:
+            row = LoginAttempt(key=key, fail_count=1, first_fail_at=now)
+            db.add(row)
+        if row.fail_count >= LOGIN_LIMIT_MAX_FAILURES:
+            row.locked_until = now + timedelta(seconds=LOGIN_LIMIT_LOCK_SECONDS)
+        db.commit()
+        # 机会性清理：删除无锁且超出窗口两倍的陈旧记录
+        cutoff = now - timedelta(seconds=LOGIN_LIMIT_WINDOW * 2)
+        db.query(LoginAttempt).filter(
+            LoginAttempt.locked_until.is_(None),
+            or_(LoginAttempt.first_fail_at.is_(None), LoginAttempt.first_fail_at < cutoff),
+        ).delete(synchronize_session=False)
+        db.commit()
 
 
 def login_limiter_reset(db, key: str):
     """成功后清零计数。"""
-    row = db.query(LoginAttempt).filter_by(key=key).first()
-    if row:
-        row.fail_count = 0
-        row.first_fail_at = None
-        row.locked_until = None
-        db.commit()
+    with _rate_limit_lock:
+        row = db.query(LoginAttempt).filter_by(key=key).first()
+        if row:
+            row.fail_count = 0
+            row.first_fail_at = None
+            row.locked_until = None
+            db.commit()
 
 
 # ---- 通用请求限流（复用 login_attempts 表，按 user_id 限流聊天等接口）----
@@ -340,10 +348,6 @@ def login_limiter_reset(db, key: str):
 CHAT_RATE_LIMIT_WINDOW = 60        # 计数窗口（秒）
 CHAT_RATE_LIMIT_MAX = 20           # 窗口内每用户最大请求数
 CHAT_RATE_LIMIT_LOCK_SECONDS = 60  # 超限后锁定时长（秒）
-
-# 进程内串行化限流的 read-modify-write，避免并发请求同时读到旧计数而漏计。
-# 多进程（多 worker）仍由 SQLite 写锁兜底，残余竞争只导致少量放行，非硬性绕过。
-_rate_limit_lock = threading.Lock()
 
 
 def rate_limit_acquire(db, key: str,

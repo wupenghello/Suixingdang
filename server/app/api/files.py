@@ -13,9 +13,8 @@ from sqlalchemy import func
 from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User, AccessToken, get_db, get_trash_retention_days, DEFAULT_TRASH_LOCK_LIMIT, rate_limit_acquire
 from ..core import storage, indexer, guard
 from ..core.llm_service import chat_complete
-from ..core.security import verify_password
 from ..config import settings
-from .auth import get_current_user, get_current_session, _log
+from .auth import get_current_user, get_current_session, _log, verify_stepup_password
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -754,9 +753,10 @@ def grant_download(req: DownloadGrantRequest, request: Request, db: Session = De
     if not session:
         # 旧 token 无 sid / device token / 已吊销会话：401 触发前端刷新续签
         raise HTTPException(401, "登录状态需刷新，请重试")
-    if not verify_password(req.password, user.password_hash):
-        _log(db, user.id, "download_grant_failed", "密码验证失败", request)
-        raise HTTPException(403, "密码错误")
+    # 统一 stepup 验证（限流 + 审计，与改密/吊销共享猜测预算）
+    verify_stepup_password(db, user, req.password, request,
+                           action="download-grant", fail_action="download_grant_failed",
+                           missing_msg="请输入密码")
     allowed_minutes = {0: settings.DOWNLOAD_GRANT_MINUTES, 5: 5, 15: 15, 30: 30}
     minutes = allowed_minutes.get(req.minutes, settings.DOWNLOAD_GRANT_MINUTES)
     now = datetime.utcnow()
@@ -780,9 +780,9 @@ def grant_single_download(req: SingleDownloadRequest, request: Request, db: Sess
     """验证密码后授权单次下载指定文件（下载后自动失效）。"""
     if not session:
         raise HTTPException(401, "登录状态需刷新，请重试")
-    if not verify_password(req.password, user.password_hash):
-        _log(db, user.id, "download_grant_failed", "密码验证失败（单次下载）", request)
-        raise HTTPException(403, "密码错误")
+    verify_stepup_password(db, user, req.password, request,
+                           action="download-grant-single", fail_action="download_grant_failed",
+                           missing_msg="请输入密码")
     # Resolve file_id -> path (opaque UUID; real path need not come from browser)
     real_path = req.path
     if not real_path and req.file_id:
