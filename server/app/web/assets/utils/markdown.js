@@ -4,7 +4,9 @@
 import { ICONS } from './icons.js';
 import { escapeHtml } from './dom.js';
 
-export function renderMarkdown(text) {
+// opts.enhance=false 时跳过 hljs/KaTeX/mermaid/代码头等重计算，供流式增量渲染用；
+// 流式结束（done）时再以默认（enhance=true）完整渲染一次。
+export function renderMarkdown(text, opts = {}) {
   if (!text) return '';
   let html;
   try {
@@ -13,7 +15,7 @@ export function renderMarkdown(text) {
   try { html = window.DOMPurify.sanitize(html); } catch {}
   const div = document.createElement('div');
   div.innerHTML = html;
-  _enhanceMarkdownDom(div);
+  if (opts.enhance !== false) _enhanceMarkdownDom(div);
   return div.innerHTML;
 }
 
