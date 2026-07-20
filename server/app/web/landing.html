@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#F7F8FA">
+  <meta name="color-scheme" content="light dark">
   <title>随行档 — 私人文件中枢 · 零痕迹 · 即问即得 · 懂你的文件</title>
   <meta name="description" content="随行档是自托管的私人文件中枢。浏览器打开即用，文件加密归档、一句话语义检索、AI 直接作答；公司电脑只看不留，离职一键吊销，如同从未存在。">
   <meta property="og:title" content="随行档 — 私人文件中枢">
@@ -14,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/app.css?v=79">
   <link rel="stylesheet" href="/assets/tokens.css?v=1">
   <link rel="stylesheet" href="/landing.css?v=6">
 </head>
@@ -37,6 +38,7 @@
     <symbol id="sx-ico-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 9.2-9.2"/><path d="m16 6 3 3"/><path d="m18.5 3.5 2 2"/></symbol>
     <symbol id="sx-ico-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
     <symbol id="sx-ico-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+    <symbol id="sx-ico-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 5 5 12 12 19"/></symbol>
     <symbol id="sx-ico-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
     <symbol id="sx-ico-file" viewBox="0 0 24 24"><path d="M14 3v5h5"/><path d="M19 8v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7z"/></symbol>
     <symbol id="sx-ico-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></symbol>
@@ -57,7 +59,7 @@
     </nav>
     <div class="sx-bar-cta">
       <a class="sx-link" href="/app">登录</a>
-      <a class="sx-link sx-link--solid" href="#start">免费部署</a>
+      <a class="sx-link sx-link--solid" href="/app">免费使用</a>
     </div>
   </header>
 
@@ -69,7 +71,7 @@
         <h1>把所有文件，装进<br>只对你<span class="sx-accent">显影</span>的档案室。</h1>
         <p class="sx-hero-lead">不想在公司电脑装网盘客户端，又需要随时取文件。随行档长在你自己的服务器上——浏览器打开就能用，文件加密归档、一句话检索、AI 直接回答。用完关页，这台电脑上什么都没留下。</p>
         <div class="sx-hero-cta">
-          <a class="sx-btn" href="#start">免费部署 <span class="sx-arrow">→</span></a>
+          <a class="sx-btn" href="/app">免费使用 <svg class="sx-ico sx-ico--arrow" aria-hidden="true"><use href="#sx-ico-arrow-right"/></svg></a>
           <a class="sx-btn sx-btn--ghost" href="#features">了解功能</a>
         </div>
 
@@ -373,7 +375,7 @@
         <h2>把文件，装进只对你显影的档案室。</h2>
         <p>自托管、加密归档、零痕迹。浏览器打开即用。</p>
         <div class="sx-band-cta">
-          <a class="sx-btn sx-btn--lg" href="#start">免费部署 <span class="sx-arrow">→</span></a>
+          <a class="sx-btn sx-btn--lg" href="/app">免费使用 <svg class="sx-ico sx-ico--arrow" aria-hidden="true"><use href="#sx-ico-arrow-right"/></svg></a>
           <a class="sx-btn sx-btn--ghost sx-btn--lg" href="/app">登录</a>
         </div>
       </div>
@@ -391,7 +393,7 @@
         <a href="#features">功能</a>
         <a href="#how">场景</a>
         <a href="#security">安全</a>
-        <a href="#start">部署</a>
+        <a href="#start">开始</a>
         <a href="/app">登录</a>
       </nav>
       <p class="sx-foot-copy">© 2026 随行档 Suixingdang · 自托管、加密归档、零痕迹 <span class="sx-foot-version">v2.0.0</span></p>

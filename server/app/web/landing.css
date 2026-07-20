@@ -9,16 +9,63 @@
    - Compare 面板：before/after 双格，自证型证据
    - Metric 指标条：可量化主张的廉价可信度
    ============================================================ */
-.sx-landing {
-  /* ---- 设计 token：映射到 tokens.css 单一真源 ---- */
-  --sx-blue: var(--primary); --sx-blue-hover: var(--primary-hover); --sx-blue-soft: var(--primary-bg);
-  --sx-cyan: var(--teal);
-  --sx-ink: var(--text); --sx-text: var(--text-secondary); --sx-muted: var(--text-muted);
-  --sx-line: var(--border); --sx-line-soft: var(--border-light); --sx-line-strong: var(--border-strong);
-  --sx-canvas: var(--bg); --sx-surface: var(--bg-surface);
-  --sx-success: var(--success); --sx-danger: var(--danger);
-  --sx-shadow-sm: var(--shadow-sm); --sx-shadow-md: var(--shadow); --sx-shadow-lg: var(--shadow-lg);
 
+/* ---- 设计 token：定义在 :root 供 body 继承；亮色/暗色均在此覆盖 ---- */
+:root {
+  --sx-blue: var(--primary);
+  --sx-blue-hover: var(--primary-hover);
+  --sx-blue-soft: var(--primary-bg);
+  --sx-cyan: var(--teal);
+
+  --sx-ink-rgb: 31, 35, 41;          /* ink 的 RGB 分量，供 rgba(var(--sx-ink-rgb),α) 使用 */
+  --sx-ink: rgb(var(--sx-ink-rgb));
+  --sx-text: var(--text-secondary);
+  --sx-muted: var(--text-muted);
+
+  --sx-line: var(--border);
+  --sx-line-soft: var(--border-light);
+  --sx-line-strong: var(--border-strong);
+
+  --sx-canvas: var(--bg);
+  --sx-surface: var(--bg-surface);
+
+  --sx-success: var(--success);
+  --sx-danger: var(--danger);
+
+  --sx-shadow-sm: var(--shadow-sm);
+  --sx-shadow-md: var(--shadow);
+  --sx-shadow-lg: var(--shadow-lg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sx-blue: var(--primary);
+    --sx-blue-hover: var(--primary-hover);
+    --sx-blue-soft: var(--primary-bg);
+    --sx-cyan: var(--teal);
+
+    --sx-ink-rgb: 230, 232, 235;     /* 暗色 ink = tokens.css 的 --text */
+    --sx-ink: rgb(var(--sx-ink-rgb));
+    --sx-text: var(--text-secondary);
+    --sx-muted: var(--text-muted);
+
+    --sx-line: var(--border);
+    --sx-line-soft: var(--border-light);
+    --sx-line-strong: var(--border-strong);
+
+    --sx-canvas: var(--bg);
+    --sx-surface: var(--bg-surface);
+
+    --sx-success: var(--success);
+    --sx-danger: var(--danger);
+
+    --sx-shadow-sm: var(--shadow-sm);
+    --sx-shadow-md: var(--shadow);
+    --sx-shadow-lg: var(--shadow-lg);
+  }
+}
+
+.sx-landing {
   font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
   background: var(--sx-canvas);
   color: var(--sx-ink);
@@ -34,10 +81,10 @@
 .sx-landing code {
   font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
   font-size: 0.88em;
-  background: rgba(31, 35, 41, 0.06);
+  background: rgba(var(--sx-ink-rgb), 0.06);
   padding: 1px 6px;
   border-radius: 4px;
-  color: #2A2D35;
+  color: var(--sx-ink);
 }
 .sx-landing h1, .sx-landing h2, .sx-landing h3 { line-height: 1.25; letter-spacing: -0.01em; }
 .sx-landing h1 { font-size: clamp(36px, 5vw, 56px); font-weight: 700; }
@@ -57,10 +104,10 @@
   position: sticky; top: 0; z-index: 100;
   display: flex; align-items: center; justify-content: space-between; gap: 24px;
   padding: 14px 24px;
-  background: rgba(247, 248, 250, 0.85);
+  background: rgba(var(--sx-ink-rgb), 0.04);
   backdrop-filter: saturate(180%) blur(12px);
   -webkit-backdrop-filter: saturate(180%) blur(12px);
-  border-bottom: 1px solid rgba(229, 230, 235, 0.6);
+  border-bottom: 1px solid rgba(var(--sx-ink-rgb), 0.08);
 }
 .sx-brand { display: flex; align-items: center; gap: 10px; }
 .sx-mark {
@@ -85,7 +132,7 @@
   background: transparent; color: var(--sx-ink); border: 1px solid transparent;
   transition: background .15s, border-color .15s, color .15s;
 }
-.sx-link:hover { background: rgba(31, 35, 41, 0.05); }
+.sx-link:hover { background: rgba(var(--sx-ink-rgb), 0.05); }
 .sx-link--solid { background: var(--sx-blue); color: #fff; }
 .sx-link--solid:hover { background: var(--sx-blue-hover); }
 .sx-btn {
@@ -98,11 +145,12 @@
 }
 .sx-btn:hover { background: var(--sx-blue-hover); box-shadow: 0 6px 16px rgba(51, 112, 255, 0.32); }
 .sx-btn:active { transform: translateY(1px); }
-.sx-btn--ghost { background: #fff; color: var(--sx-ink); border: 1px solid var(--sx-line); box-shadow: none; }
+.sx-btn--ghost { background: var(--sx-surface); color: var(--sx-ink); border: 1px solid var(--sx-line); box-shadow: none; }
 .sx-btn--ghost:hover { background: var(--sx-canvas); border-color: var(--sx-line-strong); }
 .sx-btn--lg { padding: 15px 32px; font-size: 16px; }
-.sx-arrow { display: inline-block; transition: transform .15s; }
-.sx-btn:hover .sx-arrow { transform: translateX(3px); }
+.sx-ico--arrow { width: 1em; height: 1em; vertical-align: -0.125em; transition: transform .15s; }
+.sx-btn:hover .sx-ico--arrow { transform: translateX(3px); }
+.sx-ico--arrow-back { width: 1em; height: 1em; vertical-align: -0.125em; transform: scaleX(-1); }
 
 /* ---- Hero ---- */
 .sx-hero { padding: 80px 0 60px; }
@@ -136,23 +184,23 @@
 }
 .sx-mockup-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--sx-line-strong); }
 .sx-mockup-body { display: flex; min-height: 280px; }
-.sx-mockup-side { width: 160px; flex-shrink: 0; padding: 16px 12px; border-right: 1px solid var(--sx-line); background: #FAFAFA; }
+.sx-mockup-side { width: 160px; flex-shrink: 0; padding: 16px 12px; border-right: 1px solid var(--sx-line); background: var(--sx-canvas); }
 .sx-mockup-sideh { font-size: 11px; color: var(--sx-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; padding: 0 8px; }
 .sx-mockup-item { padding: 7px 8px; border-radius: 6px; font-size: 13px; color: var(--sx-text); margin-bottom: 2px; }
 .sx-mockup-item.is-active { background: var(--sx-blue-soft); color: var(--sx-blue); font-weight: 500; }
 .sx-mockup-main { flex: 1; padding: 20px 24px; }
 .sx-mockup-q {
   display: inline-block; padding: 8px 14px; border-radius: 16px 16px 16px 4px;
-  background: var(--sx-line-soft); font-size: 13.5px; margin-bottom: 14px;
+  background: var(--sx-line-soft); color: var(--sx-ink); font-size: 13.5px; margin-bottom: 14px;
 }
 .sx-mockup-a { padding: 12px 16px; border-radius: 12px; background: var(--sx-blue-soft); font-size: 13.5px; line-height: 1.6; margin-bottom: 14px; }
 .sx-mockup-files { display: flex; flex-wrap: wrap; gap: 8px; }
-.sx-mockup-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; background: #fff; border: 1px solid var(--sx-line); font-size: 12px; color: var(--sx-text); }
+.sx-mockup-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; background: var(--sx-surface); border: 1px solid var(--sx-line); font-size: 12px; color: var(--sx-text); }
 .sx-mockup-chip .sx-ico { width: 13px; height: 13px; color: var(--sx-blue); }
 
 /* ---- Section ---- */
 .sx-section { padding: 80px 0; }
-.sx-section--tint { background: #fff; }
+.sx-section--tint { background: var(--sx-surface); }
 .sx-head { max-width: 680px; margin: 0 auto 48px; text-align: center; }
 .sx-head h2 { margin-bottom: 12px; }
 .sx-head p { font-size: 16px; }
@@ -164,7 +212,7 @@
   background: var(--sx-canvas); border: 1px solid var(--sx-line);
   transition: border-color .2s, box-shadow .2s, transform .2s;
 }
-.sx-diff-card:hover { border-color: var(--sx-line-strong); box-shadow: 0 8px 24px rgba(31, 35, 41, 0.06); transform: translateY(-2px); }
+.sx-diff-card:hover { border-color: var(--sx-line-strong); box-shadow: 0 8px 24px rgba(var(--sx-ink-rgb), 0.06); transform: translateY(-2px); }
 .sx-diff-num {
   font-family: ui-monospace, 'SF Mono', monospace;
   font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
@@ -196,7 +244,7 @@
   background: var(--sx-surface); border: 1px solid var(--sx-line);
   transition: border-color .2s, box-shadow .2s;
 }
-.sx-cell:hover { border-color: var(--sx-line-strong); box-shadow: 0 6px 20px rgba(31, 35, 41, 0.06); }
+.sx-cell:hover { border-color: var(--sx-line-strong); box-shadow: 0 6px 20px rgba(var(--sx-ink-rgb), 0.06); }
 .sx-cell--wide { grid-column: span 2; }
 .sx-cell--tint { background: var(--sx-canvas); }
 .sx-cell-ico { color: var(--sx-blue); margin-bottom: 12px; }
@@ -316,12 +364,12 @@
 .sx-band p { color: rgba(255, 255, 255, 0.88); font-size: 16px; margin-bottom: 28px; }
 .sx-band-cta { display: flex; gap: 12px; justify-content: center; }
 .sx-band .sx-btn { background: #fff; color: var(--sx-blue); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15); }
-.sx-band .sx-btn:hover { background: var(--sx-canvas); }
+.sx-band .sx-btn:hover { background: rgba(255, 255, 255, 0.92); }
 .sx-band .sx-btn--ghost { background: rgba(255, 255, 255, 0.15); color: #fff; border-color: rgba(255, 255, 255, 0.3); }
 .sx-band .sx-btn--ghost:hover { background: rgba(255, 255, 255, 0.25); }
 
 /* ---- Footer ---- */
-.sx-foot { padding: 40px 24px; background: #fff; border-top: 1px solid var(--sx-line); }
+.sx-foot { padding: 40px 24px; background: var(--sx-surface); border-top: 1px solid var(--sx-line); }
 .sx-foot-inner { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 16px; }
 .sx-foot-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
 .sx-foot-brand .sx-mark { width: 28px; height: 28px; font-size: 13px; border-radius: 6px; }
@@ -329,23 +377,23 @@
 .sx-foot-nav a { font-size: 13px; color: var(--sx-text); }
 .sx-foot-nav a:hover { color: var(--sx-ink); }
 .sx-foot-copy { font-size: 12px; color: var(--sx-muted); text-align: center; }
-.sx-foot-version { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: rgba(31, 35, 41, 0.06); font-family: ui-monospace, 'SF Mono', monospace; font-size: 10.5px; color: var(--sx-muted); font-weight: 500; letter-spacing: 0.02em; }
+.sx-foot-version { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: rgba(var(--sx-ink-rgb), 0.06); font-family: ui-monospace, 'SF Mono', monospace; font-size: 10.5px; color: var(--sx-muted); font-weight: 500; letter-spacing: 0.02em; }
 
 /* ---- 按钮（覆盖 app.css 同名样式） ---- */
 .sx-landing .sx-link { font: inherit; font-size: 13.5px; font-weight: 500; padding: 8px 16px; border-radius: 6px; cursor: pointer; background: transparent; color: var(--sx-ink); border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s; }
-.sx-landing .sx-link:hover { background: rgba(31, 35, 41, 0.05); color: var(--sx-ink); }
+.sx-landing .sx-link:hover { background: rgba(var(--sx-ink-rgb), 0.05); color: var(--sx-ink); }
 .sx-landing .sx-link--solid { background: var(--sx-blue); color: #fff; }
 .sx-landing .sx-link--solid:hover { background: var(--sx-blue-hover); color: #fff; }
 .sx-landing .sx-btn { background: var(--sx-blue); color: #fff; border: 1px solid var(--sx-blue); box-shadow: 0 4px 12px rgba(51, 112, 255, 0.25); }
 .sx-landing .sx-btn:hover { background: var(--sx-blue-hover); border-color: var(--sx-blue-hover); box-shadow: 0 6px 16px rgba(51, 112, 255, 0.32); color: #fff; }
-.sx-landing .sx-btn--ghost { background: #fff; color: var(--sx-ink); border: 1px solid var(--sx-line); box-shadow: none; }
+.sx-landing .sx-btn--ghost { background: var(--sx-surface); color: var(--sx-ink); border: 1px solid var(--sx-line); box-shadow: none; }
 .sx-landing .sx-btn--ghost:hover { background: var(--sx-canvas); border-color: var(--sx-line-strong); color: var(--sx-ink); }
 
 /* ---- 动效 + 兜底 ---- */
 @keyframes sx-blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   .sx-frag-cursor { animation: none; }
-  .sx-arrow { transition: none; }
+  .sx-btn:hover .sx-ico--arrow { transform: none; }
   html { scroll-behavior: auto; }
 }
 

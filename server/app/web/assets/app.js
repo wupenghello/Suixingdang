@@ -934,7 +934,7 @@ function renderLogin() {
           <a href="#" data-action="renderForgotPassword">忘记密码？</a>
           <a href="#" data-action="renderRegister" id="register-link">注册新账号</a>
         </div>
-        <a class="login-back" href="/welcome">← 返回官网</a>
+        <a class="login-back" href="/welcome"><svg class="sx-ico sx-ico--arrow-back" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg> 返回官网</a>
       </div>
     `);
   // 动态检查注册是否开放

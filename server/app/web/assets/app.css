@@ -1078,6 +1078,8 @@ html { scroll-behavior: smooth; }
 .sx-btn--lg { padding: 13px 28px; font-size: 15px; }
 .sx-arrow { transition: transform .15s; display: inline-block; }
 .sx-btn:hover .sx-arrow { transform: translateX(3px); }
+.sx-ico--arrow { width: 1em; height: 1em; vertical-align: -0.125em; }
+.sx-ico--arrow-back { width: 1em; height: 1em; vertical-align: -0.125em; transform: scaleX(-1); }
 @media (prefers-reduced-motion: reduce) { .sx-btn:hover, .sx-btn--ghost:hover { transform: none; } .sx-btn:hover .sx-arrow { transform: none; } }
 
 /* ---- 产品预览 mockup（真实组件预览）---- */
