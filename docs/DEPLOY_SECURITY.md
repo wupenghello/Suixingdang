@@ -140,7 +140,7 @@ openssl rand -hex 32
 
 以下机制已在代码中实现，部署时无需额外操作，但应知晓：
 
-1. **认证**：bcrypt 密码哈希、JWT（access/refresh 分离）、TOTP 双因子、可吊销的 opaque 设备令牌、可吊销的浏览器会话令牌。浏览器会话令牌存 HttpOnly + Secure + SameSite=Lax cookie（前端 JS 不可读，防 XSS 偷令牌）；设备令牌仍走 Authorization 头。
+1. **认证**：bcrypt 密码哈希、JWT（access/refresh 分离）、可吊销的 opaque 设备令牌、可吊销的浏览器会话令牌。浏览器会话令牌存 HttpOnly + Secure + SameSite=Lax cookie（前端 JS 不可读，防 XSS 偷令牌）；设备令牌仍走 Authorization 头。
 2. **多租户隔离**：文件按 `user_id` 分目录，DB 查询带 `owner_id` 过滤，向量库按用户独立 collection。
 3. **传输安全**：Caddy 自动 HTTPS + HSTS + `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/`Content-Security-Policy` 等安全头（详见 [Caddyfile](../Caddyfile)）。
 4. **CORS / CSRF**：前端与 API 同源，CORS 不适用、不启用 credentials；会话 cookie 走 SameSite=Lax（写操作全 POST/PUT/DELETE）防跨站请求伪造。

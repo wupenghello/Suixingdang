@@ -26,7 +26,6 @@ const ACTION_LABELS = {
   login_success: '登录成功',
   login_failed: '登录失败',
   login_blocked: '登录被拒（账号禁用）',
-  login_totp_failed: '二次验证失败',
   register: '注册账号',
   password_reset_success: '重置密码成功',
   password_reset_failed: '重置密码失败',
@@ -314,7 +313,7 @@ async function loadUsers(search, page) {
     }
     document.getElementById('users-content').innerHTML = `
       <table class="data-table">
-        <thead><tr><th>用户名</th><th>状态</th><th>配额</th><th>文件数</th><th>已用</th><th>双因子</th><th>最近登录</th><th>操作</th></tr></thead>
+        <thead><tr><th>用户名</th><th>状态</th><th>配额</th><th>文件数</th><th>已用</th><th>最近登录</th><th>操作</th></tr></thead>
         <tbody>
           ${data.users.map(u => `<tr>
             <td><strong>${esc(u.username)}</strong></td>
@@ -322,7 +321,6 @@ async function loadUsers(search, page) {
             <td>${u.quota_mb > 0 ? u.quota_mb + ' MB' : '无限'}</td>
             <td>${u.file_count}</td>
             <td>${u.used_mb} MB</td>
-            <td>${u.totp_enabled ? '已启用' : '-'}</td>
             <td class="td-meta">${u.last_login || '-'}</td>
             <td class="td-actions">
               <button class="btn btn-secondary btn-icon" data-action="viewUserDetail" data-user-id="${u.id}" title="详情">${ICONS.file}</button>
@@ -358,7 +356,7 @@ async function viewUserDetail(userId) {
         <div class="stat-card"><div class="stat-label">状态</div><div class="stat-value stat-value-sm">${u.status === 'active' ? '正常' : '已禁用'}</div></div>
       </div>
       <div class="user-detail-meta">
-       创建: ${u.created_at.split('.')[0]} | 最近登录: ${u.last_login ? u.last_login.split('.')[0] : '从未'} | 双因子: ${u.totp_enabled ? '已启用' : '未启用'} | 密保: ${u.has_security_question ? '已设置' : '未设置'}
+       创建: ${u.created_at.split('.')[0]} | 最近登录: ${u.last_login ? u.last_login.split('.')[0] : '从未'} | 密保: ${u.has_security_question ? '已设置' : '未设置'}
      </div>
       <div class="user-detail-block">
         <div class="user-detail-block-head">

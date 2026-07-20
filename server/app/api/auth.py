@@ -1,4 +1,4 @@
-"""认证 API（多账户版）：用户登录/注册、忘记密码、管理员登录、设备令牌、TOTP。"""
+"""认证 API（多账户版）：用户登录/注册、忘记密码、管理员登录、设备令牌。"""
 
 from datetime import datetime, timedelta
 from typing import Optional
@@ -7,10 +7,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import hashlib
-import qrcode
-import qrcode.image.svg
-import io
-import base64
 
 import time
 
@@ -21,8 +17,7 @@ from ..db.models import (
 )
 from ..core.security import (
     verify_password, hash_password, create_access_token, create_refresh_token,
-    decode_token, generate_token_hash, generate_totp_secret,
-    get_totp_uri, verify_totp, validate_password,
+    decode_token, generate_token_hash, validate_password,
 )
 from ..config import settings
 
@@ -34,7 +29,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 class LoginRequest(BaseModel):
     username: str
     password: str
-    totp_code: str = ""
+    totp_code: str = ""  # 已废弃，保留以兼容旧客户端，后端忽略
 
 
 class RegisterRequest(BaseModel):
@@ -47,13 +42,7 @@ class RegisterRequest(BaseModel):
 class AdminLoginRequest(BaseModel):
     username: str
     password: str
-    totp_code: str = ""
-
-
-class TOTPSetupResponse(BaseModel):
-    secret: str
-    qr_code: str
-    uri: str
+    totp_code: str = ""  # 已废弃，保留以兼容旧客户端，后端忽略
 
 
 class DeviceTokenResponse(BaseModel):
@@ -521,11 +510,6 @@ def login(req: LoginRequest, request: Request, response: Response, db: Session =
     if user.status == "disabled":
         _log(db, user.id, "login_blocked", "账号已被禁用", request)
         raise HTTPException(403, "账户已被禁用")
-    if user.totp_enabled:
-        if not req.totp_code or not verify_totp(user.totp_secret, req.totp_code):
-            login_limiter_record(db, key)
-            _log(db, user.id, "login_totp_failed", "动态验证码错误", request)
-            raise HTTPException(401, "需要双因子验证码")
 
     user.last_login_at = datetime.utcnow()
     db.commit()
@@ -747,10 +731,6 @@ def admin_login(req: AdminLoginRequest, request: Request, response: Response, db
         login_limiter_record(db, key)
         _log(db, None, "admin_login_failed", f"{req.username}（账号或密码错误）", request)
         raise HTTPException(401, "管理员用户名或密码错误")
-    if admin.totp_enabled:
-        if not req.totp_code or not verify_totp(admin.totp_secret, req.totp_code):
-            login_limiter_record(db, key)
-            raise HTTPException(401, "需要双因子验证码")
 
     login_limiter_reset(db, key)
     token_data = {"sub": admin.id, "username": admin.username, "role": "admin"}
@@ -776,42 +756,6 @@ def register_status(db: Session = Depends(get_db)):
     else:
         allow = settings.ALLOW_REGISTER
     return {"allow_register": allow}
-
-
-# ---- TOTP ----
-
-@router.get("/totp/setup", response_model=TOTPSetupResponse)
-def setup_totp():
-    secret = generate_totp_secret()
-    uri = get_totp_uri(secret)
-    factory = qrcode.image.svg.SvgImage
-    img = qrcode.make(uri, image_factory=factory)
-    buf = io.BytesIO()
-    img.save(buf)
-    qr_b64 = base64.b64encode(buf.getvalue()).decode()
-    return TOTPSetupResponse(
-        secret=secret,
-        qr_code=f"data:image/svg+xml;base64,{qr_b64}",
-        uri=uri,
-    )
-
-
-@router.post("/totp/enable")
-def enable_totp(secret: str, code: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    if not verify_totp(secret, code):
-        raise HTTPException(400, "验证码错误")
-    user.totp_secret = secret
-    user.totp_enabled = True
-    db.commit()
-    return {"message": "双因子验证已开启"}
-
-
-@router.post("/totp/disable")
-def disable_totp(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    user.totp_enabled = False
-    user.totp_secret = ""
-    db.commit()
-    return {"message": "双因子验证已关闭"}
 
 
 # ---- 设备令牌 ----
@@ -924,7 +868,6 @@ def get_me(user=Depends(get_current_user)):
         "role": user.role,
         "status": user.status,
         "quota_mb": user.quota_mb,
-        "totp_enabled": user.totp_enabled,
         "ai_enabled": user.ai_enabled,
         "last_login_at": str(user.last_login_at) if user.last_login_at else "",
         "created_at": str(user.created_at) if user.created_at else "",

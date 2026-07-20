@@ -660,7 +660,6 @@ function renderLanding() {
     db:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/></svg>',
     audit:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
     cite:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
-    twofa:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 12l2 2 4-4"/></svg>',
     arrow:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   };
 
@@ -821,7 +820,7 @@ function renderLanding() {
           <div class="sx-list">
             <div class="sx-list-row"><div class="sx-list-ico">${ic.lock}</div><div><h3>落盘 · AES 加密</h3><p>文件、SQLite 数据库、Chroma 向量索引一体化 AES 加密。可选挂 LUKS/dm-crypt 加密卷，磁盘被偷也读不出内容。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.key}</div><div><h3>令牌 · 可远程吊销</h3><p>会话和设备令牌皆可单条或一键吊销，旧凭证立即失效。改密码后旧会话同步失效。离职换机，一个按钮切断全部。</p></div></div>
-            <div class="sx-list-row"><div class="sx-list-ico">${ic.twofa}</div><div><h3>登录 · TOTP 双因子</h3><p>支持 TOTP 验证器（Google Authenticator 等），密码泄露也进不来。登录限流防爆破。</p></div></div>
+            <div class="sx-list-row"><div class="sx-list-ico">${ic.shield}</div><div><h3>登录 · 限流防爆破</h3><p>登录限流 + 新设备告警 + 可吊销设备令牌，密码泄露也难持久。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.trace}</div><div><h3>本地 · 默认不落盘</h3><p>浏览器端默认禁止下载，预览走 no-store。需要时验证密码后下载，可选单次或时间窗口。</p></div></div>
             <div class="sx-list-row"><div class="sx-list-ico">${ic.audit}</div><div><h3>审计 · 全量留痕</h3><p>登录、上传、删除、令牌操作全程记录。管理员后台可查，谁在什么时候干了什么一目了然。</p></div></div>
           </div>
@@ -924,10 +923,6 @@ function renderLogin() {
             <label>密码</label>
             <input type="password" id="login-password" class="form-input" placeholder="输入密码" autocomplete="current-password">
           </div>
-          <div class="form-group" id="totp-group" style="display:none">
-            <label>双因子验证码</label>
-            <input type="text" id="login-totp" class="form-input" placeholder="6位数字">
-          </div>
           <button type="submit" class="btn btn-primary btn-block" id="login-btn">登录</button>
         </form>
         <div id="auth-links" class="login-links">
@@ -950,24 +945,19 @@ function renderLogin() {
     e.preventDefault();
     const username = document.getElementById('login-username').value;
     const password = document.getElementById('login-password').value;
-    const totp_code = document.getElementById('login-totp').value;
     const btn = document.getElementById('login-btn');
     btn.disabled = true;
     btn.textContent = '登录中...';
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, totp_code }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
       if (res.ok) {
         Toast.show('登录成功', 'success');
         App.init();
       } else {
-        if (data.detail && data.detail.includes('双因子')) {
-          document.getElementById('totp-group').style.display = 'block';
-          document.getElementById('login-totp').focus();
-        }
         Toast.show(data.detail || '登录失败', 'error');
       }
     } catch (err) {
@@ -5001,7 +4991,7 @@ async function renderSettings(initialTab) {
     } else if (tab === 'security') {
       content.innerHTML = `
         <div class="settings-panel-title">安全</div>
-        <div class="settings-panel-desc">设备令牌可单条或一键吊销；浏览器默认禁止下载（零痕迹），需要时开临时窗口；建议在公用设备上开启双因子验证。</div>
+        <div class="settings-panel-desc">设备令牌可单条或一键吊销；浏览器默认禁止下载（零痕迹），需要时开临时窗口。</div>
         <div class="settings-section">
           <div class="setting-head">
             <div class="setting-head-icon icon-neutral">${ICONS.shield}</div>
@@ -5058,13 +5048,6 @@ async function renderSettings(initialTab) {
         </div>
         <div class="settings-section">
           <div class="setting-head">
-            <div class="setting-head-icon icon-warning">${ICONS.shield}</div>
-            <div class="setting-head-text"><h3>双因子验证</h3><p class="section-desc">用 Google Authenticator 等验证器扫码绑定，开启后登录需额外输入验证码。</p></div>
-          </div>
-          <div class="setting-body" id="totp-content">加载中...</div>
-        </div>
-        <div class="settings-section">
-          <div class="setting-head">
             <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
             <div class="setting-head-text"><h3>修改密码</h3><p class="section-desc">修改后旧令牌与会话自动失效，需用新密码重新登录</p></div>
           </div>
@@ -5079,7 +5062,7 @@ async function renderSettings(initialTab) {
       document.getElementById('btn-create-token').addEventListener('click', createToken);
       document.getElementById('btn-revoke-all-tokens').addEventListener('click', revokeAllTokens);
       bindChangePassword();
-      loadTokens(); loadTOTP(); loadDownloadGrant();
+      loadTokens(); loadDownloadGrant();
     } else if (tab === 'account') {
       content.innerHTML = `
         <div class="settings-panel-title">账户</div>
@@ -5144,9 +5127,6 @@ async function loadAccountInfo() {
       ? '<span class="badge badge-success">正常</span>'
       : '<span class="badge badge-danger">已禁用</span>';
     const quotaText = me.quota_mb && me.quota_mb > 0 ? `${me.quota_mb} MB` : '不限';
-    const totpBadge = me.totp_enabled
-      ? '<span class="badge badge-success">已开启</span>'
-      : '<span class="badge badge-warning">未开启</span>';
     const roleText = escapeHtml(roleMap[me.role] || me.role); // 统一转义，与弹层保持一致
 
     // 先渲染主体（不阻塞），再异步填充存储用量
@@ -5164,7 +5144,6 @@ async function loadAccountInfo() {
           <div class="account-field"><span class="account-label">角色</span><span class="account-value">${roleText}</span></div>
           <div class="account-field"><span class="account-label">账户状态</span><span class="account-value">${statusBadge}</span></div>
           <div class="account-field"><span class="account-label">存储配额</span><span class="account-value">${quotaText}</span></div>
-          <div class="account-field"><span class="account-label">双因子验证</span><span class="account-value">${totpBadge}</span></div>
           <div class="account-field"><span class="account-label">最近登录</span><span class="account-value">${me.last_login_at ? formatDateTime(me.last_login_at) : '-'}</span></div>
           <div class="account-field"><span class="account-label">注册时间</span><span class="account-value">${me.created_at ? formatDateTime(me.created_at) : '-'}</span></div>
           <div class="account-field"><span class="account-label">已用空间</span><span class="account-value" id="acct-used">-</span></div>
@@ -5214,7 +5193,6 @@ async function loadLoginHistory() {
     login_failed: { cls: 'fail', text: '登录失败' },
     login_locked: { cls: 'fail', text: '登录锁定' },
     login_blocked: { cls: 'fail', text: '登录被拒（账号禁用）' },
-    login_totp_failed: { cls: 'fail', text: '二次验证失败' },
     login_new_device: { cls: 'warn', text: '新设备登录' },
     register: { cls: 'ok', text: '注册账号' },
     password_reset_success: { cls: 'warn', text: '重置密码成功' },
@@ -5649,86 +5627,6 @@ async function revokeOtherTokens() {
     Toast.show(data.message || '已退出其他设备', 'success');
     loadTokens();
   } catch { Toast.show('操作失败', 'error'); }
-}
-
-async function loadTOTP() {
-  const el = document.getElementById('totp-content');
-  if (!el) return;
-  const enabled = App.currentUser && App.currentUser.totp_enabled;
-  if (enabled) {
-    el.innerHTML = `
-      <div class="totp-status">
-        <span class="badge badge-success">已开启</span>
-        <p class="setting-empty" style="margin:0">登录时需要额外的动态验证码。关闭后立即生效。</p>
-      </div>
-      <button class="btn btn-danger" id="btn-disable-totp">关闭双因子验证</button>`;
-    document.getElementById('btn-disable-totp').addEventListener('click', disableTOTP);
-  } else {
-    el.innerHTML = `
-      <p class="setting-empty">使用 Google Authenticator 等 App 扫码绑定，开启后登录需额外验证。公用设备强烈建议开启。</p>
-      <button class="btn btn-primary" id="btn-setup-totp">设置双因子验证</button>`;
-    document.getElementById('btn-setup-totp').addEventListener('click', setupTOTP);
-  }
-}
-
-async function disableTOTP() {
-  if (!await confirmDialog({ title: '关闭双因子验证', message: '关闭后，登录将不再需要动态验证码，账户安全性会降低。确定关闭？', confirmText: '关闭', danger: true })) return;
-  try {
-    const res = await API.post('/api/auth/totp/disable');
-    if (!res.ok) { const d = await res.json(); Toast.show(d.detail || '关闭失败', 'error'); return; }
-    if (App.currentUser) App.currentUser.totp_enabled = false;
-    Toast.show('双因子验证已关闭', 'success');
-    loadTOTP();
-    loadAccountInfo();
-  } catch { Toast.show('网络错误', 'error'); }
-}
-
-async function setupTOTP() {
-  let data;
-  try {
-    const res = await API.get('/api/auth/totp/setup');
-    data = await res.json();
-  } catch { Toast.show('设置失败', 'error'); return; }
-  const { modal, close } = openModal({ width: 420 });
-  modal.innerHTML = `
-    <h3>设置双因子验证</h3>
-    <p class="confirm-message">用验证器 App（如 Google Authenticator）扫描以下二维码：</p>
-    <div style="text-align:center;margin:16px 0"><img src="${data.qr_code}" style="width:200px;height:200px" alt="QR"></div>
-    <p style="font-size:12px;color:var(--text-muted)">或手动输入：<code id="totp-secret"></code></p>
-    <div class="form-group" style="margin-top:16px">
-      <label>输入验证器显示的 6 位代码</label>
-      <input type="text" class="form-input" id="totp-verify-code" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" id="totp-cancel">取消</button>
-      <button class="btn btn-primary" id="btn-confirm-totp">确认绑定</button>
-    </div>`;
-  modal.querySelector('#totp-secret').textContent = data.secret;
-  const codeInput = modal.querySelector('#totp-verify-code');
-  const confirmBtn = modal.querySelector('#btn-confirm-totp');
-  const submit = async () => {
-    const code = codeInput.value.trim();
-    if (!code) { Toast.show('请输入验证码', 'error'); return; }
-    confirmBtn.disabled = true;
-    try {
-      const res = await API.post(`/api/auth/totp/enable?secret=${encodeURIComponent(data.secret)}&code=${encodeURIComponent(code)}`);
-      if (res.ok) {
-        if (App.currentUser) App.currentUser.totp_enabled = true;
-        Toast.show('双因子验证已开启', 'success');
-        close();
-        loadTOTP();
-        loadAccountInfo();
-      } else {
-        const d = await res.json();
-        Toast.show(d.detail || '验证码错误', 'error');
-      }
-    } catch { Toast.show('网络错误', 'error'); }
-    finally { if (modal.isConnected) confirmBtn.disabled = false; }
-  };
-  modal.querySelector('#totp-cancel').addEventListener('click', close);
-  confirmBtn.addEventListener('click', submit);
-  codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-  setTimeout(() => codeInput.focus(), 0);
 }
 
 async function rebuildIndex() {
