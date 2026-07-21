@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # 存储
     STORAGE_DIR: str = "/data/files"
     DATABASE_PATH: str = "/data/db.sqlite"
+    # 数据库 URL（终局支持 PostgreSQL+pgvector）。留空则用 SQLite（DATABASE_PATH）。
+    # 例：postgresql+psycopg://suixingdang:pw@localhost:5432/suixingdang
+    DATABASE_URL: str = ""
 
     # 嵌入：default=ChromaDB 内置 all-MiniLM-L6-v2（零配置）/ openai=OpenAI Embedding API
     # 注意：LLM 配置已迁移到数据库（管理后台「大模型配置」页面维护），不再从环境变量读取。
@@ -80,8 +83,11 @@ class Settings(BaseSettings):
         return p
 
     @property
-    def database_url(self) -> str:
-        return f"sqlite+aiosqlite:///{self.DATABASE_PATH}"
+    def sql_database_url(self) -> str:
+        """SQLAlchemy 数据库 URL。DATABASE_URL 优先（PostgreSQL），否则 SQLite。"""
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+        return f"sqlite:///{self.DATABASE_PATH}"
 
     @property
     def jwt_secret(self) -> str:

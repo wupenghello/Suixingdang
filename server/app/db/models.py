@@ -1,10 +1,9 @@
 """数据库模型与表结构定义（多账户版）。"""
 
 import uuid
-import sqlite3
 import threading
 from datetime import datetime, timedelta
-from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, ForeignKey, create_engine, event, or_
+from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, ForeignKey, JSON, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from pathlib import Path
 
@@ -209,16 +208,20 @@ class MaskMapping(Base):
 
 
 # ---- 引擎 ----
-engine = create_engine(
-    f"sqlite:///{settings.DATABASE_PATH}",
-    connect_args={"check_same_thread": False},
-)
+# SQLite 默认（自托管零配置）；DATABASE_URL 指向 PostgreSQL 时切换方言
+# （终局形态：Postgres+pgvector，见 docs/plans/refactor-tobe.md §6.6）。
+_engine_kwargs = {}
+if settings.sql_database_url.startswith("sqlite"):
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+engine = create_engine(settings.sql_database_url, **_engine_kwargs)
 
 
 @event.listens_for(engine, "connect")
 def _set_sqlite_pragmas(dbapi_conn, conn_record):
     """WAL + synchronous=NORMAL：大幅降低每次 COMMIT 的 fsync 开销，且无损坏风险
-   （仅在断电时可能丢失最后一个未 checkpoint 的事务）。对聊天限流等高频写入路径尤其受益。"""
+   （仅在断电时可能丢失最后一个未 checkpoint 的事务）。仅 SQLite 生效。"""
+    if not settings.sql_database_url.startswith("sqlite"):
+        return
     cur = dbapi_conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL")
     cur.execute("PRAGMA synchronous=NORMAL")
@@ -228,184 +231,87 @@ def _set_sqlite_pragmas(dbapi_conn, conn_record):
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
-def get_setting(db, key, default=""):
-    s = db.query(SystemSetting).filter_by(key=key).first()
-    return s.value if s else default
+class Job(Base):
+    """异步任务队列条目（任务表 + SKIP LOCKED 领取，零额外基建）。
 
-
-def set_setting(db, key, value):
-    s = db.query(SystemSetting).filter_by(key=key).first()
-    if s:
-        s.value = str(value)
-        s.updated_at = datetime.utcnow()
-    else:
-        db.add(SystemSetting(key=key, value=str(value)))
-    db.commit()
-    _setting_cache.pop(key, None)  # 使缓存失效，使运行时调整立即生效
-
-
-# ---- 策略缓存（带 TTL，避免每请求查 SystemSetting）----
-# set_setting 写入时自动失效对应 key，确保管理员后台调整立即生效。
-_setting_cache = {}
-_SETTING_CACHE_TTL = 30
-
-
-def get_cached_setting(db, key, default=""):
-    """读 SystemSetting（带 30s 缓存）；set_setting 写入时自动失效。"""
-    import time as _time
-    now = _time.time()
-    hit = _setting_cache.get(key)
-    if hit and now - hit[1] < _SETTING_CACHE_TTL:
-        return hit[0]
-    val = get_setting(db, key, default)
-    _setting_cache[key] = (val, now)
-    return val
-
-# ---- 回收站 ----
-DEFAULT_TRASH_RETENTION_DAYS = 7
-DEFAULT_TRASH_LOCK_LIMIT = 200     # 单用户锁存文件数量上限（防借锁存规避自动清理）
-
-
-def get_trash_retention_days(db) -> int:
-    """回收站保留天数：从 system_settings 读，默认 7，钳制 1..90。"""
-    raw = get_cached_setting(db, "trash_retention_days", str(DEFAULT_TRASH_RETENTION_DAYS))
-    try:
-        v = int(raw)
-    except (ValueError, TypeError):
-        return DEFAULT_TRASH_RETENTION_DAYS
-    return max(1, min(90, v))
-
-
-# ---- 登录限流（DB 共享，跨 worker 生效；按 key 前缀隔离 login/admin/reset）----
-
-LOGIN_LIMIT_WINDOW = 15 * 60        # 失败计数窗口（秒）
-LOGIN_LIMIT_MAX_FAILURES = 5        # 窗口内失败上限
-LOGIN_LIMIT_LOCK_SECONDS = 15 * 60  # 锁定时长（秒）
-
-# 进程内串行化限流的 read-modify-write，避免并发请求同时读到旧计数而漏计。
-# 多进程（多 worker）仍由 SQLite 写锁兜底，残余竞争只导致少量放行，非硬性绕过。
-# 登录限流与下方通用请求限流共用同一把锁（同表同结构，串行化互不影响语义）。
-_rate_limit_lock = threading.Lock()
-
-
-def login_limiter_check(db, key: str) -> int:
-    """返回剩余锁定秒数；未锁定返回 0。过期锁自动清零。"""
-    with _rate_limit_lock:
-        row = db.query(LoginAttempt).filter_by(key=key).first()
-        if not row or not row.locked_until:
-            return 0
-        now = datetime.utcnow()
-        if row.locked_until > now:
-            return int((row.locked_until - now).total_seconds()) + 1
-        row.locked_until = None
-        row.fail_count = 0
-        row.first_fail_at = None
-        db.commit()
-        return 0
-
-
-def login_limiter_record(db, key: str):
-    """记录一次失败，达到阈值则锁定；顺带清理陈旧记录防表膨胀。"""
-    with _rate_limit_lock:
-        now = datetime.utcnow()
-        row = db.query(LoginAttempt).filter_by(key=key).first()
-        if row:
-            if row.first_fail_at and (now - row.first_fail_at).total_seconds() > LOGIN_LIMIT_WINDOW:
-                row.fail_count = 0
-                row.first_fail_at = now
-            if not row.first_fail_at:
-                row.first_fail_at = now
-            row.fail_count = (row.fail_count or 0) + 1
-        else:
-            row = LoginAttempt(key=key, fail_count=1, first_fail_at=now)
-            db.add(row)
-        if row.fail_count >= LOGIN_LIMIT_MAX_FAILURES:
-            row.locked_until = now + timedelta(seconds=LOGIN_LIMIT_LOCK_SECONDS)
-        db.commit()
-        # 机会性清理：删除无锁且超出窗口两倍的陈旧记录
-        cutoff = now - timedelta(seconds=LOGIN_LIMIT_WINDOW * 2)
-        db.query(LoginAttempt).filter(
-            LoginAttempt.locked_until.is_(None),
-            or_(LoginAttempt.first_fail_at.is_(None), LoginAttempt.first_fail_at < cutoff),
-        ).delete(synchronize_session=False)
-        db.commit()
-
-
-def login_limiter_reset(db, key: str):
-    """成功后清零计数。"""
-    with _rate_limit_lock:
-        row = db.query(LoginAttempt).filter_by(key=key).first()
-        if row:
-            row.fail_count = 0
-            row.first_fail_at = None
-            row.locked_until = None
-            db.commit()
-
-
-# ---- 通用请求限流（复用 login_attempts 表，按 user_id 限流聊天等接口）----
-# 与登录限流共用 LoginAttempt 表的 key->计数->锁定 结构；用独立 key 前缀隔离。
-# 注意：对这些 key 而言，fail_count 语义为「请求计数」，仅在该命名空间内成立。
-
-CHAT_RATE_LIMIT_WINDOW = 60        # 计数窗口（秒）
-CHAT_RATE_LIMIT_MAX = 20           # 窗口内每用户最大请求数
-CHAT_RATE_LIMIT_LOCK_SECONDS = 60  # 超限后锁定时长（秒）
-
-
-def rate_limit_acquire(db, key: str,
-                       max_requests: int = CHAT_RATE_LIMIT_MAX,
-                       window: int = CHAT_RATE_LIMIT_WINDOW,
-                       lock_seconds: int = CHAT_RATE_LIMIT_LOCK_SECONDS) -> int:
-    """尝试获取一次请求配额。返回 0 表示放行；>0 表示剩余锁定秒数（应回 429）。
-
-    固定窗口计数：窗口内累计 max_requests 次放行，第 max_requests+1 次起锁定 lock_seconds 秒。
+    kind 约定：reindex_file / purge_trash / rebuild_user_index 等。
+    worker 以 FOR UPDATE SKIP LOCKED（PG）或 BEGIN IMMEDIATE（SQLite）领取。
     """
-    now = datetime.utcnow()
-    with _rate_limit_lock:
-        row = db.query(LoginAttempt).filter_by(key=key).first()
+    __tablename__ = "jobs"
 
-        # 仍在锁定期 -> 拒绝（只读，不写）
-        if row and row.locked_until and row.locked_until > now:
-            return int((row.locked_until - now).total_seconds()) + 1
+    id = Column(String, primary_key=True, default=_uuid)
+    kind = Column(String, nullable=False, index=True)
+    payload = Column(JSON, default=dict)
+    status = Column(String, default="pending", index=True)   # pending/running/done/failed
+    attempts = Column(Integer, default=0)
+    max_attempts = Column(Integer, default=3)
+    run_after = Column(DateTime, default=datetime.utcnow, index=True)
+    locked_at = Column(DateTime, nullable=True)
+    locked_by = Column(String, nullable=True)
+    result = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-        # 锁已过期 -> 清零，开新窗口
-        if row and row.locked_until:
-            row.locked_until = None
-            row.fail_count = 0
-            row.first_fail_at = None
 
-        # 是否在计数窗口内（first_fail_at 缺失/过期都视为新窗口）
-        in_window = bool(row and row.first_fail_at
-                         and (now - row.first_fail_at).total_seconds() <= window)
-        if in_window:
-            count = (row.fail_count or 0) + 1
-            first_at = row.first_fail_at
-        else:
-            count = 1
-            first_at = now
-
-        if row:
-            row.fail_count = count
-            row.first_fail_at = first_at
-        else:
-            row = LoginAttempt(key=key, fail_count=count, first_fail_at=first_at)
-            db.add(row)
-
-        locked = count > max_requests
-        if locked:
-            row.locked_until = now + timedelta(seconds=lock_seconds)
-        db.commit()
-        return lock_seconds if locked else 0
+# ---- 兼容再导出：限流器与设置存储已迁至 core/rate_limit.py、core/settings_store.py ----
+# 旧调用点（auth/files/admin/chat/tools）仍从 db.models 导入，过渡期保持可用。
+from ..core.settings_store import (  # noqa: E402,F401
+    get_setting, set_setting, get_cached_setting,
+    DEFAULT_TRASH_RETENTION_DAYS, DEFAULT_TRASH_LOCK_LIMIT, get_trash_retention_days,
+)
+from ..core.rate_limit import (  # noqa: E402,F401
+    LOGIN_LIMIT_WINDOW, LOGIN_LIMIT_MAX_FAILURES, LOGIN_LIMIT_LOCK_SECONDS,
+    login_limiter_check, login_limiter_record, login_limiter_reset,
+    CHAT_RATE_LIMIT_WINDOW, CHAT_RATE_LIMIT_MAX, CHAT_RATE_LIMIT_LOCK_SECONDS,
+    rate_limit_acquire,
+)
 
 
 def init_db():
     from ..config import validate_runtime_secrets
     validate_runtime_secrets()
-    Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(bind=engine)
-    _migrate_columns()
+    if settings.sql_database_url.startswith("sqlite"):
+        Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
+    run_migrations()
     _seed_admin()
     _migrate_llm_from_env()
     _migrate_fernet_keys()
+
+
+def run_migrations():
+    """Alembic 升级到 head（取代手写 _migrate_columns 的 try/except:pass 迁移）。
+
+    遗留库（有业务表但无 alembic_version）自动 stamp head 再升级，
+    存量部署无需手工介入。
+    """
+    from alembic.config import Config as AlembicConfig
+    from alembic import command
+    server_dir = Path(__file__).resolve().parents[2]
+    cfg = AlembicConfig(str(server_dir / "alembic.ini"))
+    cfg.set_main_option("script_location", str(server_dir / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", settings.sql_database_url)
+    _stamp_legacy_sqlite_if_needed(cfg)
+    command.upgrade(cfg, "head")
+
+
+def _stamp_legacy_sqlite_if_needed(cfg):
+    """SQLite 库已有业务表但无 alembic_version → 视为遗留部署，先 stamp head。"""
+    if not settings.sql_database_url.startswith("sqlite"):
+        return
+    import sqlite3
+    from alembic import command
+    db_path = settings.DATABASE_PATH
+    if not Path(db_path).exists():
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        conn.close()
+    if tables and "users" in tables and "alembic_version" not in tables:
+        command.stamp(cfg, "head")
 
 
 def _migrate_fernet_keys(db=None):
@@ -447,112 +353,6 @@ def _migrate_fernet_keys(db=None):
     finally:
         if owns_session:
             db.close()
-
-
-def _migrate_columns():
-    """SQLite ALTER TABLE: 为已有表添加新列（create_all 不会自动加列）。"""
-    if not Path(settings.DATABASE_PATH).exists():
-        return
-    conn = sqlite3.connect(settings.DATABASE_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("PRAGMA table_info(users)")
-    cols = [r[1] for r in cursor.fetchall()]
-    additions = {
-        "security_question": 'TEXT DEFAULT ""',
-        "security_answer": 'TEXT DEFAULT ""',
-        "last_login_at": "DATETIME",
-        "ai_enabled": "BOOLEAN DEFAULT 1",
-        "llm_provider_id": "TEXT",
-        "password_version": "INTEGER DEFAULT 1",
-        "password_changed_at": "DATETIME",
-        "prefs": 'TEXT DEFAULT "{}"',
-    }
-    for col, coltype in additions.items():
-        if col not in cols:
-            try:
-                cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {coltype}")
-            except Exception:
-                pass
-
-    # access_tokens 表新增 kind / download_granted_until 列
-    cursor.execute("PRAGMA table_info(access_tokens)")
-    tcols = [r[1] for r in cursor.fetchall()]
-    if "kind" not in tcols:
-        try:
-            cursor.execute('ALTER TABLE access_tokens ADD COLUMN kind TEXT DEFAULT "device"')
-        except Exception:
-            pass
-    if "download_granted_until" not in tcols:
-        try:
-            cursor.execute('ALTER TABLE access_tokens ADD COLUMN download_granted_until DATETIME')
-        except Exception:
-            pass
-    if "single_download_path" not in tcols:
-        try:
-            cursor.execute('ALTER TABLE access_tokens ADD COLUMN single_download_path TEXT DEFAULT ""')
-        except Exception:
-            pass
-    if "download_granted_at" not in tcols:
-        try:
-            cursor.execute('ALTER TABLE access_tokens ADD COLUMN download_granted_at DATETIME')
-        except Exception:
-            pass
-    if "device_fingerprint" not in tcols:
-        try:
-            cursor.execute('ALTER TABLE access_tokens ADD COLUMN device_fingerprint TEXT DEFAULT ""')
-            try:
-                cursor.execute('CREATE INDEX IF NOT EXISTS ix_access_tokens_device_fingerprint ON access_tokens (device_fingerprint)')
-            except Exception:
-                pass
-        except Exception:
-            pass
-    for col in ("ip", "geo"):
-        if col not in tcols:
-            try:
-                cursor.execute(f'ALTER TABLE access_tokens ADD COLUMN {col} TEXT DEFAULT ""')
-            except Exception:
-                pass
-
-  # files 表新增 group_id 列（关联 file_groups）
-    cursor.execute("PRAGMA table_info(files)")
-    fcols = [r[1] for r in cursor.fetchall()]
-    if "group_id" not in fcols:
-        try:
-            cursor.execute('ALTER TABLE files ADD COLUMN group_id TEXT DEFAULT NULL')
-            try:
-                cursor.execute('CREATE INDEX IF NOT EXISTS ix_files_group_id ON files (group_id)')
-            except Exception:
-                pass
-        except Exception:
-            pass
-    # files 表新增 tags / pinned / summary / ai_tags 列（笔记增强）
-    for _col, _coltype in [
-        ("tags", 'TEXT DEFAULT "[]"'),
-        ("pinned", "BOOLEAN DEFAULT 0"),
-        ("summary", 'TEXT DEFAULT ""'),
-        ("ai_tags", 'TEXT DEFAULT "[]"'),
-        ("deleted_at", "DATETIME"),
-        ("locked_at", "DATETIME"),
-        ("original_dir", 'TEXT DEFAULT ""'),
-    ]:
-        if _col not in fcols:
-            try:
-                cursor.execute(f"ALTER TABLE files ADD COLUMN {_col} {_coltype}")
-            except Exception:
-                pass
-    # 回收站查询需要 deleted_at 索引（单独加，因上述循环内 CREATE INDEX 语法不同）
-    try:
-        cursor.execute('CREATE INDEX IF NOT EXISTS ix_files_deleted_at ON files (deleted_at)')
-    except Exception:
-        pass
-    # 锁存文件独立索引（用于 purge 时快速跳过）
-    try:
-        cursor.execute('CREATE INDEX IF NOT EXISTS ix_files_locked_at ON files (locked_at)')
-    except Exception:
-        pass
-    conn.commit()
-    conn.close()
 
 
 def _seed_admin():

@@ -11,11 +11,15 @@ from .config import settings
 from .db.models import init_db
 from .core.storage import ensure_storage
 from .core.sensitive_paths import is_sensitive_path
+from .core.errors import install_exception_handlers
+from .core.logging import setup_logging
 from .api import auth, files, chat, sync, admin, transfer
+from .api import v1 as v1_api
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
     Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
     ensure_storage()
     init_db()
@@ -29,31 +33,16 @@ async def lifespan(app: FastAPI):
 
 
 def _trash_purge_on_startup():
-    """启动时清理过期的回收站文件（一次性兜底，避免长期未触发清理导致磁盘堆积）。"""
+    """启动时清理过期的回收站文件（一次性兜底，避免长期未触发清理导致磁盘堆积）。
+
+    实现收敛至 services/trash.py（原此处与 files.py/admin.py 各有一份拷贝）。
+    """
     try:
-        from .db.models import SessionLocal, get_trash_retention_days, File as FileModel
-        from .core import storage, indexer
-        from datetime import datetime, timedelta
+        from .db.models import SessionLocal
+        from .services import trash as trash_service
         db = SessionLocal()
         try:
-            retention_days = get_trash_retention_days(db)
-            cutoff = datetime.utcnow() - timedelta(days=retention_days)
-            expired = db.query(FileModel).filter(
-                FileModel.deleted_at.isnot(None), FileModel.deleted_at <= cutoff,
-                FileModel.locked_at.is_(None),
-            ).all()
-            purged = 0
-            for f in expired:
-                storage.delete_file(f.owner_id, f.path)
-                try:
-                    indexer.remove_from_index(f.owner_id, f.path)
-                except Exception:
-                    pass
-                db.delete(f)
-                purged += 1
-            if purged:
-                db.commit()
-                print(f"[Suixingdang] 启动清理回收站过期文件 {purged} 个（保留期 {retention_days} 天）")
+            trash_service.purge_expired(db, user_id=None, write_access_log=False)
         finally:
             db.close()
     except Exception as e:
@@ -78,13 +67,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(files.router)
-app.include_router(chat.router)
-app.include_router(sync.router)
+app.include_router(auth.router, prefix="/api")
+app.include_router(files.router, prefix="/api")
+app.include_router(chat.router, prefix="/api")
+app.include_router(sync.router, prefix="/api")
 # admin 路由与前端（/admin）也挂载于此实例，生产环境统一入口
-app.include_router(admin.router)
-app.include_router(transfer.router)
+app.include_router(admin.router, prefix="/api")
+app.include_router(transfer.router, prefix="/api")
+# v1 契约层：类型化新端点 + 既有路由兼容挂载（前端 S3 统一消费 /api/v1）
+app.include_router(v1_api.router)
+# 统一错误体：AppError → {code,message,detail}；/api/v1 下的 HTTPException 同构
+install_exception_handlers(app)
 
 
 @app.get("/api/health")

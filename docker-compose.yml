@@ -18,6 +18,54 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  worker:
+    # 后台任务 worker（jobs 表驱动：回收站清理、索引重建等）。与 server 同镜像。
+    image: ghcr.io/wupenghello/suixingdang:latest
+    build: ./server
+    container_name: suixingdang-worker
+    restart: unless-stopped
+    env_file: .env
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - ${DATA_DIR:-/data/suixingdang}:/data
+    depends_on:
+      - server
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  db:
+    # 终局数据库（PostgreSQL + pgvector）。默认不启动（profiles: pg）；
+    # 启用方式：.env 设置 DATABASE_URL=postgresql+psycopg://suixingdang:suixingdang@db:5432/suixingdang
+    # 然后 `docker compose --profile pg up -d`。SQLite 仍是零配置默认。
+    image: pgvector/pgvector:pg16
+    container_name: suixingdang-db
+    restart: unless-stopped
+    profiles: ["pg"]
+    environment:
+      POSTGRES_USER: suixingdang
+      POSTGRES_PASSWORD: suixingdang
+      POSTGRES_DB: suixingdang
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U suixingdang"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   caddy:
     image: caddy:2-alpine
@@ -36,7 +84,13 @@ services:
       - caddy_config:/config
     depends_on:
       - server
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 volumes:
   caddy_data:
   caddy_config:
+  pg_data:

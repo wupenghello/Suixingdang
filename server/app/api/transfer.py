@@ -3,30 +3,22 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FAFile, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from pydantic import BaseModel
 
 from ..db.models import (
     TransferMessage, File as FileModel, User, SyncEvent, AccessLog, get_db,
 )
 from ..core import storage, indexer, guard
+from ..services.ingest import ingest_file, IngestError
 from .auth import get_current_user
 
 from ..core import mask as M
 
-router = APIRouter(prefix="/api/transfer", tags=["transfer"])
+router = APIRouter(prefix="/transfer", tags=["transfer"])
 
 
 class TextRequest(BaseModel):
     content: str
-
-
-def _check_quota(db: Session, user: User, file_size: int):
-    if user.quota_mb <= 0:
-        return
-    used = db.query(func.sum(FileModel.size)).filter(FileModel.owner_id == user.id).scalar() or 0
-    if used + file_size > user.quota_mb * 1024 * 1024:
-        raise HTTPException(413, f"存储空间不足（配额 {user.quota_mb}MB）")
 
 
 def _serialize(db: Session, msg: TransferMessage) -> dict:
@@ -81,77 +73,26 @@ async def send_file(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    """传输助手文件入库。走统一入库管道（services/ingest.py）——
+    修复：原实现的配额把回收站文件计入已用空间、去重不排除软删文件。
+    """
     rel_path = file.filename or "未命名文件"
-
-    # Guard - 文件名
-    status, reason = guard.check_filename(rel_path)
-    if status == "blocked":
-        raise HTTPException(403, f"Guard 拦截: {reason}")
-
-    # 配额预估
-    _check_quota(db, user, 0)
-
-    meta = storage.save_fileobj(user.id, rel_path, file.file, source="transfer")
-
-    # 配额精确检查（失败时清理已落盘的文件）
     try:
-        _check_quota(db, user, meta["size"])
-    except HTTPException:
-        storage.delete_file(user.id, rel_path)
-        raise
-
-    # 自动去重（DB 查询）
-    dup = db.query(FileModel).filter(
-        FileModel.owner_id == user.id,
-        FileModel.content_hash == meta["content_hash"],
-        FileModel.path != meta["path"],
-    ).first()
-    if dup:
-        storage.delete_file(user.id, rel_path)
-        raise HTTPException(409, f"文件内容已存在（重复）: {dup.path}")
-
-    # Guard - 内容
-    c_status, c_reason = guard.check_content(user.id, rel_path, direction="upload")
-    if c_status == "blocked":
-        storage.delete_file(user.id, rel_path)
-        raise HTTPException(403, f"Guard 拦截: {c_reason}")
-
-    final_status = c_status if c_status != "safe" else status
-    final_reason = c_reason if c_reason else reason
-    existing = db.query(FileModel).filter_by(owner_id=user.id, path=meta["path"]).first()
-    if existing:
-        existing.size = meta["size"]
-        existing.content_hash = meta["content_hash"]
-        existing.modified_at = datetime.utcnow()
-        existing.guard_status = final_status
-        existing.guard_reason = final_reason
-        f = existing
-    else:
-        f = FileModel(
-            owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
-            content_hash=meta["content_hash"], mime_type=meta["mime_type"],
-            source="transfer", guard_status=final_status, guard_reason=final_reason,
+        outcome = ingest_file(
+            db, user, rel_path, fileobj=file.file, source="transfer",
+            access_action="transfer_file",
         )
-        db.add(f)
-    db.commit()
-    db.refresh(f)
-
-    # 索引
-    try:
-        indexer.index_file(user.id, f.id, rel_path)
-    except Exception:
-        pass
+    except IngestError as e:
+        raise HTTPException(e.status, e.message, headers=e.headers or None)
 
     # 传输助手时间线记录
-    msg = TransferMessage(user_id=user.id, type="file", file_id=f.id)
+    msg = TransferMessage(user_id=user.id, type="file", file_id=outcome.file.id)
     db.add(msg)
-    db.add(SyncEvent(user_id=user.id, file_id=f.id, file_name=rel_path, direction="upload", status="completed"))
-    db.add(AccessLog(user_id=user.id, action="transfer_file", detail=rel_path))
     db.commit()
     db.refresh(msg)
 
     result = _serialize(db, msg)
-    result["guard_warning"] = final_status == "warning"
+    result["guard_warning"] = outcome.guard_status == "warning"
     return M.mask_transfer_messages([result], user.id)[0]
 
 
