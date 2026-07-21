@@ -21,8 +21,8 @@ class Config:
     SYNC_MODE = os.getenv("SYNC_MODE", "two_way")
     # 轮询间隔（秒），用于全量比对
     POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "300"))
-    # 索引数据库（记录本地文件状态）
-    STATE_DB = os.getenv("STATE_DB", str(Path.home() / ".suixingdang" / "state.json"))
+    # 索引数据库（v2：SQLite 状态库，记录本地文件状态与待办重试操作）
+    STATE_DB = os.getenv("STATE_DB", str(Path.home() / ".suixingdang" / "state.sqlite"))
     # 熔断：远端已跟踪文件消失比例超过该阈值时中止本轮同步（防 manifest 异常导致全量误删）
     DELETE_ABORT_THRESHOLD = float(os.getenv("DELETE_ABORT_THRESHOLD", "0.5"))
     # FORCE_SYNC=1 时绕过熔断（确认远端确实清空时使用）
