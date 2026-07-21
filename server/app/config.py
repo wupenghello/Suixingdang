@@ -6,16 +6,18 @@ from pathlib import Path
 
 
 class Settings(BaseSettings):
-    # 运行环境：dev（默认，放行弱密钥校验）/ production（强制强密钥，禁用文档）
+    # 运行环境：历史字段，保留以兼容既有 .env。密钥校验不再受其门控——
+    # validate_runtime_secrets() 在任何环境都拒绝默认/空密钥，
+    # ALLOW_INSECURE_SECRETS 是唯一显式逃生开关。
     ENV: str = "dev"
     # 服务器
     DOMAIN: str = "localhost"
-    # 兼容字段：未单独配置 JWT_SECRET / DATA_ENCRYPTION_KEY 时回退到此值。
-    # 生产部署应分别设置 JWT_SECRET 与 DATA_ENCRYPTION_KEY，使签名密钥与
-    # 加密密钥相互独立，避免一钥泄露同时击穿认证与静态数据加密。
+    # 基础密钥。JWT_SECRET / DATA_ENCRYPTION_KEY 未配置且未开 ALLOW_INSECURE_SECRETS
+    # 时不再静默回退到此值——一钥泄露不得同时击穿认证与静态数据加密。
     SECRET_KEY: str = "dev-secret-change-me"
 
-    # 独立密钥：JWT 签名 / 静态数据加密（Fernet 派生）。为空则回退 SECRET_KEY。
+    # 独立密钥（必填）：JWT 签名 / 静态数据加密（Fernet 派生）。
+    # 仅 ALLOW_INSECURE_SECRETS=true（本地开发）时才允许回退 SECRET_KEY。
     JWT_SECRET: str = ""
     DATA_ENCRYPTION_KEY: str = ""
 
@@ -83,13 +85,27 @@ class Settings(BaseSettings):
 
     @property
     def jwt_secret(self) -> str:
-        """JWT 签名密钥；未单独配置则回退 SECRET_KEY。"""
-        return self.JWT_SECRET or self.SECRET_KEY
+        """JWT 签名密钥。必须独立配置；仅 ALLOW_INSECURE_SECRETS 时回退 SECRET_KEY（本地开发）。"""
+        if self.JWT_SECRET:
+            return self.JWT_SECRET
+        if self.ALLOW_INSECURE_SECRETS:
+            return self.SECRET_KEY
+        raise RuntimeError(
+            "[Suixingdang] 未配置 JWT_SECRET。请在 .env 设置独立强随机值"
+            "（openssl rand -hex 32）；本地开发可置 ALLOW_INSECURE_SECRETS=true 回退 SECRET_KEY。"
+        )
 
     @property
     def data_encryption_key(self) -> str:
-        """静态数据加密主密钥（Fernet 派生用）；未单独配置则回退 SECRET_KEY。"""
-        return self.DATA_ENCRYPTION_KEY or self.SECRET_KEY
+        """静态数据加密主密钥（Fernet 派生用）。必须独立配置；仅 ALLOW_INSECURE_SECRETS 时回退 SECRET_KEY。"""
+        if self.DATA_ENCRYPTION_KEY:
+            return self.DATA_ENCRYPTION_KEY
+        if self.ALLOW_INSECURE_SECRETS:
+            return self.SECRET_KEY
+        raise RuntimeError(
+            "[Suixingdang] 未配置 DATA_ENCRYPTION_KEY。请在 .env 设置独立强随机值"
+            "（openssl rand -hex 32）；本地开发可置 ALLOW_INSECURE_SECRETS=true 回退 SECRET_KEY。"
+        )
 
     @property
     def cors_origins_list(self) -> list:
@@ -142,23 +158,27 @@ settings = Settings()
 
 
 def validate_runtime_secrets():
-    """启动时校验密钥：production 环境拒绝默认/空密钥，避免 JWT 可伪造。
+    """启动时校验密钥：任何环境都拒绝默认/空密钥（fail-fast）。
 
-    dev 环境（默认）直接放行，不影响本地开发与测试。
+    历史上仅在 ENV=production 时校验，导致手工部署忘写 ENV 时全量放行弱密钥。
+    现校验恒生效；ALLOW_INSECURE_SECRETS=true 是唯一显式逃生开关（会打印告警）。
     """
-    if settings.ENV != "production":
-        return
     problems = []
     if settings.SECRET_KEY in ("", "dev-secret-change-me"):
         problems.append("SECRET_KEY 仍为默认值或为空")
     if settings.ADMIN_PASSWORD in ("", "admin"):
         problems.append("ADMIN_PASSWORD 为默认值")
+    if not settings.JWT_SECRET:
+        problems.append("JWT_SECRET 未配置（须独立于 SECRET_KEY）")
+    if not settings.DATA_ENCRYPTION_KEY:
+        problems.append("DATA_ENCRYPTION_KEY 未配置（须独立于 SECRET_KEY）")
     if problems and not settings.ALLOW_INSECURE_SECRETS:
         raise RuntimeError(
-            "[Suixingdang] 生产环境密钥校验失败：\n  - "
+            "[Suixingdang] 密钥校验失败：\n  - "
             + "\n  - ".join(problems)
-            + "\n请在 .env 中用 openssl rand -hex 32 设置强随机值；"
-            "调试时可显式置 ALLOW_INSECURE_SECRETS=true 临时放行。"
+            + "\n请在 .env 中用 openssl rand -hex 32 为 SECRET_KEY / JWT_SECRET / "
+            "DATA_ENCRYPTION_KEY 分别设置强随机值；"
+            "本地开发调试可显式置 ALLOW_INSECURE_SECRETS=true 临时放行。"
         )
     if problems:
         print(f"[Suixingdang] ⚠️ 跳过密钥校验（ALLOW_INSECURE_SECRETS=true）：{problems}")

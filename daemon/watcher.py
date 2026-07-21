@@ -1,6 +1,7 @@
 """守护进程主程序：watchdog 监听文件夹 + 定时全量同步。"""
 
 import asyncio
+import threading
 import time
 import signal
 import sys
@@ -99,6 +100,13 @@ def main():
         print("=" * 50)
         sys.exit(1)
 
+    if config.SERVER_URL.startswith("http://") and not config.ALLOW_HTTP:
+        print("=" * 50)
+        print("错误: SERVER_URL 使用明文 http，设备令牌将明文传输。")
+        print("请改用 https；如确需在可信内网使用 http，显式设置 ALLOW_HTTP=1。")
+        print("=" * 50)
+        sys.exit(1)
+
     print("=" * 50)
     print("随行档 - 家里守护进程")
     print(f"  服务器: {config.SERVER_URL}")
@@ -135,5 +143,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import threading
     main()

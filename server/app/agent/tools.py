@@ -22,7 +22,7 @@ def _call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1024, user
     from ..core.llm_service import get_llm_config
     cfg = get_llm_config(user_id)
     from openai import OpenAI
-    client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
+    client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url, timeout=60.0, max_retries=0)
     resp = client.chat.completions.create(
         model=cfg.model,
         messages=[

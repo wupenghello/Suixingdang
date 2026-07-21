@@ -57,10 +57,14 @@ def _get_llm(user_id: str):
 
     单次调用只解析一次配置（避免重复打开 DB 会话 / 解密，并消除配置在两次
     读取之间被改动导致 client 与 model 不一致的时间窗）。
+
+    超时与重试策略：timeout=60s + max_retries=0，防上游挂起把请求/SSE 连接
+    钉住数十分钟（SDK 默认 ~600s 超时 + 2 次自动重试）。重试/回退由上层
+    （chat 循环与前端取消）负责，客户端层不叠加。
     """
     from ..core.llm_service import get_llm_config
     cfg = get_llm_config(user_id)
-    return OpenAI(api_key=cfg.api_key, base_url=cfg.base_url), cfg.model
+    return OpenAI(api_key=cfg.api_key, base_url=cfg.base_url, timeout=60.0, max_retries=0), cfg.model
 
 
 def chat(user_id: str, user_message: str, history: Optional[list] = None) -> dict:
@@ -90,7 +94,20 @@ def chat(user_id: str, user_message: str, history: Optional[list] = None) -> dic
 
         for tc in msg.tool_calls:
             fn_name = tc.function.name
-            fn_args = json.loads(tc.function.arguments or "{}")
+            # 参数解析必须在 try 内：模型吐出坏 JSON 不能作为 tool result 回喂时，
+            # 原来会让 JSONDecodeError 冒泡成 HTTP 500 / 断流
+            try:
+                fn_args = json.loads(tc.function.arguments or "{}")
+                if not isinstance(fn_args, dict):
+                    raise ValueError("工具参数必须是 JSON 对象")
+            except (json.JSONDecodeError, ValueError):
+                logger.warning("tool %s args parse failed for user %s: %r",
+                               fn_name, user_id, (tc.function.arguments or "")[:200])
+                err = json.dumps({"error": "工具参数解析失败，请检查参数格式后重试"}, ensure_ascii=False)
+                tool_call_log.append({"tool": fn_name, "args": {}, "result": err[:500]})
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": err})
+                continue
+
             fn_args["user_id"] = user_id  # 注入用户隔离
 
             tool_call_log.append({"tool": fn_name, "args": fn_args})
@@ -99,9 +116,11 @@ def chat(user_id: str, user_message: str, history: Optional[list] = None) -> dic
             if fn:
                 try:
                     result = fn(**fn_args)
-                except Exception:
+                except Exception as e:
+                    # 真实异常细节只进服务端日志；回给模型的是异常类名（不含路径/
+                    # 内部信息），让它能据此调整策略而不是看到无信息的"执行失败"
                     logger.exception("tool %s failed for user %s", fn_name, user_id)
-                    result = json.dumps({"error": "工具执行失败"}, ensure_ascii=False)
+                    result = json.dumps({"error": f"工具执行出错: {type(e).__name__}"}, ensure_ascii=False)
             else:
                 result = json.dumps({"error": f"未知工具: {fn_name}"}, ensure_ascii=False)
 
@@ -146,7 +165,20 @@ def chat_stream(user_id: str, user_message: str, history: Optional[list] = None)
             messages.append(msg)
             for tc in msg.tool_calls:
                 fn_name = tc.function.name
-                fn_args = _json.loads(tc.function.arguments or "{}")
+                # 参数解析必须在 try 内（同 chat()：坏 JSON 不能炸断 SSE 流）
+                try:
+                    fn_args = _json.loads(tc.function.arguments or "{}")
+                    if not isinstance(fn_args, dict):
+                        raise ValueError("工具参数必须是 JSON 对象")
+                except (_json.JSONDecodeError, ValueError):
+                    logger.warning("tool %s args parse failed for user %s: %r",
+                                   fn_name, user_id, (tc.function.arguments or "")[:200])
+                    err = _json.dumps({"error": "工具参数解析失败，请检查参数格式后重试"}, ensure_ascii=False)
+                    tool_call_log.append({"tool": fn_name, "args": {}, "result": err[:500]})
+                    yield {"type": "tool", "data": {"tool": fn_name, "args": {"_error": "参数解析失败"}}}
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": err})
+                    continue
+
                 fn_args["user_id"] = user_id
                 tool_call_log.append({"tool": fn_name, "args": fn_args})
                 # Strip user_id before sending to frontend
@@ -157,9 +189,10 @@ def chat_stream(user_id: str, user_message: str, history: Optional[list] = None)
                 if fn:
                     try:
                         result = fn(**fn_args)
-                    except Exception:
+                    except Exception as e:
+                        # 异常类名回给模型供其调整策略；细节只进服务端日志（防泄露）
                         logger.exception("tool %s failed for user %s", fn_name, user_id)
-                        result = _json.dumps({"error": "工具执行失败"}, ensure_ascii=False)
+                        result = _json.dumps({"error": f"工具执行出错: {type(e).__name__}"}, ensure_ascii=False)
                 else:
                     result = _json.dumps({"error": f"未知工具: {fn_name}"}, ensure_ascii=False)
 
