@@ -275,7 +275,7 @@ body.view-shell { overflow: hidden; background: var(--bg-surface); }
   50% { box-shadow: var(--shadow-sm), 0 0 0 8px rgba(51, 112, 255, 0); }
 }
 
-.main-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.main-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
 
 /* ---- Topbar · 飞书式页面头 ---- */
 .topbar {
@@ -2245,7 +2245,7 @@ html { scroll-behavior: smooth; }
 .notes-menu-i:hover { background: var(--bg-surface-hover); }
 .notes-menu-i .ck { color: var(--primary); opacity: 0; }
 .notes-menu-i.on .ck { opacity: 1; }
-.notes-toolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -4px 0 16px; padding: 8px 0; background: var(--bg); }
+.notes-toolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -4px 0 16px; padding: 8px 0; }
 .notes-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .note-chip {
   height: 28px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-pill);
