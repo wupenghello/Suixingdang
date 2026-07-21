@@ -88,6 +88,17 @@ def health():
 # 用户端前端
 WEB_DIR = Path(__file__).parent / "web"
 
+# 新前端（S3：React+TS 构建产物）灰度入口 /next/*（绞杀者迁移：旧 SPA 保持默认，
+# 验证完毕后切换默认入口并下线旧前端）
+NEW_WEB_DIST = Path(__file__).parents[2] / "web" / "dist"
+
+if NEW_WEB_DIST.exists():
+    app.mount("/next/assets", StaticFiles(directory=NEW_WEB_DIST / "assets"), name="next-assets")
+
+    @app.get("/next/{rest:path}")
+    def serve_next_spa(rest: str):
+        return FileResponse(str(NEW_WEB_DIST / "index.html"))
+
 if WEB_DIR.exists():
     app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
     # 落地页样式独立于 app.css，避免缓存耦合
