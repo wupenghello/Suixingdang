@@ -10,7 +10,7 @@ if (window.mermaid) {
 // import 带 ?v=（与 index.html 的 app.js?v= 同步）：改 utils 后需同步升这里 + index.html 的 ?v=，
 // 否则浏览器命中缓存的旧 utils。check-cache-busting.mjs 在 CI 兜底检测漏改。
 import { formatSize, formatDate, formatDateTime, stripExt } from './utils/format.js?v=61';
-import { parseServerTs } from './utils/time.js?v=60';
+import { parseServerTs, formatRelTime } from './utils/time.js?v=61';
 import { escapeHtml } from './utils/dom.js?v=60';
 import { getPreviewType, fileTypeBadge } from './utils/file-classify.js?v=60';
 import { ICONS, getFileIcon } from './utils/icons.js?v=64';
@@ -19,10 +19,24 @@ import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
 import { createTrashSelection } from './utils/trash-selection.js?v=66';
 import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=96';
+import { isNotesHash, parseNotesHash, serializeNotesHash } from './utils/notes-router.js?v=1';
 import { fmtKey, normalizeHint } from './utils/platform.js?v=1';
 import { mountPasswordField } from './utils/password-field.js?v=95';
-import { auditLabel, auditCls } from './utils/audit-actions.js?v=96';
+import { auditLabel, auditCls } from './utils/audit-actions.js?v=97';
 import { changePasswordFormHTML, wireChangePasswordForm } from './utils/password-dialog.js?v=96';
+
+let noteSelectMode = false;        // 笔记批量选择模式（模块级，跨重渲/筛选保留）
+const noteSelection = new Set();   // 选中的笔记 path 集合
+
+// 通用视图（transfer/chat/files/trash）间的前进/后退路由；settings/notes 子状态由各自 handler 处理
+let _pendingViewHash = false;    // 弹层期间被推迟的视图深链变化，关窗后补
+function wireViewHash() {
+  window.addEventListener('hashchange', () => {
+    if (document.querySelector('.modal-overlay')) { _pendingViewHash = true; return; }   // 弹层期间不切视图（避免与确认弹窗竞态），关窗后补
+    const m = /^#\/(transfer|chat|files|trash)\/?$/.exec((location.hash || '').trim());
+    if (m && m[1] !== App.currentView) App.navigate(m[1], { fromHash: true });
+  });
+}
 
 // ============ API 层 ============
 const API = {
@@ -173,6 +187,14 @@ const UploadManager = {
 const SORT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="13" y2="7"/><line x1="4" y1="12" x2="11" y2="12"/><line x1="4" y1="17" x2="9" y2="17"/><polyline points="15,14 18,17 21,14"/></svg>';
 const GRID_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg>';
 const LIST_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>';
+// 笔记页控件补充图标（线性 / currentColor，与 icons.js 同约定）
+const NOTE_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="m6 9 6 6 6-6"/></svg>';
+const NOTE_CK = '<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const NOTE_CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 2"/></svg>';
+const NOTE_PING = '<svg class="note-card-pin-g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>';
+const NOTE_MORE = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
+const NOTE_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const NOTE_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></svg>';
 const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>';
 const SELECT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><polyline points="8.5,12 11,14.5 15.5,9.5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -1168,101 +1190,294 @@ async function renderFiles() {
 
 // 笔记视图 v2: Bento 网格布局（对齐落地页 sx-bento）
 async function renderNotes() {
+  wireNotesGlobal();
+  // 进入笔记视图即把深链基座规整为 #/notes（冷启动带 id 时 init 已规整；此处幂等），保证后退能回到列表
+  // 守卫：编辑器打开中、或当前已是带 id/new 的深链时不规整（避免后退落到 #/notes/<id> 被重写、编辑器开着刷列表把 URL 打回 #/notes）
+  const _nh = (location.hash || '').trim();
+  const _pn = parseNotesHash(_nh);
+  if (!_noteEditor && !_pn.noteId && !_pn.isNew) { try { history.replaceState(null, '', '#/notes'); } catch {} }
   document.getElementById('main-content').innerHTML = `
-    <div class="files-header">
+    <div class="files-header notes-head">
       <div class="files-title"><h1>笔记</h1><span class="files-count" id="files-count"></span></div>
-      <div class="files-controls"><button class="btn btn-primary" id="btn-note-new">${ICONS.note}<span>新建笔记</span></button></div>
+      <div class="files-controls">
+        <div class="notes-search" id="notes-search-box">${ICONS.search}<input id="notes-search" type="text" placeholder="搜索笔记" autocomplete="off" spellcheck="false" aria-label="搜索笔记"><button class="notes-search-clr" id="notes-search-clr" type="button" aria-label="清除搜索">${ICONS.close}</button></div>
+        <span class="notes-sort"><button class="btn btn-secondary" id="notes-sort-btn" type="button" aria-haspopup="true" aria-expanded="false">${SORT_ICON}<span id="notes-sort-label">最近修改</span>${NOTE_CHEVRON}</button>
+          <div class="notes-menu" id="notes-sort-menu" role="menu">
+            <button class="notes-menu-i on" type="button" data-sort="modified" role="menuitemradio">${NOTE_CK}最近修改</button>
+            <button class="notes-menu-i" type="button" data-sort="created" role="menuitemradio">${NOTE_CK}最近创建</button>
+            <button class="notes-menu-i" type="button" data-sort="title" role="menuitemradio">${NOTE_CK}标题</button>
+          </div></span>
+        <span class="notes-seg" role="group" aria-label="视图切换">
+          <button id="notes-view-grid" class="on" type="button" title="网格视图" aria-label="网格视图">${GRID_ICON}</button>
+          <button id="notes-view-list" type="button" title="列表视图" aria-label="列表视图">${LIST_ICON}</button>
+        </span>
+        <button class="btn btn-secondary btn-icon-only" id="btn-note-select" type="button" title="批量选择" aria-label="批量选择">${SELECT_ICON}</button>
+        <button class="btn btn-primary" id="btn-note-new" type="button"${noteSelectMode ? ' disabled' : ''}>${ICONS.note}<span>新建笔记</span></button>
+      </div>
     </div>
-    <div class="files-body"><div class="files-main"><div id="file-content"></div></div></div>`;
+    <div id="notes-batch-bar" class="batch-bar" style="display:none" aria-live="polite"></div>
+    <div class="files-body"><div class="files-main">
+      <div class="notes-toolbar" id="notes-toolbar">
+        <div class="notes-chips" id="notes-chips"></div>
+        <span class="notes-toolbar-r"><span class="notes-filtered" id="notes-filtered"></span><button class="notes-clearlink" id="notes-clear" type="button" hidden>清除筛选</button></span>
+      </div>
+      <div id="file-content"></div>
+    </div></div>`;
   document.getElementById('btn-note-new').addEventListener('click', showNoteEditor);
+  document.getElementById('btn-note-select').addEventListener('click', () => { if (noteSelectMode) exitNoteSelectMode(); else enterNoteSelectMode(); });
   const content = document.getElementById('file-content');
   const cntEl = document.getElementById('files-count');
+  // 页头控件接线（搜索防抖+输入法守卫；排序菜单外点击关闭见 wireNotesGlobal；视图偏好持久化）
+  const searchInput = document.getElementById('notes-search');
+  const searchBox = document.getElementById('notes-search-box');
+  let searchDeb = 0;
+  searchInput.addEventListener('input', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    clearTimeout(searchDeb);
+    searchDeb = setTimeout(() => { notesQ = e.target.value; searchBox.classList.toggle('has', !!notesQ); paintNotes(); }, 80);
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && e.target.value) { e.stopPropagation(); e.target.value = ''; notesQ = ''; searchBox.classList.remove('has'); paintNotes(); }
+  });
+  document.getElementById('notes-search-clr').addEventListener('click', () => { searchInput.value = ''; notesQ = ''; searchBox.classList.remove('has'); paintNotes(); searchInput.focus(); });
+  const sortBtn = document.getElementById('notes-sort-btn');
+  const sortMenu = document.getElementById('notes-sort-menu');
+  sortBtn.addEventListener('click', (e) => { e.stopPropagation(); const open = sortMenu.classList.toggle('open'); sortBtn.setAttribute('aria-expanded', String(open)); });
+  sortMenu.addEventListener('click', (e) => {
+    const it = e.target.closest('[data-sort]'); if (!it) return;
+    notesSort = it.dataset.sort; savePref('noteSort', notesSort);
+    sortMenu.querySelectorAll('.notes-menu-i').forEach(m => m.classList.toggle('on', m === it));
+    document.getElementById('notes-sort-label').textContent = it.textContent.trim();
+    sortMenu.classList.remove('open'); sortBtn.setAttribute('aria-expanded', 'false');
+    paintNotes();
+  });
+  const viewGrid = document.getElementById('notes-view-grid');
+  const viewList = document.getElementById('notes-view-list');
+  function setNotesView(v) {
+    notesView = v; savePref('noteView', v);
+    viewGrid.classList.toggle('on', v === 'grid'); viewList.classList.toggle('on', v === 'list');
+    content.querySelectorAll('.notes-grid').forEach(g => g.classList.toggle('list', v === 'list'));
+  }
+  viewGrid.addEventListener('click', () => setNotesView('grid'));
+  viewList.addEventListener('click', () => setNotesView('list'));
+  document.getElementById('notes-clear').addEventListener('click', () => { notesQ = ''; notesTag = ''; searchInput.value = ''; searchBox.classList.remove('has'); paintNotes(); });
   content.innerHTML = notesSkeletonHTML();
+  // ---- 列表状态提前声明（空默认值）：页头控件已在上方接线并引用它们，避免空库/加载失败提前 return 后落入 TDZ ----
+  let notesQ = '', notesTag = '';
+  let notesSort = loadPref('noteSort', 'modified');
+  let notesView = loadPref('noteView', 'grid');
+  let ALL = [], tagCounts = {}, topTags = [];
   let notes = [];
+  let loadError = false;
   try {
     // F1: 用专用 notes 端点（递归覆盖子目录/分组），不再走非递归的 /api/files/list
     const res = await API.get('/api/files/notes');
     if (res && res.ok) {
       const data = await res.json();
       notes = Array.isArray(data.notes) ? data.notes : [];
-    }
-  } catch { notes = []; }
+    } else { loadError = true; }
+  } catch { loadError = true; }
   if (cntEl) cntEl.textContent = notes.length ? `${notes.length} 篇` : '';
-  if (!notes.length) {
-    content.innerHTML = `<div class="notes-empty">
-      <div class="notes-empty-icon">${ICONS.note}</div>
-      <div class="notes-empty-title">还没有笔记</div>
-      <div class="notes-empty-desc">点击「新建笔记」开始记录，用 [[页面名]] 建立双向链接</div>
+  ALL = notes;
+  tagCounts = {};
+  ALL.forEach(n => (n.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+  topTags = Object.keys(tagCounts).sort((a, b) => tagCounts[b] - tagCounts[a]).slice(0, 6);
+  // 加载失败：专用错误态 + 重试（不再伪装成「还没有笔记」，避免用户误以为数据丢失）
+  if (loadError && !notes.length) {
+    content.innerHTML = `<div class="notes-empty notes-empty--error">
+      <div class="notes-empty-icon notes-empty-icon--error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></svg></div>
+      <div class="notes-empty-title">笔记列表加载失败</div>
+      <div class="notes-empty-desc">网络异常或服务暂时不可用，你的笔记都安全地保存在服务器上。</div>
+      <button class="btn btn-primary notes-empty-cta" id="btn-notes-retry">${ICONS.refresh}<span>重试</span></button>
     </div>`;
+    document.getElementById('btn-notes-retry').addEventListener('click', () => renderNotes());
     return;
   }
-  // 后端已 pinned 优先、其次 modified 倒序；前端再排一次仅为防御（保留无妨）
-  notes.sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return 0;
-  });
-  content.innerHTML = `<div class="notes-grid">${notes.map(item => {
-    const title = escapeHtml(stripExt(item.name) || '未命名笔记');
-    const excerpt = escapeHtml(item.summary || '');
-    const dateStr = item.modified ? formatDate(item.modified) : '';
-    const sizeStr = (item.size != null && item.size > 0) ? formatSize(item.size) : '';
-    const tags = Array.isArray(item.tags) ? item.tags.slice(0, 3) : [];
-    const aiTags = Array.isArray(item.ai_tags) ? item.ai_tags.slice(0, 2) : [];
-    // C1: 旧代码拼了无用的 allTags 数组，这里直接按 (tags.length || aiTags.length) 判断
-    const tagsHtml = (tags.length || aiTags.length) ? '<div class="note-card-tags">' + tags.map(t => '<span class="note-card-tag">' + escapeHtml(t) + '</span>').join('') + aiTags.map(t => '<span class="note-card-tag ai-tag">' + escapeHtml(t) + '</span>').join('') + '</div>' : '';
-    const pinHtml = item.pinned ? `<span class="note-card-pin">${ICONS.pin}置顶</span>` : '';
-    return `<div class="note-card" data-path="${escapeHtml(item.path)}" data-file-id="${escapeHtml(item.file_id || '')}" data-name="${escapeHtml(item.name)}">
-      ${pinHtml}
-      <div class="note-card-actions">
-        <button class="note-card-action" data-action="edit" title="编辑" aria-label="编辑 ${escapeHtml(stripExt(item.name))}">${ICONS.edit}</button>
-        <button class="note-card-action danger" data-action="delete" title="删除" aria-label="删除 ${escapeHtml(stripExt(item.name))}">${ICONS.trash}</button>
-      </div>
-      <div class="note-card-title">${title}</div>
-      ${excerpt ? `<div class="note-card-excerpt">${excerpt}</div>` : ''}
+  // 空库态不再提前 return：落入 paintNotes 渲染（页头控件已可用，消除 TDZ）
+  // ---- 列表状态：搜索 / 标签 / 排序 / 视图（声明已提前至 fetch 之前，此处仅余渲染辅助态）----
+  let noteItemByPath = {};        // path -> {path,name,tags,pinned}（供批量标签/置顶读现有值）
+  let noteVisiblePaths = [];      // 当前筛选后可见 path（供全选）
+  // —— 批量选择：状态在模块级（noteSelectMode/noteSelection），函数在此闭包内以便调用 paintNotes ——
+  function enterNoteSelectMode() { noteSelectMode = true; noteSelection.clear(); const sb = document.getElementById('btn-note-select'); if (sb) sb.classList.add('is-active'); paintNotes(); updateNotesBatchBar(); }
+  function exitNoteSelectMode() { noteSelectMode = false; noteSelection.clear(); const sb = document.getElementById('btn-note-select'); if (sb) sb.classList.remove('is-active'); paintNotes(); updateNotesBatchBar(); }
+  function toggleNoteSelect(path) {
+    const had = noteSelection.has(path);
+    if (had) noteSelection.delete(path); else noteSelection.add(path);
+    document.querySelectorAll(`.note-card[data-path="${CSS.escape(path)}"]`).forEach(el => {
+      el.classList.toggle('is-selected', !had);
+      const chk = el.querySelector('.note-check');
+      if (chk) { chk.classList.toggle('is-checked', !had); chk.setAttribute('aria-checked', String(!had)); chk.checked = !had; }
+    });
+    updateNotesBatchBar();
+  }
+  function updateNotesBatchBar() {
+    const bar = document.getElementById('notes-batch-bar'); if (!bar) return;
+    if (!noteSelectMode) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    const n = noteSelection.size; bar.style.display = '';
+    if (!bar.querySelector('#btn-nbatch-delete')) {
+      bar.innerHTML = `<span class="batch-count"></span><div class="batch-spacer"></div>
+        <button class="btn btn-secondary btn-sm" id="btn-nselect-all" type="button">全选当前列表</button>
+        <button class="btn btn-secondary btn-sm" id="btn-nbatch-tag" type="button">批量标签</button>
+        <button class="btn btn-secondary btn-sm" id="btn-nbatch-pin" type="button">置顶/取消</button>
+        <button class="btn btn-danger btn-sm" id="btn-nbatch-delete" type="button">删除</button>
+        <button class="btn btn-secondary btn-sm" id="btn-ncancel-select" type="button">退出选择</button>`;
+      bar.querySelector('#btn-nselect-all').addEventListener('click', selectAllNotes);
+      bar.querySelector('#btn-nbatch-tag').addEventListener('click', batchTagNotes);
+      bar.querySelector('#btn-nbatch-pin').addEventListener('click', batchPinNotes);
+      bar.querySelector('#btn-nbatch-delete').addEventListener('click', batchDeleteNotes);
+      bar.querySelector('#btn-ncancel-select').addEventListener('click', exitNoteSelectMode);
+    }
+    bar.querySelector('.batch-count').textContent = `已选 ${n} 项`;
+    ['btn-nbatch-tag', 'btn-nbatch-pin', 'btn-nbatch-delete'].forEach(id => { const b = bar.querySelector('#' + id); if (b) b.disabled = !n; });
+  }
+  function selectAllNotes() { noteVisiblePaths.forEach(p => noteSelection.add(p)); paintNotes(); updateNotesBatchBar(); }
+  async function batchPinNotes() {
+    const paths = [...noteSelection]; if (!paths.length) return;
+    const allPinned = paths.every(p => { const it = noteItemByPath[p]; return it && it.pinned; });
+    let ok = 0, fail = 0;
+    for (const p of paths) { try { const r = await API.put('/api/files/pin', { path: p, pinned: !allPinned }); if (r.ok) ok++; else fail++; } catch { fail++; } }
+    Toast.show(`${allPinned ? '已取消置顶' : '已置顶'} ${ok} 项${fail ? `，失败 ${fail}` : ''}`, fail ? 'warning' : 'success');
+    exitNoteSelectMode(); refreshCurrentView();
+  }
+  async function batchTagNotes() {
+    const paths = [...noteSelection]; if (!paths.length) return;
+    const tag = await showInputDialog({ title: `为 ${paths.length} 篇笔记添加标签`, placeholder: '输入标签名称', confirmText: '添加标签' });
+    if (tag === null) return;
+    let ok = 0, fail = 0;
+    for (const p of paths) { try { const it = noteItemByPath[p]; const existing = (it && it.tags) ? [...it.tags] : []; if (!existing.includes(tag)) existing.push(tag); const r = await API.put('/api/files/tags', { path: p, tags: existing }); if (r.ok) ok++; else fail++; } catch { fail++; } }
+    Toast.show(`已为 ${ok} 篇笔记添加标签「${tag}」${fail ? `，失败 ${fail}` : ''}`, fail ? 'warning' : 'success');
+    exitNoteSelectMode(); refreshCurrentView();
+  }
+  async function batchDeleteNotes() {
+    const paths = [...noteSelection]; if (!paths.length) return;
+    const ok = await confirmDialog({ title: '批量删除笔记', message: `确定删除选中的 ${paths.length} 篇笔记？将移入回收站（保留期内可恢复）。`, confirmText: '删除', danger: true });
+    if (!ok) return;
+    const results = await Promise.all(paths.map(p => API.del(`/api/files?path=${encodeURIComponent(p)}`).then(r => r.ok).catch(() => false)));
+    const okN = results.filter(Boolean).length, fail = results.length - okN;
+    Toast.show(`已删除 ${okN} 篇${fail ? `，失败 ${fail}` : ''}`, fail ? 'warning' : 'success');
+    exitNoteSelectMode(); refreshCurrentView();
+  }
+  // 同步排序菜单高亮/标签到初始偏好
+  (function syncSortUI() {
+    const it = sortMenu.querySelector('[data-sort="' + CSS.escape(notesSort) + '"]') || sortMenu.querySelector('[data-sort="modified"]');
+    sortMenu.querySelectorAll('.notes-menu-i').forEach(m => m.classList.toggle('on', m === it));
+    if (it) document.getElementById('notes-sort-label').textContent = it.textContent.trim();
+  })();
+
+  function filteredNotes() {
+    const ql = notesQ.trim().toLowerCase();
+    return ALL.filter(n =>
+      (!ql || (n.name || '').toLowerCase().includes(ql) || (n.summary || '').toLowerCase().includes(ql) || (n.snippet || '').toLowerCase().includes(ql)) &&
+      (!notesTag || (n.tags || []).includes(notesTag)));
+  }
+  function sortNotes(arr) {
+    const a = arr.slice();
+    if (notesSort === 'title') a.sort((x, y) => (x.name || '').localeCompare(y.name || '', 'zh-Hans-CN'));
+    else if (notesSort === 'created') a.sort((x, y) => (y.created || 0) - (x.created || 0));
+    else a.sort((x, y) => (y.modified || 0) - (x.modified || 0));
+    return a;
+  }
+  function noteCardHTML(n) {
+    const title = escapeHtml(stripExt(n.name) || '未命名笔记');
+    const excerpt = escapeHtml(n.summary || n.snippet || '');   // 摘要回退链：AI 摘要 → 正文节选
+    const rel = n.modified ? formatRelTime(n.modified) : '';
+    const size = (n.size != null && n.size > 0) ? formatSize(n.size) : '';
+    const tags = Array.isArray(n.tags) ? n.tags : [];
+    const aiTags = Array.isArray(n.ai_tags) ? n.ai_tags : [];
+    const shown = tags.slice(0, 3);
+    const extra = tags.length > 3 ? '<span class="note-card-tag more">+' + (tags.length - 3) + '</span>' : '';
+    const tagsHtml = (tags.length || aiTags.length)
+      ? '<div class="note-card-tags">' + shown.map(t => '<span class="note-card-tag">' + escapeHtml(t) + '</span>').join('') + extra
+        + aiTags.slice(0, 2).map(t => '<span class="note-card-tag ai-tag">' + ICONS.ai + escapeHtml(t) + '</span>').join('') + '</div>'
+      : '';
+    const pin = n.pinned ? NOTE_PING : '';
+    const selecting = noteSelectMode;
+    const isSel = selecting && noteSelection.has(n.path);
+    const checkHtml = selecting ? `<input type="checkbox" class="note-check ${isSel ? 'is-checked' : ''}" role="checkbox" aria-checked="${isSel}" aria-label="选择 ${title}" ${isSel ? 'checked' : ''}>` : '';
+    const selCls = (selecting ? ' selecting' : '') + (isSel ? ' is-selected' : '');
+    return `<article class="note-card${selCls}" role="button" tabindex="0" aria-label="打开笔记：${title}" data-path="${escapeHtml(n.path)}" data-file-id="${escapeHtml(n.file_id || '')}" data-name="${escapeHtml(n.name)}">
+      ${checkHtml}
+      ${selecting ? '' : `<div class="note-card-actions">
+        <button class="note-card-action" data-action="edit" type="button" title="编辑" aria-label="编辑 ${title}">${ICONS.edit}</button>
+        <button class="note-card-action danger" data-action="delete" type="button" title="删除" aria-label="删除 ${title}">${ICONS.trash}</button>
+      </div>`}
+      <h3 class="note-card-title">${pin}${title}</h3>
+      ${excerpt ? `<p class="note-card-excerpt">${excerpt}</p>` : ''}
       ${tagsHtml}
-      <div class="note-card-meta">
-        <div class="note-card-meta-left">
-          <span>${dateStr || '—'}</span>
-        </div>
-        <div class="note-card-meta-right">
-          <span>${sizeStr}</span>
-        </div>
-      </div>
-    </div>`;
-  }).join('')}</div>`;
-  // 卡片操作：操作按钮 / 右键菜单 / 长按 走删除等次要操作；点击卡片空白区打开编辑器
-  content.querySelectorAll('.note-card').forEach(card => {
-    const cardPath = card.dataset.path;
-    const cardName = card.dataset.name;
-    const cardFileId = card.dataset.fileId;
-    card.addEventListener('click', (e) => {
-      if (e.target.closest('.note-card-action')) return; // 点击操作按钮不打开
-      openNoteEditor({ path: cardPath, fileId: cardFileId, name: cardName });
-    });
-    card.querySelectorAll('.note-card-action').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (btn.dataset.action === 'edit') openNoteEditor({ path: cardPath, fileId: cardFileId, name: cardName });
-        else if (btn.dataset.action === 'delete') deleteNote(cardPath, cardName);
+      <div class="note-card-meta"><span>${NOTE_CLOCK}${rel || '—'}</span>${size ? `<span class="mdot">·</span><span>${size}</span>` : ''}</div>
+    </article>`;
+  }
+  function wireNoteCards() {
+    content.querySelectorAll('.note-card').forEach(card => {
+      const p = card.dataset.path, nm = card.dataset.name, fid = card.dataset.fileId;
+      const open = () => openNoteEditor({ path: p, fileId: fid, name: nm });
+      card.addEventListener('click', (e) => {
+        if (noteSelectMode) { if (!e.target.closest('.note-check')) toggleNoteSelect(p); return; }
+        if (e.target.closest('.note-card-action')) return;
+        open();
       });
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (noteSelectMode) toggleNoteSelect(p); else open(); }
+        else if (!noteSelectMode && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); deleteNote(p, nm); }
+        else if (!noteSelectMode && (e.key === 'ArrowRight' || e.key === 'ArrowDown')) { e.preventDefault(); const nx = card.nextElementSibling; if (nx && nx.classList.contains('note-card')) nx.focus(); }
+        else if (!noteSelectMode && (e.key === 'ArrowLeft' || e.key === 'ArrowUp')) { e.preventDefault(); const pv = card.previousElementSibling; if (pv && pv.classList.contains('note-card')) pv.focus(); }
+      });
+      const chk = card.querySelector('.note-check');
+      if (chk) chk.addEventListener('click', (e) => { e.stopPropagation(); toggleNoteSelect(p); });
+      if (noteSelectMode) return;   // 选择模式下不挂编辑/删除/右键/长按
+      card.querySelectorAll('.note-card-action').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); if (btn.dataset.action === 'edit') open(); else if (btn.dataset.action === 'delete') deleteNote(p, nm); });
+      });
+      card.addEventListener('contextmenu', (e) => { e.preventDefault(); showNotesCardMenu(e.clientX, e.clientY, { path: p, name: nm, fileId: fid }); });
+      // 移动端长按 → 菜单（500ms，不触发单击打开）
+      let pressTimer = null, longPressed = false;
+      const startPress = (x, y) => { longPressed = false; pressTimer = setTimeout(() => { longPressed = true; showNotesCardMenu(x, y, { path: p, name: nm, fileId: fid }); }, 500); };
+      const cancelPress = () => clearTimeout(pressTimer);
+      card.addEventListener('touchstart', (e) => { const t = e.touches[0]; startPress(t.clientX, t.clientY); }, { passive: true });
+      card.addEventListener('touchend', (e) => { cancelPress(); if (longPressed) e.preventDefault(); });
+      card.addEventListener('touchmove', cancelPress);
     });
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      showNotesCardMenu(e.clientX, e.clientY, { path: cardPath, name: cardName, fileId: cardFileId });
-    });
-    // 移动端长按 → 菜单（500ms，不触发单击打开）
-    let pressTimer = null;
-    let longPressed = false;
-    const startPress = (x, y) => {
-      longPressed = false;
-      pressTimer = setTimeout(() => { longPressed = true; showNotesCardMenu(x, y, { path: cardPath, name: cardName, fileId: cardFileId }); }, 500);
-    };
-    const cancelPress = () => clearTimeout(pressTimer);
-    card.addEventListener('touchstart', (e) => { const t = e.touches[0]; startPress(t.clientX, t.clientY); }, { passive: true });
-    card.addEventListener('touchend', (e) => { cancelPress(); if (longPressed) e.preventDefault(); });
-    card.addEventListener('touchmove', cancelPress);
-  });
+  }
+  function paintNotes() {
+    // 空库态（原提前 return 分支折叠进此，页头控件在空库下同样可用）
+    if (!ALL.length) {
+      content.innerHTML = `<div class="notes-empty"><div class="notes-empty-icon">${ICONS.note}</div><div class="notes-empty-title">还没有笔记</div><div class="notes-empty-desc">点击「新建笔记」开始记录，用 [[页面名]] 建立双向链接</div><button class="btn btn-primary notes-empty-cta" id="btn-notes-first">${ICONS.note}<span>写第一篇笔记</span></button></div>`;
+      const _fb = document.getElementById('btn-notes-first'); if (_fb) _fb.addEventListener('click', showNoteEditor);
+      return;
+    }
+    noteItemByPath = {}; ALL.forEach(n => { noteItemByPath[n.path] = { path: n.path, name: n.name, tags: n.tags || [], pinned: !!n.pinned }; });
+    const chipsEl = document.getElementById('notes-chips');
+    const chipData = [{ t: '', label: '全部', n: ALL.length }].concat(topTags.map(t => ({ t, label: t, n: tagCounts[t] })));
+    chipsEl.innerHTML = chipData.map(c => `<button class="note-chip${c.t === notesTag ? ' on' : ''}" type="button" data-tag="${escapeHtml(c.t)}">${escapeHtml(c.label)} <span class="n">${c.n}</span></button>`).join('');
+    chipsEl.querySelectorAll('.note-chip').forEach(b => b.addEventListener('click', () => { notesTag = (notesTag === b.dataset.tag) ? '' : b.dataset.tag; paintNotes(); }));
+    const list = sortNotes(filteredNotes());
+    noteVisiblePaths = list.map(n => n.path);
+    const active = !!(notesQ.trim() || notesTag);
+    document.getElementById('notes-filtered').textContent = active ? `筛出 ${list.length} 篇` : '';
+    document.getElementById('notes-clear').hidden = !active;
+    const tb = document.getElementById('notes-toolbar'); if (tb) tb.style.display = ALL.length ? '' : 'none';
+    // 筛选无果态（与「空库」「加载失败」三态互不通用，§5.6）
+    if (active && list.length === 0) {
+      content.innerHTML = `<div class="notes-empty"><span class="notes-empty-icon" style="background:var(--bg-sunken);color:var(--text-muted)">${ICONS.search}</span><div class="notes-empty-title">没有找到匹配的内容</div><div class="notes-empty-desc">没有和 <b style="color:var(--text)">${escapeHtml(notesQ.trim() || notesTag)}</b> 匹配的笔记，换个关键词试试。</div><button class="btn btn-secondary notes-empty-cta" id="btn-notes-clear2" type="button">清除筛选</button></div>`;
+      document.getElementById('btn-notes-clear2').addEventListener('click', () => { notesQ = ''; notesTag = ''; searchInput.value = ''; searchBox.classList.remove('has'); paintNotes(); });
+      return;
+    }
+    const pinned = list.filter(n => n.pinned), rest = list.filter(n => !n.pinned);
+    const gc = 'notes-grid' + (notesView === 'list' ? ' list' : '');
+    const block = (arr) => arr.length ? `<div class="${gc}">${arr.map(noteCardHTML).join('')}</div>` : '';
+    let html = '';
+    if (pinned.length) html += `<div class="notes-section-h">置顶 <span class="cnt">(${pinned.length})</span></div>` + block(pinned);
+    if (pinned.length && rest.length) html += `<div class="notes-section-h">全部笔记 <span class="cnt">(${rest.length})</span></div>`;
+    html += block(rest);
+    content.innerHTML = html;
+    wireNoteCards();
+    if (noteSelectMode) {
+      updateNotesBatchBar();
+      const _sb = document.getElementById('btn-note-select'); if (_sb) _sb.classList.add('is-active');
+    }
+  }
+  setNotesView(notesView);   // 应用初始视图（高亮分段开关）
+  paintNotes();
 }
 
 // 笔记卡片右键/长按菜单（hover 按钮已覆盖编辑/删除，此菜单作完整入口：含重命名/置顶/标签）
@@ -1308,23 +1523,42 @@ function refreshCurrentView() {
 // 笔记编辑器 v3: 沉浸式全屏布局（对齐 landing 简洁风格）
 async function openNoteEditor(opts = {}) {
   const editPath = opts.path || '';
-  const editFileId = opts.fileId || '';
+  let editFileId = opts.fileId || '';
   const editName = opts.name || '';
   const isEdit = !!(editPath || editFileId);
-  const { modal, close } = openModal({ onDismiss: () => close() });
+  const _openedFromView = App.currentView;   // 记录打开来源视图：notes 内写深链；其它视图作为模态叠层，不碰历史
+  // 深链路由：同一时刻仅一个编辑器；若已有则先冲刷草稿再静默关闭（不写历史，保留其历史项供后退回溯）
+  await _closeNoteForSwap();
+  // 打开时的深链键：有 file_id 用它；新建用 'new'；仅按 path 打开暂为空（loadRemote 后补真编号）
+  const idKeyAtOpen = editFileId ? editFileId : (isEdit ? '' : 'new');
+  if (opts._fromHash) {
+    /* hash 已正确 */
+  } else if (_openedFromView === 'notes') {
+    if (idKeyAtOpen) { const _t = serializeNotesHash({ noteId: idKeyAtOpen }); if (location.hash !== _t) history.pushState(null, '', _t); }
+    /* path-only（尚无 id）：交给 loadRemote 补 */
+  } else {
+    /* 作为模态打开在其它视图之上（如 files）：不动历史 */
+  }
+  // Esc/遮罩：有未保存内容时禁止直接关闭（canDismiss 拦），迫使走「取消」确认，杜绝静默丢稿
+  const { modal, close } = openModal({ onDismiss: () => finalizeClose(true), canDismiss: () => !(isDirty && ta.value.trim()) });
   modal.classList.add('note-editor-modal');
   modal.innerHTML = `
     <div class="note-editor-top">
       <div class="note-editor-top-left">
-        <button class="tb-icon-btn" id="btn-note-close" title="关闭">${ICONS.close}</button>
-        <h3>${isEdit ? '编辑笔记' : '新建笔记'}</h3>
+        <button class="tb-icon-btn" id="btn-note-close" title="关闭" aria-label="关闭">${ICONS.close}</button>
+        <nav class="ed-crumb" aria-label="位置"><span class="ed-crumb-root">笔记</span><span class="ed-crumb-sep">/</span><b class="ed-crumb-title" id="ed-crumb-title">${escapeHtml(stripExt(editName)) || (isEdit ? '未命名笔记' : '新笔记')}</b></nav>
       </div>
       <div class="note-editor-top-actions">
-        <button class="tb-icon-btn" id="btn-note-toc" title="目录">${ICONS.toc}</button>
-        <button class="tb-icon-btn" id="btn-note-pin" title="置顶/收藏">${ICONS.pin}</button>
-        <button class="tb-icon-btn" id="btn-note-export" title="导出 HTML">${ICONS.exportIco}</button>
+        <button class="tb-icon-btn" id="btn-note-toc" title="目录" aria-label="目录">${ICONS.toc}</button>
         <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理">${ICONS.ai}<span>AI 整理</span></button>
-        <button class="tb-icon-btn" id="btn-note-delete" title="删除笔记">${ICONS.trash}</button>
+        <span class="save-badge" id="note-save-badge" aria-live="polite">${NOTE_CHECK}<span class="sb-text">尚未保存</span></span>
+        <span class="ed-more"><button class="tb-icon-btn" id="btn-note-more" title="更多" aria-label="更多操作" aria-haspopup="true" aria-expanded="false">${NOTE_MORE}</button>
+          <div class="ed-more-menu" id="note-more-menu" role="menu">
+            <button class="ed-more-i" id="btn-note-pin" type="button" role="menuitem">${ICONS.pin}<span>置顶 / 取消置顶</span></button>
+            <button class="ed-more-i" id="btn-note-export" type="button" role="menuitem">${ICONS.exportIco}<span>导出 HTML</span></button>
+            <div class="ed-more-sep"></div>
+            <button class="ed-more-i danger" id="btn-note-delete" type="button" role="menuitem">${ICONS.trash}<span>删除笔记</span></button>
+          </div></span>
       </div>
     </div>
     <input type="text" class="note-title-input" placeholder="笔记标题" maxlength="80" value="${escapeHtml(stripExt(editName))}">
@@ -1419,6 +1653,35 @@ async function openNoteEditor(opts = {}) {
   const summaryRow = modal.querySelector('#note-summary-row');
   const summaryText = modal.querySelector('#note-summary-text');
 
+  // —— 顶栏新增元素：面包屑 / 保存徽标 / 溢出菜单 ——
+  const crumbTitleEl = modal.querySelector('#ed-crumb-title');
+  const saveBadgeEl = modal.querySelector('#note-save-badge');
+  const moreBtn = modal.querySelector('#btn-note-more');
+  const moreMenu = modal.querySelector('#note-more-menu');
+  function fmtNow() { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  function setSaveState(mode, t) {
+    if (!saveBadgeEl) return;
+    saveBadgeEl.className = 'save-badge' + (mode === 'warn' ? ' warn' : mode === 'danger' ? ' dngr' : '');
+    if (mode === 'saved') saveBadgeEl.innerHTML = NOTE_CHECK + '<span class="sb-text">已保存 ' + (t || '') + '</span>';
+    else if (mode === 'saving') saveBadgeEl.innerHTML = '<span class="sb-spin"></span><span class="sb-text">保存中…</span>';
+    else if (mode === 'warn') saveBadgeEl.innerHTML = '<span class="sb-dot"></span><span class="sb-text">未保存</span>';
+    else if (mode === 'danger') saveBadgeEl.innerHTML = NOTE_WARN + '<span class="sb-text">保存失败 · 重试</span>';
+    else saveBadgeEl.innerHTML = NOTE_CHECK + '<span class="sb-text">尚未保存</span>';
+  }
+  saveBadgeEl && saveBadgeEl.addEventListener('click', () => { if (saveBadgeEl.classList.contains('dngr')) runAutosave(); });
+  let autoT = 0;
+  function onContentChange() { setSaveState('warn'); clearTimeout(autoT); autoT = setTimeout(runAutosave, 1500); }
+  function runAutosave() {
+    if (!ta.value.trim()) { setSaveState('warn'); return; }   // 空内容不自动落库
+    setSaveState('saving');
+    doSave(true).then(ok => { if (ok) setSaveState('saved', fmtNow()); else setSaveState('danger'); });
+  }
+  // 面包屑随标题实时变化；标题/正文改动驱动徽标 + 空闲 1.5s 自动保存（与手动保存并存）
+  titleEl.addEventListener('input', () => { crumbTitleEl.textContent = titleEl.value.trim() || (isEdit ? '未命名笔记' : '新笔记'); onContentChange(); });
+  ta.addEventListener('input', onContentChange);
+  // 溢出菜单开合（外点击关闭见 wireNotesGlobal）
+  moreBtn.addEventListener('click', (e) => { e.stopPropagation(); const o = moreMenu.classList.toggle('open'); moreBtn.setAttribute('aria-expanded', String(o)); });
+
   // Close button
   const closeBtn = modal.querySelector('#btn-note-close');
   closeBtn.addEventListener('click', confirmClose);
@@ -1434,10 +1697,10 @@ async function openNoteEditor(opts = {}) {
       if (!links.length) return;
       backlinksRow.style.display = '';
       backlinksEl.innerHTML = links.map((b) =>
-        `<div class="backlink-item" data-path="${escapeHtml(b.path || '')}"><span class="backlink-name">${ICONS.note}${escapeHtml(stripExt(b.name || '') || '未命名笔记')}</span>${b.snippet ? `<span class="backlink-snippet">${escapeHtml(b.snippet)}</span>` : ''}</div>`
+        `<div class="backlink-item" data-path="${escapeHtml(b.path || '')}" data-file-id="${escapeHtml(b.file_id || '')}"><span class="backlink-name">${ICONS.note}${escapeHtml(stripExt(b.name || '') || '未命名笔记')}</span>${b.snippet ? `<span class="backlink-snippet">${escapeHtml(b.snippet)}</span>` : ''}</div>`
       ).join('');
       backlinksEl.querySelectorAll('.backlink-item').forEach((el) => {
-        el.addEventListener('click', () => { const p = el.dataset.path; close(); openNoteEditor({ path: p, name: p.split('/').pop() }); });
+        el.addEventListener('click', async () => { const p = el.dataset.path; const fid = el.dataset.fileId; await _closeNoteForSwap(); openNoteEditor({ path: p, fileId: fid, name: p.split('/').pop() }); });
       });
     }).catch(() => {});
   }
@@ -1448,7 +1711,7 @@ async function openNoteEditor(opts = {}) {
 
  let saving = false;
  let isDirty = false;  // 是否有未保存到服务端的修改
- let viewMode = loadPref('noteViewMode', 'split');
+  let viewMode = loadPref('noteViewMode', window.matchMedia('(max-width: 768px)').matches ? 'edit' : 'split');
   let noteTags = [];
   let notePinned = false;
   let suggestedTags = [];  // AI 建议但尚未被用户接受的标签
@@ -1458,6 +1721,10 @@ async function openNoteEditor(opts = {}) {
   let tocVisible = loadPref('noteTocVisible', false);
   let aiReqId = 0;            // F2: 防止 stale AI 响应覆盖最新一次请求的结果
   let currentNotePath = editPath || '';  // F4: 当前笔记路径（新建笔记首次保存后更新），用于 syncAiTags
+
+  // 注册编辑器句柄给深链路由：dirty 口径与 confirmClose 一致（有改动且有内容）
+  const _reg = { noteId: idKeyAtOpen || '', fromView: _openedFromView, get dirty() { return isDirty && !!ta.value.trim(); }, close: finalizeClose, flush: () => doSave(true), cancelAuto: () => clearTimeout(autoT) };
+  _noteEditor = _reg;
 
   // ---- 底部状态栏：字数 / 字符 / 阅读时间 / 模式 ----
   function countWords(text) {
@@ -1726,9 +1993,15 @@ ${r.html}
    } catch { Toast.show('建议标签同步失败', 'info', 2500); }
  }
 
- function closeEditor() {
-  close();
- };
+  // 关闭编辑器并按需把深链规整回列表（touchHistory=true：主动关闭；false：切换/后退已自行管理 URL）
+  function finalizeClose(touchHistory) {
+    close();
+    const _regRef = (_noteEditor === _reg) ? _noteEditor : null;   // 先取快照：置空前 fromView 仍可读
+    if (_regRef) { if (_reg.cancelAuto) _reg.cancelAuto(); _noteEditor = null; }
+    if (touchHistory && _regRef && _regRef.fromView === 'notes') { try { history.replaceState(null, '', serializeNotesHash({})); } catch {} }
+    refreshCurrentView();   // 关闭后刷新列表，使新建/编辑/删除即时反映（自动保存创建的新笔记也由此入列）
+  }
+  function closeEditor(touchHistory = true) { finalizeClose(touchHistory); }
 
   // ---- 标签输入 ----
   function renderTags() {
@@ -1865,14 +2138,23 @@ ${r.html}
     if (!content.trim()) { if (!silent) Toast.show('内容不能为空', 'warning'); return false; }
     saving = true; saveBtn.disabled = true; saveBtn.textContent = '保存中…';
     try {
+      // 目录推导：已有笔记沿用其所在目录（防自动/手动保存把子目录笔记挪到根）；新建笔记才用当前目录
+      const _existing = lastSavedPath || currentNotePath || editPath;
+      const _dir = _existing ? _existing.split('/').slice(0, -1).join('/') : (currentDir || '');
       const res = await API.post('/api/files/note', {
         name: titleEl.value.trim(), content,
-        directory: currentDir || '', group_id: (selectedGroup && selectedGroup !== SENSITIVE_GROUP_ID) ? selectedGroup : '',
+        directory: _dir, group_id: (selectedGroup && selectedGroup !== SENSITIVE_GROUP_ID) ? selectedGroup : '',
         file_id: editFileId || '',  // 编辑已有笔记时传入，后端据此原地更新（含重命名）并排除去重自检
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); Toast.show(d.detail || '保存失败', 'error'); return false; }
       const data = await res.json();
       lastSavedPath = data.path;
+      // 新建笔记首存后拿到真实 id：把深链 /new 规整为 /<id>（replace 不增历史项）
+      if (data.id && data.id !== editFileId) {
+        editFileId = data.id;
+        if (_noteEditor === _reg) _reg.noteId = editFileId;
+        try { const t = '#/notes/' + editFileId; if (location.hash !== t) history.replaceState(null, '', t); } catch {}
+      }
       currentNotePath = data.path;  // F4: 新建笔记首次保存后也更新 currentNotePath，使后续 syncAiTags 可用
       await Promise.all([
         API.put('/api/files/tags', { path: data.path, tags: noteTags }),
@@ -1885,15 +2167,23 @@ ${r.html}
     } catch (err) { Toast.show('保存失败: ' + (err.message || '未知错误'), 'error'); return false; }
     finally { saving = false; saveBtn.disabled = false; saveBtn.textContent = '保存'; }
   }
- async function save() { const ok = await doSave(false); if (ok) { closeEditor(); refreshCurrentView(); } }
+  async function save() { const ok = await doSave(false); if (ok) { setSaveState('saved', fmtNow()); refreshCurrentView(); } }  // 手动保存=强制落库+刷列表（不关闭编辑器，关闭走 X/取消/Esc）
  
   modal.querySelector('#btn-note-cancel').addEventListener('click', confirmClose);
   saveBtn.addEventListener('click', save);
  // 拦截弹窗 dismiss（遮罩/ESC）和取消按钮：有未保存修改时先确认
  async function confirmClose() {
    if (isDirty && ta.value.trim()) {
+     _notesConfirmOpen = true;   // 确认弹窗期间推迟 hashchange，避免与编辑器叠层死锁
      const ok = await confirmDialog({ title: '有未保存的修改', message: '笔记内容尚未保存到服务器，确定关闭？', confirmText: '关闭', danger: true });
-     if (!ok) return;
+     _notesConfirmOpen = false;
+     const pending = _pendingNotesHash; _pendingNotesHash = false;
+     if (!ok) {
+       // 取消关闭：补处理被推迟的后退/前进（dirty → 恢复 URL + 提示，不关）
+       if (pending && isNotesHash(location.hash)) { const { noteId, isNew } = parseNotesHash(location.hash); applyNotesHash(noteId, isNew); }
+       return;
+     }
+     // 确认关闭：被推迟的后退目标与「关回列表」一致，直接关闭即可
    }
    closeEditor();
  }
@@ -1908,7 +2198,7 @@ ${r.html}
     else if (mod && key === 'k') { e.preventDefault(); wrapSelection('[', '](https://)', '链接文字'); }
     else if (mod && key === 'm') { e.preventDefault(); wrapSelection('$$', '$$', 'E=mc^2'); }
     else if (mod && key === 'p') { e.preventDefault(); viewBtn.click(); }
-    else if (mod && key === 's') { e.preventDefault(); doSave(false).then(ok => { if (ok) refreshCurrentView(); }); }
+    else if (mod && key === 's') { e.preventDefault(); doSave(false).then(ok => { if (ok) { setSaveState('saved', fmtNow()); refreshCurrentView(); } else setSaveState('danger'); }); }
     else if (mod && key === '/') { e.preventDefault(); insertBlock('\n```\n代码\n```\n'); }
     else if (e.key === 'Tab') {
       e.preventDefault();
@@ -1938,6 +2228,7 @@ ${r.html}
   isDirty = false;
   updatePreview();
   updateStatusBar();
+  setSaveState('idle');   // 加载/新建完成：徽标置「尚未保存」中性态
 
   async function loadRemote() {
     try {
@@ -1945,10 +2236,24 @@ ${r.html}
         ? 'file_id=' + encodeURIComponent(editFileId)
         : 'path=' + encodeURIComponent(editPath);
       const res = await API.get('/api/files/note-content?' + noteQuery);
-      if (!res.ok) { Toast.show('加载笔记失败', 'error'); return; }
+      if (!res.ok) {
+        // 404：笔记被删/越权 → 关编辑器并把深链规整回列表（不留在打不开的 #/notes/<id>）
+        if (res.status === 404) { Toast.show('笔记不存在或已删除', 'error'); finalizeClose(true); return; }
+        Toast.show('加载笔记失败', 'error'); return;
+      }
       const data = await res.json();
+      // 按 path 打开时此处才拿到真编号：补全 editFileId / 句柄 / 深链（push 到 #/notes 基座之上）
+      const fid = data.file_id || editFileId || '';
+      if (fid && fid !== editFileId) editFileId = fid;
+      if (fid) {
+        if (_noteEditor === _reg) _reg.noteId = fid;
+        // path-only 打开的延迟补写：仅当编辑器仍存活且来自笔记视图（防止关窗后迟到的响应 push 污染其它视图历史）
+        if (!opts._fromHash && _openedFromView === 'notes' && _noteEditor === _reg) { try { const _t = serializeNotesHash({ noteId: fid }); if (location.hash !== _t) history.pushState(null, '', _t); } catch {} }
+      }
+      currentNotePath = data.path || currentNotePath;  // 记录真实路径，供保存时推导目录（防子目录笔记被挪根）
       ta.value = data.content || '';
       titleEl.value = stripExt(data.name || editName);
+      if (crumbTitleEl) crumbTitleEl.textContent = titleEl.value.trim() || (isEdit ? '未命名笔记' : '新笔记');  // 加载后同步面包屑
       noteTags = data.tags || [];
       notePinned = !!data.pinned;
       if (notePinned) pinBtn.classList.add('is-active');
@@ -1974,6 +2279,8 @@ async function handleWikilinkClick(el) {
       const preview = document.querySelector('.preview-overlay');
       if (preview) preview.remove();
       const isNote = /\.(md|markdown|mdown|mkd)$/i.test(data.name);
+      // 若当前已有编辑器，先冲刷草稿再静默关闭（保留其历史项），避免模态叠层与句柄错乱
+      await _closeNoteForSwap();
       if (isNote) {
         openNoteEditor({ path: data.path, fileId: data.file_id, name: data.name });
       } else {
@@ -3757,12 +4064,13 @@ async function renameFile(path, name) {
 // ============ 回收站 ============
 
 async function loadTrashCount() {
+  // 侧栏不再展示回收站计数（角标已移除）；无角标则无需请求，直接返回
+  const badge = document.getElementById('trash-count');
+  if (!badge) return;
   try {
     const res = await API.get('/api/files/trash/stats');
     if (!res.ok) return;
     const data = await res.json();
-    const badge = document.getElementById('trash-count');
-    if (!badge) return;
     if (data.total > 0) { badge.textContent = data.total > 99 ? '99+' : data.total; badge.hidden = false; }
     else { badge.hidden = true; }
   } catch {}
@@ -5378,6 +5686,89 @@ function wireSettingsGlobal() {
   else if (mq.addListener) mq.addListener(onMq);
 }
 
+// ============ Notes · 深链路由（仿设置页：#/notes[/<file_id>|/new]）============
+// URL 只承载 file_id（稳定代理，不含真实路径）；hash 片段不上服务端（零痕迹 DNA）。
+// 写入一律 pushState/replaceState（不触发 hashchange），故无自身重入；
+// hashchange 仅来自用户前进/后退，handler 同步处理、绝不在其中弹模态确认（避免与编辑器叠层死锁）。
+let _notesWired = false;
+let _pendingNotesHash = false;     // 编辑器内确认弹窗期间被推迟的深链变化，关窗后补
+let _notesConfirmOpen = false;     // confirmClose 的确认弹窗是否打开（用于推迟 hashchange）
+let _noteEditor = null;            // 当前编辑器句柄：{ noteId, dirty, close(touchHistory) }
+
+function wireNotesGlobal() {
+  if (_notesWired) return;
+  _notesWired = true;
+  const handle = () => {
+    if (!isNotesHash(location.hash)) return;          // 非笔记深链交给其它视图
+    // 非编辑器确认弹窗开着时推迟（避免在弹窗底下重渲视图）；编辑器自身的确认弹窗由 _notesConfirmOpen 分支处理
+    if (document.querySelector('.modal-overlay:not(:has(.note-editor-modal))')) { _pendingNotesHash = true; return; }
+    if (App.currentView !== 'notes') App.navigate('notes', { fromHash: true });   // 跨视图后退/前进到笔记时先切视图（renderNotes 规整基座，随后再压回 /<id>）
+    const { noteId, isNew } = parseNotesHash(location.hash);
+    applyNotesHash(noteId, isNew);
+  };
+  window.addEventListener('hashchange', () => {
+    if (_notesConfirmOpen) { _pendingNotesHash = true; return; }   // 确认弹窗叠在编辑器上：关窗后补
+    handle();
+  });
+  document.addEventListener('sx-modal-close', () => {
+    if (_pendingNotesHash) { _pendingNotesHash = false; handle(); }
+    if (_pendingViewHash) {
+      _pendingViewHash = false;
+      const _m = /^#\/(transfer|chat|files|trash)\/?$/.exec((location.hash || '').trim());
+      if (_m && _m[1] !== App.currentView) App.navigate(_m[1], { fromHash: true });
+    }
+  });
+  // 排序菜单 / 编辑器溢出菜单 外点击关闭（全局一次；按钮自身 stopPropagation，不会被误关）
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.notes-sort')) {
+      const m = document.getElementById('notes-sort-menu'); if (m) m.classList.remove('open');
+      const b = document.getElementById('notes-sort-btn'); if (b) b.setAttribute('aria-expanded', 'false');
+    }
+    if (!e.target.closest('.ed-more')) {
+      const em = document.getElementById('note-more-menu'); if (em) em.classList.remove('open');
+      const eb = document.getElementById('btn-note-more'); if (eb) eb.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+// 换开关闭（深链切换 / 维基跳转 / 反链跳转）：先冲刷草稿再关旧编辑器（#1523 防静默丢稿），并停掉自动保存计时器
+async function _closeNoteForSwap() {
+  if (_noteEditor) {
+    if (_noteEditor.dirty) { try { await _noteEditor.flush(); } catch {} }
+    if (_noteEditor.cancelAuto) _noteEditor.cancelAuto();
+    _noteEditor.close(false);
+  }
+}
+
+// 把当前 URL 规整为指定笔记深链（replace 不产生历史项，用于关闭/恢复）
+function _writeNotesHash(idKey) {
+  const target = '#/notes' + (idKey ? '/' + idKey : '');
+  try { if (location.hash !== target) history.replaceState(null, '', target); } catch {}
+}
+
+// 由 hashchange 触发的状态对齐（同步、无模态）。dirty 时拒绝关闭/切换，恢复 URL 并提示，杜绝丢稿。
+function applyNotesHash(noteId, isNew) {
+  const wantOpen = !!(noteId || isNew);
+  const idKey = isNew ? 'new' : (noteId || '');
+  if (_noteEditor) {
+    if (!wantOpen) {                                              // 后退到列表
+      if (_noteEditor.dirty) { _writeNotesHash(_noteEditor.noteId); Toast.show('有未保存的更改，请先保存或丢弃', 'warning', 3000); }
+      else _noteEditor.close(false);
+    } else if (idKey !== _noteEditor.noteId) {                    // 前进/后退到另一篇
+      if (_noteEditor.dirty) { _writeNotesHash(_noteEditor.noteId); Toast.show('有未保存的更改，请先保存或丢弃', 'warning', 3000); }
+      else { _noteEditor.close(false); _openNoteFromHash(noteId, isNew); }
+    }
+  } else if (wantOpen) {
+    _openNoteFromHash(noteId, isNew);                             // 当前无编辑器（前进恢复等）
+  }
+}
+
+function _openNoteFromHash(noteId, isNew, fromHash = true) {
+  // fromHash=true：hash 已是目标（前进/后退恢复），不要再 push 造成重复历史项；
+  // fromHash=false：冷启动已在 init 把基座规整为 #/notes，此处需 push 编号到栈顶。
+  openNoteEditor(isNew ? { _fromHash: fromHash } : { fileId: noteId, _fromHash: fromHash });
+}
+
 function isSettingsDrawerMode() {
   return window.matchMedia('(max-width: 899.98px)').matches;
 }
@@ -6474,12 +6865,19 @@ const App = {
       renderLogin(); return;
     }
     this.renderLayout();
-    this.navigate('transfer');
-    // 设置深链冷启动直达：#/settings/<section>[/<anchor>]（其他 hash 不受影响）
-    if ((location.hash || '').startsWith('#/settings/')) {
-      const { section, anchor } = parseSettingsHash(location.hash);
-      this.navigate('settings', { section, anchor });
+    // 冷启动按 URL 深链直达：设置子状态 / 笔记(可带 id|new) / 通用视图 #/<view>；无匹配回落传输助手
+    const _ih = (location.hash || '').trim();
+    let _iv = 'transfer', _iopts = {};
+    if (_ih.startsWith('#/settings/')) { _iv = 'settings'; const { section, anchor } = parseSettingsHash(_ih); _iopts = { section, anchor }; }
+    else if (isNotesHash(_ih)) { _iv = 'notes'; }
+    else { const _vm = /^#\/(transfer|chat|files|trash)\/?$/.exec(_ih); if (_vm) _iv = _vm[1]; }
+    _iopts.fromHash = true;   // 冷启动用 replace，避免在已加载的 URL 之上重复压栈
+    this.navigate(_iv, _iopts);
+    if (_iv === 'notes') {
+      const { noteId, isNew } = parseNotesHash(_ih);
+      if (noteId || isNew) _openNoteFromHash(noteId, isNew, false);   // renderNotes 已规整 #/notes 基座，此处压入 #/notes/<id>
     }
+    wireViewHash();   // 通用视图间的前进/后退路由
     setupDragDrop();
     setupPaste();
     setupGlobalShortcuts();
@@ -6522,7 +6920,7 @@ const App = {
               ${aiEnabled ? `<button class="nav-item" data-view="chat" data-tip="AI 助手" title="AI 助手">${ICONS.chat}<span class="nav-item-label">AI 助手</span></button>` : ''}
               <button class="nav-item" data-view="files" data-tip="文件库" title="文件库">${ICONS.files}<span class="nav-item-label">文件库</span></button>
               <button class="nav-item" data-view="notes" data-tip="笔记" title="笔记">${ICONS.note}<span class="nav-item-label">笔记</span></button>
-              <button class="nav-item" data-view="trash" data-tip="回收站" title="回收站">${ICONS.trash}<span class="nav-item-label">回收站</span><span class="nav-badge" id="trash-count" hidden>0</span></button>
+              <button class="nav-item" data-view="trash" data-tip="回收站" title="回收站">${ICONS.trash}<span class="nav-item-label">回收站</span></button>
             </div>
             <div class="nav-section">
               <div class="nav-section-label">系统</div>
@@ -6581,12 +6979,23 @@ const App = {
  navigate(view, opts = {}) {
    // 离开聊天视图时中止进行中的流式回复，避免向已分离的 DOM 继续写入
    if (this.currentView === 'chat' && view !== 'chat' && currentChatAbort) currentChatAbort.abort();
-   // 离开设置视图时清除深链 hash（防返回键意外回到旧章节；hash 仅在设置视图内有意义）
-   if (this.currentView === 'settings' && view !== 'settings') {
-     try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+   const _changingView = view !== this.currentView;   // 点击已激活项=刷新，不应入栈（否则后退空转）
+   // 离开笔记视图：有未保存编辑器则拦截并还原深链（防丢稿 / 浮层残留 / 后退时 URL 与视图错位），否则静默关编辑器
+   if (this.currentView === 'notes' && view !== 'notes') {
+     if (_noteEditor) {
+       if (_noteEditor.dirty) {
+         Toast.show('有未保存的笔记更改，请先保存或丢弃', 'warning', 3000);
+         try { history.replaceState(null, '', '#/notes/' + (_noteEditor.noteId || '')); } catch {}   // 拦截后退时把 URL 还原到当前编辑器
+         return;
+       }
+       _noteEditor.close(false);
+     }
+     noteSelectMode = false; noteSelection.clear();   // 离开视图即退出选择态
    }
    this.currentView = view;
     document.querySelectorAll('.sidebar .nav-item[data-view]').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+   // 视图级深链：settings/notes 在 render 时写子状态深链，其余视图写 #/<view>（侧栏点击 push 以支持后退，hash 驱动/冷启动 replace）
+   if (view !== 'settings' && view !== 'notes' && _changingView) { try { history[opts.fromHash ? 'replaceState' : 'pushState'](null, '', '#/' + view); } catch {} }
    if (view === 'chat' && !(this.currentUser && this.currentUser.ai_enabled)) {
       document.getElementById('main-content').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;color:var(--text-muted)">${ICONS.chat}<p>管理员未为您开通 AI 助手功能</p></div>`;
       return;

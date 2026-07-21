@@ -2,7 +2,7 @@
 
 // 与用户端共享的模块：改密弹窗接线（消灭双端复制漂移）+ 审计词表单一真源
 import { changePasswordFormHTML, wireChangePasswordForm } from './utils/password-dialog.js?v=96';
-import { AUDIT_ACTIONS, auditLabel } from './utils/audit-actions.js?v=96';
+import { AUDIT_ACTIONS, auditLabel } from './utils/audit-actions.js?v=97';
 
 const API = {
   // 管理员令牌存 HttpOnly cookie（与用户端一致），前端 JS 不可读，防 XSS 偷令牌。
