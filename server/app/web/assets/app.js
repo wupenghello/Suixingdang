@@ -10,7 +10,7 @@ if (window.mermaid) {
 // import 带 ?v=（与 index.html 的 app.js?v= 同步）：改 utils 后需同步升这里 + index.html 的 ?v=，
 // 否则浏览器命中缓存的旧 utils。check-cache-busting.mjs 在 CI 兜底检测漏改。
 import { formatSize, formatDate, formatDateTime, stripExt } from './utils/format.js?v=61';
-import { parseServerTs } from './utils/time.js?v=60';
+import { parseServerTs, formatRelTime } from './utils/time.js?v=61';
 import { escapeHtml } from './utils/dom.js?v=60';
 import { getPreviewType, fileTypeBadge } from './utils/file-classify.js?v=60';
 import { ICONS, getFileIcon } from './utils/icons.js?v=64';
@@ -18,10 +18,25 @@ import { renderMarkdown, renderNoteMarkdown } from './utils/markdown.js?v=61';
 import { isTokenActive, tokenStatusBadge, tokenKindBadge, tokenExpiryText } from './utils/tokens.js?v=60';
 import { trashShellHTML, trashBannerHTML, trashEmptyStateHTML, trashTableHTML } from './utils/trash-layout.js?v=66';
 import { createTrashSelection } from './utils/trash-selection.js?v=66';
-import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=93';
+import { SETTINGS_SECTIONS, getSection, normalizeSectionId, normalizeAnchor, parseSettingsHash, serializeSettingsHash, filterSettingsIndex } from './utils/settings-search.js?v=96';
+import { isNotesHash, parseNotesHash, serializeNotesHash } from './utils/notes-router.js?v=1';
+import { fmtKey, normalizeHint } from './utils/platform.js?v=1';
 import { mountPasswordField } from './utils/password-field.js?v=95';
-import { auditLabel, auditCls, auditCategory } from './utils/audit-actions.js?v=96';
+import { auditLabel, auditCls } from './utils/audit-actions.js?v=97';
 import { changePasswordFormHTML, wireChangePasswordForm } from './utils/password-dialog.js?v=96';
+
+let noteSelectMode = false;        // 笔记批量选择模式（模块级，跨重渲/筛选保留）
+const noteSelection = new Set();   // 选中的笔记 path 集合
+
+// 通用视图（transfer/chat/files/trash）间的前进/后退路由；settings/notes 子状态由各自 handler 处理
+let _pendingViewHash = false;    // 弹层期间被推迟的视图深链变化，关窗后补
+function wireViewHash() {
+  window.addEventListener('hashchange', () => {
+    if (document.querySelector('.modal-overlay')) { _pendingViewHash = true; return; }   // 弹层期间不切视图（避免与确认弹窗竞态），关窗后补
+    const m = /^#\/(transfer|chat|files|trash)\/?$/.exec((location.hash || '').trim());
+    if (m && m[1] !== App.currentView) App.navigate(m[1], { fromHash: true });
+  });
+}
 
 // ============ API 层 ============
 const API = {
@@ -172,6 +187,14 @@ const UploadManager = {
 const SORT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="13" y2="7"/><line x1="4" y1="12" x2="11" y2="12"/><line x1="4" y1="17" x2="9" y2="17"/><polyline points="15,14 18,17 21,14"/></svg>';
 const GRID_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg>';
 const LIST_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg>';
+// 笔记页控件补充图标（线性 / currentColor，与 icons.js 同约定）
+const NOTE_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="m6 9 6 6 6-6"/></svg>';
+const NOTE_CK = '<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const NOTE_CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5l3 2"/></svg>';
+const NOTE_PING = '<svg class="note-card-pin-g" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>';
+const NOTE_MORE = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
+const NOTE_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const NOTE_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></svg>';
 const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20,6 9,17 4,12"/></svg>';
 const SELECT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><polyline points="8.5,12 11,14.5 15.5,9.5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -188,11 +211,102 @@ const ICON_CHEVRON_LEFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 
 
 // 偏好持久化（视图、排序等）
+// 存储分两层：设备本地 localStorage（权威，永远可用）+ 可选的账户云同步（仅界面偏好，
+// 无 PII、无令牌，与零痕迹承诺不冲突）。云同步只在用户显式开启时生效，失败静默降级。
+const CLOUD_PREF_KEYS = ['sidebarCollapsed', 'modKeyHint', 'cmdActionUse']; // 与服务端 /api/auth/prefs 白名单一一对应
 function loadPref(key, def) {
   try { const v = JSON.parse(localStorage.getItem('sxd_' + key)); return v == null ? def : v; } catch { return def; }
 }
 function savePref(key, val) {
   try { localStorage.setItem('sxd_' + key, JSON.stringify(val)); } catch {}
+  scheduleCloudPrefPush(key);
+}
+let _cloudPrefTimer = null;
+function scheduleCloudPrefPush(key) {
+  if (!CLOUD_PREF_KEYS.includes(key)) return;
+  if (!loadPref('prefsCloudSync', false)) return;
+  clearTimeout(_cloudPrefTimer);
+  _cloudPrefTimer = setTimeout(pushCloudPrefs, 800); // 防抖：折叠连点/频次连加合并为一次请求
+}
+function collectCloudPrefs() {
+  const prefs = {};
+  for (const k of CLOUD_PREF_KEYS) {
+    const v = loadPref(k, null);
+    if (v != null) prefs[k] = v;
+  }
+  return prefs;
+}
+async function pushCloudPrefs() {
+  try { await API.put('/api/auth/prefs', { prefs: collectCloudPrefs() }); } catch {} // 静默：本地永远权威
+}
+// 登录后拉取云端偏好：仅填补本地未设置的键（本地已有 = 本设备用户明确的状态，不被覆盖）。
+// 旧后端无此接口 / 网络异常时静默等同纯本地模式。
+async function pullCloudPrefs() {
+  try {
+    const res = await API.get('/api/auth/prefs', { _skipLogoutRedirect: true });
+    if (!res.ok) return;
+    const data = await res.json();
+    const cloud = (data && data.prefs) || {};
+    for (const k of CLOUD_PREF_KEYS) {
+      if (cloud[k] == null) continue;
+      let hasLocal = true;
+      try { hasLocal = localStorage.getItem('sxd_' + k) != null; } catch {}
+      if (!hasLocal) { try { localStorage.setItem('sxd_' + k, JSON.stringify(cloud[k])); } catch {} }
+    }
+  } catch {}
+}
+
+// ---- 侧栏折叠：单一真源 ----
+// 折叠状态三处必须同步：DOM 类（.sidebar.collapsed + .app-layout.sidebar-collapsed）、
+// toggle 按钮的 aria/title、localStorage。按钮点击 / ⌘B(Ctrl+B) / 设置页开关全走这一入口。
+function applySidebarToggleState(collapsed) {
+  const btn = document.getElementById('sidebar-toggle');
+  if (!btn) return;
+  btn.setAttribute('aria-expanded', String(!collapsed));
+  btn.title = collapsed ? '展开侧栏' : '收起侧栏';
+}
+function setSidebarCollapsed(collapsed) {
+  const sb = document.getElementById('sidebar');
+  if (!sb) return;
+  sb.classList.toggle('collapsed', collapsed);
+  document.querySelector('.app-layout')?.classList.toggle('sidebar-collapsed', collapsed);
+  applySidebarToggleState(collapsed);
+  savePref('sidebarCollapsed', collapsed);
+  // 首次引导结束：停掉呼吸提示
+  savePref('sidebarHintSeen', true);
+  document.getElementById('sidebar-toggle')?.classList.remove('pulse-once');
+}
+
+// ---- 快捷操作面板辅助 ----
+// 动作使用频次：仅设备本地聚合，用于"常用"组重排；绝不上传（零痕迹）
+function countActionUse(label) {
+  const use = loadPref('cmdActionUse', {}) || {};
+  use[label] = (use[label] || 0) + 1;
+  const keys = Object.keys(use);
+  if (keys.length > 64) { // 按频次裁剪到 64 个，防无限增长
+    keys.sort((a, b) => (use[b] || 0) - (use[a] || 0)).slice(64).forEach(k => delete use[k]);
+  }
+  savePref('cmdActionUse', use);
+}
+let _paletteTagCache = null;
+async function fetchAllTags() {
+  if (_paletteTagCache) return _paletteTagCache;
+  try {
+    const res = await API.get('/api/files/all-tags');
+    if (res.ok) { const d = await res.json(); _paletteTagCache = (d.tags || []).map(t => t.name); }
+  } catch {}
+  return _paletteTagCache || [];
+}
+// "问 AI：<问题>"：带到 AI 助手输入框并聚焦，由用户确认发送（不自动烧 token）
+function askAiWithQuestion(question) {
+  if (!(App.currentUser && App.currentUser.ai_enabled)) { Toast.show('管理员未为您开通 AI 助手功能', 'info'); return; }
+  App.navigate('chat');
+  setTimeout(() => {
+    const ci = document.getElementById('chat-input');
+    if (!ci) return;
+    if (question) { ci.value = question; ci.dispatchEvent(new Event('input', { bubbles: true })); }
+    ci.focus();
+  }, 120);
 }
 
 // 列表加载骨架屏（替代纯文字"加载中..."）
@@ -294,7 +408,7 @@ async function openAccountPopover(anchor) {
     <div class="ap-login" id="ap-login"></div>
     <div class="ap-menu" role="none">
       <button class="ap-item" role="menuitem" data-ap="account">${ICONS.user}<span>账户详情</span></button>
-      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全与隐私</span></button>
+      <button class="ap-item" role="menuitem" data-ap="security">${ICONS.shield}<span>安全</span></button>
       <button class="ap-item" role="menuitem" data-ap="others">${ICONS.logout}<span>退出其他设备</span></button>
     </div>
     <div class="ap-divider"></div>
@@ -1076,101 +1190,294 @@ async function renderFiles() {
 
 // 笔记视图 v2: Bento 网格布局（对齐落地页 sx-bento）
 async function renderNotes() {
+  wireNotesGlobal();
+  // 进入笔记视图即把深链基座规整为 #/notes（冷启动带 id 时 init 已规整；此处幂等），保证后退能回到列表
+  // 守卫：编辑器打开中、或当前已是带 id/new 的深链时不规整（避免后退落到 #/notes/<id> 被重写、编辑器开着刷列表把 URL 打回 #/notes）
+  const _nh = (location.hash || '').trim();
+  const _pn = parseNotesHash(_nh);
+  if (!_noteEditor && !_pn.noteId && !_pn.isNew) { try { history.replaceState(null, '', '#/notes'); } catch {} }
   document.getElementById('main-content').innerHTML = `
-    <div class="files-header">
+    <div class="files-header notes-head">
       <div class="files-title"><h1>笔记</h1><span class="files-count" id="files-count"></span></div>
-      <div class="files-controls"><button class="btn btn-primary" id="btn-note-new">${ICONS.note}<span>新建笔记</span></button></div>
+      <div class="files-controls">
+        <div class="notes-search" id="notes-search-box">${ICONS.search}<input id="notes-search" type="text" placeholder="搜索笔记" autocomplete="off" spellcheck="false" aria-label="搜索笔记"><button class="notes-search-clr" id="notes-search-clr" type="button" aria-label="清除搜索">${ICONS.close}</button></div>
+        <span class="notes-sort"><button class="btn btn-secondary" id="notes-sort-btn" type="button" aria-haspopup="true" aria-expanded="false">${SORT_ICON}<span id="notes-sort-label">最近修改</span>${NOTE_CHEVRON}</button>
+          <div class="notes-menu" id="notes-sort-menu" role="menu">
+            <button class="notes-menu-i on" type="button" data-sort="modified" role="menuitemradio">${NOTE_CK}最近修改</button>
+            <button class="notes-menu-i" type="button" data-sort="created" role="menuitemradio">${NOTE_CK}最近创建</button>
+            <button class="notes-menu-i" type="button" data-sort="title" role="menuitemradio">${NOTE_CK}标题</button>
+          </div></span>
+        <span class="notes-seg" role="group" aria-label="视图切换">
+          <button id="notes-view-grid" class="on" type="button" title="网格视图" aria-label="网格视图">${GRID_ICON}</button>
+          <button id="notes-view-list" type="button" title="列表视图" aria-label="列表视图">${LIST_ICON}</button>
+        </span>
+        <button class="btn btn-secondary btn-icon-only" id="btn-note-select" type="button" title="批量选择" aria-label="批量选择">${SELECT_ICON}</button>
+        <button class="btn btn-primary" id="btn-note-new" type="button"${noteSelectMode ? ' disabled' : ''}>${ICONS.note}<span>新建笔记</span></button>
+      </div>
     </div>
-    <div class="files-body"><div class="files-main"><div id="file-content"></div></div></div>`;
+    <div id="notes-batch-bar" class="batch-bar" style="display:none" aria-live="polite"></div>
+    <div class="files-body"><div class="files-main">
+      <div class="notes-toolbar" id="notes-toolbar">
+        <div class="notes-chips" id="notes-chips"></div>
+        <span class="notes-toolbar-r"><span class="notes-filtered" id="notes-filtered"></span><button class="notes-clearlink" id="notes-clear" type="button" hidden>清除筛选</button></span>
+      </div>
+      <div id="file-content"></div>
+    </div></div>`;
   document.getElementById('btn-note-new').addEventListener('click', showNoteEditor);
+  document.getElementById('btn-note-select').addEventListener('click', () => { if (noteSelectMode) exitNoteSelectMode(); else enterNoteSelectMode(); });
   const content = document.getElementById('file-content');
   const cntEl = document.getElementById('files-count');
+  // 页头控件接线（搜索防抖+输入法守卫；排序菜单外点击关闭见 wireNotesGlobal；视图偏好持久化）
+  const searchInput = document.getElementById('notes-search');
+  const searchBox = document.getElementById('notes-search-box');
+  let searchDeb = 0;
+  searchInput.addEventListener('input', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    clearTimeout(searchDeb);
+    searchDeb = setTimeout(() => { notesQ = e.target.value; searchBox.classList.toggle('has', !!notesQ); paintNotes(); }, 80);
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && e.target.value) { e.stopPropagation(); e.target.value = ''; notesQ = ''; searchBox.classList.remove('has'); paintNotes(); }
+  });
+  document.getElementById('notes-search-clr').addEventListener('click', () => { searchInput.value = ''; notesQ = ''; searchBox.classList.remove('has'); paintNotes(); searchInput.focus(); });
+  const sortBtn = document.getElementById('notes-sort-btn');
+  const sortMenu = document.getElementById('notes-sort-menu');
+  sortBtn.addEventListener('click', (e) => { e.stopPropagation(); const open = sortMenu.classList.toggle('open'); sortBtn.setAttribute('aria-expanded', String(open)); });
+  sortMenu.addEventListener('click', (e) => {
+    const it = e.target.closest('[data-sort]'); if (!it) return;
+    notesSort = it.dataset.sort; savePref('noteSort', notesSort);
+    sortMenu.querySelectorAll('.notes-menu-i').forEach(m => m.classList.toggle('on', m === it));
+    document.getElementById('notes-sort-label').textContent = it.textContent.trim();
+    sortMenu.classList.remove('open'); sortBtn.setAttribute('aria-expanded', 'false');
+    paintNotes();
+  });
+  const viewGrid = document.getElementById('notes-view-grid');
+  const viewList = document.getElementById('notes-view-list');
+  function setNotesView(v) {
+    notesView = v; savePref('noteView', v);
+    viewGrid.classList.toggle('on', v === 'grid'); viewList.classList.toggle('on', v === 'list');
+    content.querySelectorAll('.notes-grid').forEach(g => g.classList.toggle('list', v === 'list'));
+  }
+  viewGrid.addEventListener('click', () => setNotesView('grid'));
+  viewList.addEventListener('click', () => setNotesView('list'));
+  document.getElementById('notes-clear').addEventListener('click', () => { notesQ = ''; notesTag = ''; searchInput.value = ''; searchBox.classList.remove('has'); paintNotes(); });
   content.innerHTML = notesSkeletonHTML();
+  // ---- 列表状态提前声明（空默认值）：页头控件已在上方接线并引用它们，避免空库/加载失败提前 return 后落入 TDZ ----
+  let notesQ = '', notesTag = '';
+  let notesSort = loadPref('noteSort', 'modified');
+  let notesView = loadPref('noteView', 'grid');
+  let ALL = [], tagCounts = {}, topTags = [];
   let notes = [];
+  let loadError = false;
   try {
     // F1: 用专用 notes 端点（递归覆盖子目录/分组），不再走非递归的 /api/files/list
     const res = await API.get('/api/files/notes');
     if (res && res.ok) {
       const data = await res.json();
       notes = Array.isArray(data.notes) ? data.notes : [];
-    }
-  } catch { notes = []; }
+    } else { loadError = true; }
+  } catch { loadError = true; }
   if (cntEl) cntEl.textContent = notes.length ? `${notes.length} 篇` : '';
-  if (!notes.length) {
-    content.innerHTML = `<div class="notes-empty">
-      <div class="notes-empty-icon">${ICONS.note}</div>
-      <div class="notes-empty-title">还没有笔记</div>
-      <div class="notes-empty-desc">点击「新建笔记」开始记录，用 [[页面名]] 建立双向链接</div>
+  ALL = notes;
+  tagCounts = {};
+  ALL.forEach(n => (n.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+  topTags = Object.keys(tagCounts).sort((a, b) => tagCounts[b] - tagCounts[a]).slice(0, 6);
+  // 加载失败：专用错误态 + 重试（不再伪装成「还没有笔记」，避免用户误以为数据丢失）
+  if (loadError && !notes.length) {
+    content.innerHTML = `<div class="notes-empty notes-empty--error">
+      <div class="notes-empty-icon notes-empty-icon--error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></svg></div>
+      <div class="notes-empty-title">笔记列表加载失败</div>
+      <div class="notes-empty-desc">网络异常或服务暂时不可用，你的笔记都安全地保存在服务器上。</div>
+      <button class="btn btn-primary notes-empty-cta" id="btn-notes-retry">${ICONS.refresh}<span>重试</span></button>
     </div>`;
+    document.getElementById('btn-notes-retry').addEventListener('click', () => renderNotes());
     return;
   }
-  // 后端已 pinned 优先、其次 modified 倒序；前端再排一次仅为防御（保留无妨）
-  notes.sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return 0;
-  });
-  content.innerHTML = `<div class="notes-grid">${notes.map(item => {
-    const title = escapeHtml(stripExt(item.name) || '未命名笔记');
-    const excerpt = escapeHtml(item.summary || '');
-    const dateStr = item.modified ? formatDate(item.modified) : '';
-    const sizeStr = (item.size != null && item.size > 0) ? formatSize(item.size) : '';
-    const tags = Array.isArray(item.tags) ? item.tags.slice(0, 3) : [];
-    const aiTags = Array.isArray(item.ai_tags) ? item.ai_tags.slice(0, 2) : [];
-    // C1: 旧代码拼了无用的 allTags 数组，这里直接按 (tags.length || aiTags.length) 判断
-    const tagsHtml = (tags.length || aiTags.length) ? '<div class="note-card-tags">' + tags.map(t => '<span class="note-card-tag">' + escapeHtml(t) + '</span>').join('') + aiTags.map(t => '<span class="note-card-tag ai-tag">' + escapeHtml(t) + '</span>').join('') + '</div>' : '';
-    const pinHtml = item.pinned ? `<span class="note-card-pin">${ICONS.pin}置顶</span>` : '';
-    return `<div class="note-card" data-path="${escapeHtml(item.path)}" data-file-id="${escapeHtml(item.file_id || '')}" data-name="${escapeHtml(item.name)}">
-      ${pinHtml}
-      <div class="note-card-actions">
-        <button class="note-card-action" data-action="edit" title="编辑" aria-label="编辑 ${escapeHtml(stripExt(item.name))}">${ICONS.edit}</button>
-        <button class="note-card-action danger" data-action="delete" title="删除" aria-label="删除 ${escapeHtml(stripExt(item.name))}">${ICONS.trash}</button>
-      </div>
-      <div class="note-card-title">${title}</div>
-      ${excerpt ? `<div class="note-card-excerpt">${excerpt}</div>` : ''}
+  // 空库态不再提前 return：落入 paintNotes 渲染（页头控件已可用，消除 TDZ）
+  // ---- 列表状态：搜索 / 标签 / 排序 / 视图（声明已提前至 fetch 之前，此处仅余渲染辅助态）----
+  let noteItemByPath = {};        // path -> {path,name,tags,pinned}（供批量标签/置顶读现有值）
+  let noteVisiblePaths = [];      // 当前筛选后可见 path（供全选）
+  // —— 批量选择：状态在模块级（noteSelectMode/noteSelection），函数在此闭包内以便调用 paintNotes ——
+  function enterNoteSelectMode() { noteSelectMode = true; noteSelection.clear(); const sb = document.getElementById('btn-note-select'); if (sb) sb.classList.add('is-active'); paintNotes(); updateNotesBatchBar(); }
+  function exitNoteSelectMode() { noteSelectMode = false; noteSelection.clear(); const sb = document.getElementById('btn-note-select'); if (sb) sb.classList.remove('is-active'); paintNotes(); updateNotesBatchBar(); }
+  function toggleNoteSelect(path) {
+    const had = noteSelection.has(path);
+    if (had) noteSelection.delete(path); else noteSelection.add(path);
+    document.querySelectorAll(`.note-card[data-path="${CSS.escape(path)}"]`).forEach(el => {
+      el.classList.toggle('is-selected', !had);
+      const chk = el.querySelector('.note-check');
+      if (chk) { chk.classList.toggle('is-checked', !had); chk.setAttribute('aria-checked', String(!had)); chk.checked = !had; }
+    });
+    updateNotesBatchBar();
+  }
+  function updateNotesBatchBar() {
+    const bar = document.getElementById('notes-batch-bar'); if (!bar) return;
+    if (!noteSelectMode) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    const n = noteSelection.size; bar.style.display = '';
+    if (!bar.querySelector('#btn-nbatch-delete')) {
+      bar.innerHTML = `<span class="batch-count"></span><div class="batch-spacer"></div>
+        <button class="btn btn-secondary btn-sm" id="btn-nselect-all" type="button">全选当前列表</button>
+        <button class="btn btn-secondary btn-sm" id="btn-nbatch-tag" type="button">批量标签</button>
+        <button class="btn btn-secondary btn-sm" id="btn-nbatch-pin" type="button">置顶/取消</button>
+        <button class="btn btn-danger btn-sm" id="btn-nbatch-delete" type="button">删除</button>
+        <button class="btn btn-secondary btn-sm" id="btn-ncancel-select" type="button">退出选择</button>`;
+      bar.querySelector('#btn-nselect-all').addEventListener('click', selectAllNotes);
+      bar.querySelector('#btn-nbatch-tag').addEventListener('click', batchTagNotes);
+      bar.querySelector('#btn-nbatch-pin').addEventListener('click', batchPinNotes);
+      bar.querySelector('#btn-nbatch-delete').addEventListener('click', batchDeleteNotes);
+      bar.querySelector('#btn-ncancel-select').addEventListener('click', exitNoteSelectMode);
+    }
+    bar.querySelector('.batch-count').textContent = `已选 ${n} 项`;
+    ['btn-nbatch-tag', 'btn-nbatch-pin', 'btn-nbatch-delete'].forEach(id => { const b = bar.querySelector('#' + id); if (b) b.disabled = !n; });
+  }
+  function selectAllNotes() { noteVisiblePaths.forEach(p => noteSelection.add(p)); paintNotes(); updateNotesBatchBar(); }
+  async function batchPinNotes() {
+    const paths = [...noteSelection]; if (!paths.length) return;
+    const allPinned = paths.every(p => { const it = noteItemByPath[p]; return it && it.pinned; });
+    let ok = 0, fail = 0;
+    for (const p of paths) { try { const r = await API.put('/api/files/pin', { path: p, pinned: !allPinned }); if (r.ok) ok++; else fail++; } catch { fail++; } }
+    Toast.show(`${allPinned ? '已取消置顶' : '已置顶'} ${ok} 项${fail ? `，失败 ${fail}` : ''}`, fail ? 'warning' : 'success');
+    exitNoteSelectMode(); refreshCurrentView();
+  }
+  async function batchTagNotes() {
+    const paths = [...noteSelection]; if (!paths.length) return;
+    const tag = await showInputDialog({ title: `为 ${paths.length} 篇笔记添加标签`, placeholder: '输入标签名称', confirmText: '添加标签' });
+    if (tag === null) return;
+    let ok = 0, fail = 0;
+    for (const p of paths) { try { const it = noteItemByPath[p]; const existing = (it && it.tags) ? [...it.tags] : []; if (!existing.includes(tag)) existing.push(tag); const r = await API.put('/api/files/tags', { path: p, tags: existing }); if (r.ok) ok++; else fail++; } catch { fail++; } }
+    Toast.show(`已为 ${ok} 篇笔记添加标签「${tag}」${fail ? `，失败 ${fail}` : ''}`, fail ? 'warning' : 'success');
+    exitNoteSelectMode(); refreshCurrentView();
+  }
+  async function batchDeleteNotes() {
+    const paths = [...noteSelection]; if (!paths.length) return;
+    const ok = await confirmDialog({ title: '批量删除笔记', message: `确定删除选中的 ${paths.length} 篇笔记？将移入回收站（保留期内可恢复）。`, confirmText: '删除', danger: true });
+    if (!ok) return;
+    const results = await Promise.all(paths.map(p => API.del(`/api/files?path=${encodeURIComponent(p)}`).then(r => r.ok).catch(() => false)));
+    const okN = results.filter(Boolean).length, fail = results.length - okN;
+    Toast.show(`已删除 ${okN} 篇${fail ? `，失败 ${fail}` : ''}`, fail ? 'warning' : 'success');
+    exitNoteSelectMode(); refreshCurrentView();
+  }
+  // 同步排序菜单高亮/标签到初始偏好
+  (function syncSortUI() {
+    const it = sortMenu.querySelector('[data-sort="' + CSS.escape(notesSort) + '"]') || sortMenu.querySelector('[data-sort="modified"]');
+    sortMenu.querySelectorAll('.notes-menu-i').forEach(m => m.classList.toggle('on', m === it));
+    if (it) document.getElementById('notes-sort-label').textContent = it.textContent.trim();
+  })();
+
+  function filteredNotes() {
+    const ql = notesQ.trim().toLowerCase();
+    return ALL.filter(n =>
+      (!ql || (n.name || '').toLowerCase().includes(ql) || (n.summary || '').toLowerCase().includes(ql) || (n.snippet || '').toLowerCase().includes(ql)) &&
+      (!notesTag || (n.tags || []).includes(notesTag)));
+  }
+  function sortNotes(arr) {
+    const a = arr.slice();
+    if (notesSort === 'title') a.sort((x, y) => (x.name || '').localeCompare(y.name || '', 'zh-Hans-CN'));
+    else if (notesSort === 'created') a.sort((x, y) => (y.created || 0) - (x.created || 0));
+    else a.sort((x, y) => (y.modified || 0) - (x.modified || 0));
+    return a;
+  }
+  function noteCardHTML(n) {
+    const title = escapeHtml(stripExt(n.name) || '未命名笔记');
+    const excerpt = escapeHtml(n.summary || n.snippet || '');   // 摘要回退链：AI 摘要 → 正文节选
+    const rel = n.modified ? formatRelTime(n.modified) : '';
+    const size = (n.size != null && n.size > 0) ? formatSize(n.size) : '';
+    const tags = Array.isArray(n.tags) ? n.tags : [];
+    const aiTags = Array.isArray(n.ai_tags) ? n.ai_tags : [];
+    const shown = tags.slice(0, 3);
+    const extra = tags.length > 3 ? '<span class="note-card-tag more">+' + (tags.length - 3) + '</span>' : '';
+    const tagsHtml = (tags.length || aiTags.length)
+      ? '<div class="note-card-tags">' + shown.map(t => '<span class="note-card-tag">' + escapeHtml(t) + '</span>').join('') + extra
+        + aiTags.slice(0, 2).map(t => '<span class="note-card-tag ai-tag">' + ICONS.ai + escapeHtml(t) + '</span>').join('') + '</div>'
+      : '';
+    const pin = n.pinned ? NOTE_PING : '';
+    const selecting = noteSelectMode;
+    const isSel = selecting && noteSelection.has(n.path);
+    const checkHtml = selecting ? `<input type="checkbox" class="note-check ${isSel ? 'is-checked' : ''}" role="checkbox" aria-checked="${isSel}" aria-label="选择 ${title}" ${isSel ? 'checked' : ''}>` : '';
+    const selCls = (selecting ? ' selecting' : '') + (isSel ? ' is-selected' : '');
+    return `<article class="note-card${selCls}" role="button" tabindex="0" aria-label="打开笔记：${title}" data-path="${escapeHtml(n.path)}" data-file-id="${escapeHtml(n.file_id || '')}" data-name="${escapeHtml(n.name)}">
+      ${checkHtml}
+      ${selecting ? '' : `<div class="note-card-actions">
+        <button class="note-card-action" data-action="edit" type="button" title="编辑" aria-label="编辑 ${title}">${ICONS.edit}</button>
+        <button class="note-card-action danger" data-action="delete" type="button" title="删除" aria-label="删除 ${title}">${ICONS.trash}</button>
+      </div>`}
+      <h3 class="note-card-title">${pin}${title}</h3>
+      ${excerpt ? `<p class="note-card-excerpt">${excerpt}</p>` : ''}
       ${tagsHtml}
-      <div class="note-card-meta">
-        <div class="note-card-meta-left">
-          <span>${dateStr || '—'}</span>
-        </div>
-        <div class="note-card-meta-right">
-          <span>${sizeStr}</span>
-        </div>
-      </div>
-    </div>`;
-  }).join('')}</div>`;
-  // 卡片操作：操作按钮 / 右键菜单 / 长按 走删除等次要操作；点击卡片空白区打开编辑器
-  content.querySelectorAll('.note-card').forEach(card => {
-    const cardPath = card.dataset.path;
-    const cardName = card.dataset.name;
-    const cardFileId = card.dataset.fileId;
-    card.addEventListener('click', (e) => {
-      if (e.target.closest('.note-card-action')) return; // 点击操作按钮不打开
-      openNoteEditor({ path: cardPath, fileId: cardFileId, name: cardName });
-    });
-    card.querySelectorAll('.note-card-action').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (btn.dataset.action === 'edit') openNoteEditor({ path: cardPath, fileId: cardFileId, name: cardName });
-        else if (btn.dataset.action === 'delete') deleteNote(cardPath, cardName);
+      <div class="note-card-meta"><span>${NOTE_CLOCK}${rel || '—'}</span>${size ? `<span class="mdot">·</span><span>${size}</span>` : ''}</div>
+    </article>`;
+  }
+  function wireNoteCards() {
+    content.querySelectorAll('.note-card').forEach(card => {
+      const p = card.dataset.path, nm = card.dataset.name, fid = card.dataset.fileId;
+      const open = () => openNoteEditor({ path: p, fileId: fid, name: nm });
+      card.addEventListener('click', (e) => {
+        if (noteSelectMode) { if (!e.target.closest('.note-check')) toggleNoteSelect(p); return; }
+        if (e.target.closest('.note-card-action')) return;
+        open();
       });
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (noteSelectMode) toggleNoteSelect(p); else open(); }
+        else if (!noteSelectMode && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); deleteNote(p, nm); }
+        else if (!noteSelectMode && (e.key === 'ArrowRight' || e.key === 'ArrowDown')) { e.preventDefault(); const nx = card.nextElementSibling; if (nx && nx.classList.contains('note-card')) nx.focus(); }
+        else if (!noteSelectMode && (e.key === 'ArrowLeft' || e.key === 'ArrowUp')) { e.preventDefault(); const pv = card.previousElementSibling; if (pv && pv.classList.contains('note-card')) pv.focus(); }
+      });
+      const chk = card.querySelector('.note-check');
+      if (chk) chk.addEventListener('click', (e) => { e.stopPropagation(); toggleNoteSelect(p); });
+      if (noteSelectMode) return;   // 选择模式下不挂编辑/删除/右键/长按
+      card.querySelectorAll('.note-card-action').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); if (btn.dataset.action === 'edit') open(); else if (btn.dataset.action === 'delete') deleteNote(p, nm); });
+      });
+      card.addEventListener('contextmenu', (e) => { e.preventDefault(); showNotesCardMenu(e.clientX, e.clientY, { path: p, name: nm, fileId: fid }); });
+      // 移动端长按 → 菜单（500ms，不触发单击打开）
+      let pressTimer = null, longPressed = false;
+      const startPress = (x, y) => { longPressed = false; pressTimer = setTimeout(() => { longPressed = true; showNotesCardMenu(x, y, { path: p, name: nm, fileId: fid }); }, 500); };
+      const cancelPress = () => clearTimeout(pressTimer);
+      card.addEventListener('touchstart', (e) => { const t = e.touches[0]; startPress(t.clientX, t.clientY); }, { passive: true });
+      card.addEventListener('touchend', (e) => { cancelPress(); if (longPressed) e.preventDefault(); });
+      card.addEventListener('touchmove', cancelPress);
     });
-    card.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      showNotesCardMenu(e.clientX, e.clientY, { path: cardPath, name: cardName, fileId: cardFileId });
-    });
-    // 移动端长按 → 菜单（500ms，不触发单击打开）
-    let pressTimer = null;
-    let longPressed = false;
-    const startPress = (x, y) => {
-      longPressed = false;
-      pressTimer = setTimeout(() => { longPressed = true; showNotesCardMenu(x, y, { path: cardPath, name: cardName, fileId: cardFileId }); }, 500);
-    };
-    const cancelPress = () => clearTimeout(pressTimer);
-    card.addEventListener('touchstart', (e) => { const t = e.touches[0]; startPress(t.clientX, t.clientY); }, { passive: true });
-    card.addEventListener('touchend', (e) => { cancelPress(); if (longPressed) e.preventDefault(); });
-    card.addEventListener('touchmove', cancelPress);
-  });
+  }
+  function paintNotes() {
+    // 空库态（原提前 return 分支折叠进此，页头控件在空库下同样可用）
+    if (!ALL.length) {
+      content.innerHTML = `<div class="notes-empty"><div class="notes-empty-icon">${ICONS.note}</div><div class="notes-empty-title">还没有笔记</div><div class="notes-empty-desc">点击「新建笔记」开始记录，用 [[页面名]] 建立双向链接</div><button class="btn btn-primary notes-empty-cta" id="btn-notes-first">${ICONS.note}<span>写第一篇笔记</span></button></div>`;
+      const _fb = document.getElementById('btn-notes-first'); if (_fb) _fb.addEventListener('click', showNoteEditor);
+      return;
+    }
+    noteItemByPath = {}; ALL.forEach(n => { noteItemByPath[n.path] = { path: n.path, name: n.name, tags: n.tags || [], pinned: !!n.pinned }; });
+    const chipsEl = document.getElementById('notes-chips');
+    const chipData = [{ t: '', label: '全部', n: ALL.length }].concat(topTags.map(t => ({ t, label: t, n: tagCounts[t] })));
+    chipsEl.innerHTML = chipData.map(c => `<button class="note-chip${c.t === notesTag ? ' on' : ''}" type="button" data-tag="${escapeHtml(c.t)}">${escapeHtml(c.label)} <span class="n">${c.n}</span></button>`).join('');
+    chipsEl.querySelectorAll('.note-chip').forEach(b => b.addEventListener('click', () => { notesTag = (notesTag === b.dataset.tag) ? '' : b.dataset.tag; paintNotes(); }));
+    const list = sortNotes(filteredNotes());
+    noteVisiblePaths = list.map(n => n.path);
+    const active = !!(notesQ.trim() || notesTag);
+    document.getElementById('notes-filtered').textContent = active ? `筛出 ${list.length} 篇` : '';
+    document.getElementById('notes-clear').hidden = !active;
+    const tb = document.getElementById('notes-toolbar'); if (tb) tb.style.display = ALL.length ? '' : 'none';
+    // 筛选无果态（与「空库」「加载失败」三态互不通用，§5.6）
+    if (active && list.length === 0) {
+      content.innerHTML = `<div class="notes-empty"><span class="notes-empty-icon" style="background:var(--bg-sunken);color:var(--text-muted)">${ICONS.search}</span><div class="notes-empty-title">没有找到匹配的内容</div><div class="notes-empty-desc">没有和 <b style="color:var(--text)">${escapeHtml(notesQ.trim() || notesTag)}</b> 匹配的笔记，换个关键词试试。</div><button class="btn btn-secondary notes-empty-cta" id="btn-notes-clear2" type="button">清除筛选</button></div>`;
+      document.getElementById('btn-notes-clear2').addEventListener('click', () => { notesQ = ''; notesTag = ''; searchInput.value = ''; searchBox.classList.remove('has'); paintNotes(); });
+      return;
+    }
+    const pinned = list.filter(n => n.pinned), rest = list.filter(n => !n.pinned);
+    const gc = 'notes-grid' + (notesView === 'list' ? ' list' : '');
+    const block = (arr) => arr.length ? `<div class="${gc}">${arr.map(noteCardHTML).join('')}</div>` : '';
+    let html = '';
+    if (pinned.length) html += `<div class="notes-section-h">置顶 <span class="cnt">(${pinned.length})</span></div>` + block(pinned);
+    if (pinned.length && rest.length) html += `<div class="notes-section-h">全部笔记 <span class="cnt">(${rest.length})</span></div>`;
+    html += block(rest);
+    content.innerHTML = html;
+    wireNoteCards();
+    if (noteSelectMode) {
+      updateNotesBatchBar();
+      const _sb = document.getElementById('btn-note-select'); if (_sb) _sb.classList.add('is-active');
+    }
+  }
+  setNotesView(notesView);   // 应用初始视图（高亮分段开关）
+  paintNotes();
 }
 
 // 笔记卡片右键/长按菜单（hover 按钮已覆盖编辑/删除，此菜单作完整入口：含重命名/置顶/标签）
@@ -1216,23 +1523,42 @@ function refreshCurrentView() {
 // 笔记编辑器 v3: 沉浸式全屏布局（对齐 landing 简洁风格）
 async function openNoteEditor(opts = {}) {
   const editPath = opts.path || '';
-  const editFileId = opts.fileId || '';
+  let editFileId = opts.fileId || '';
   const editName = opts.name || '';
   const isEdit = !!(editPath || editFileId);
-  const { modal, close } = openModal({ onDismiss: () => close() });
+  const _openedFromView = App.currentView;   // 记录打开来源视图：notes 内写深链；其它视图作为模态叠层，不碰历史
+  // 深链路由：同一时刻仅一个编辑器；若已有则先冲刷草稿再静默关闭（不写历史，保留其历史项供后退回溯）
+  await _closeNoteForSwap();
+  // 打开时的深链键：有 file_id 用它；新建用 'new'；仅按 path 打开暂为空（loadRemote 后补真编号）
+  const idKeyAtOpen = editFileId ? editFileId : (isEdit ? '' : 'new');
+  if (opts._fromHash) {
+    /* hash 已正确 */
+  } else if (_openedFromView === 'notes') {
+    if (idKeyAtOpen) { const _t = serializeNotesHash({ noteId: idKeyAtOpen }); if (location.hash !== _t) history.pushState(null, '', _t); }
+    /* path-only（尚无 id）：交给 loadRemote 补 */
+  } else {
+    /* 作为模态打开在其它视图之上（如 files）：不动历史 */
+  }
+  // Esc/遮罩：有未保存内容时禁止直接关闭（canDismiss 拦），迫使走「取消」确认，杜绝静默丢稿
+  const { modal, close } = openModal({ onDismiss: () => finalizeClose(true), canDismiss: () => !(isDirty && ta.value.trim()) });
   modal.classList.add('note-editor-modal');
   modal.innerHTML = `
     <div class="note-editor-top">
       <div class="note-editor-top-left">
-        <button class="tb-icon-btn" id="btn-note-close" title="关闭">${ICONS.close}</button>
-        <h3>${isEdit ? '编辑笔记' : '新建笔记'}</h3>
+        <button class="tb-icon-btn" id="btn-note-close" title="关闭" aria-label="关闭">${ICONS.close}</button>
+        <nav class="ed-crumb" aria-label="位置"><span class="ed-crumb-root">笔记</span><span class="ed-crumb-sep">/</span><b class="ed-crumb-title" id="ed-crumb-title">${escapeHtml(stripExt(editName)) || (isEdit ? '未命名笔记' : '新笔记')}</b></nav>
       </div>
       <div class="note-editor-top-actions">
-        <button class="tb-icon-btn" id="btn-note-toc" title="目录">${ICONS.toc}</button>
-        <button class="tb-icon-btn" id="btn-note-pin" title="置顶/收藏">${ICONS.pin}</button>
-        <button class="tb-icon-btn" id="btn-note-export" title="导出 HTML">${ICONS.exportIco}</button>
+        <button class="tb-icon-btn" id="btn-note-toc" title="目录" aria-label="目录">${ICONS.toc}</button>
         <button class="btn btn-secondary btn-sm" id="btn-note-ai" title="AI 整理">${ICONS.ai}<span>AI 整理</span></button>
-        <button class="tb-icon-btn" id="btn-note-delete" title="删除笔记">${ICONS.trash}</button>
+        <span class="save-badge" id="note-save-badge" aria-live="polite">${NOTE_CHECK}<span class="sb-text">尚未保存</span></span>
+        <span class="ed-more"><button class="tb-icon-btn" id="btn-note-more" title="更多" aria-label="更多操作" aria-haspopup="true" aria-expanded="false">${NOTE_MORE}</button>
+          <div class="ed-more-menu" id="note-more-menu" role="menu">
+            <button class="ed-more-i" id="btn-note-pin" type="button" role="menuitem">${ICONS.pin}<span>置顶 / 取消置顶</span></button>
+            <button class="ed-more-i" id="btn-note-export" type="button" role="menuitem">${ICONS.exportIco}<span>导出 HTML</span></button>
+            <div class="ed-more-sep"></div>
+            <button class="ed-more-i danger" id="btn-note-delete" type="button" role="menuitem">${ICONS.trash}<span>删除笔记</span></button>
+          </div></span>
       </div>
     </div>
     <input type="text" class="note-title-input" placeholder="笔记标题" maxlength="80" value="${escapeHtml(stripExt(editName))}">
@@ -1327,6 +1653,35 @@ async function openNoteEditor(opts = {}) {
   const summaryRow = modal.querySelector('#note-summary-row');
   const summaryText = modal.querySelector('#note-summary-text');
 
+  // —— 顶栏新增元素：面包屑 / 保存徽标 / 溢出菜单 ——
+  const crumbTitleEl = modal.querySelector('#ed-crumb-title');
+  const saveBadgeEl = modal.querySelector('#note-save-badge');
+  const moreBtn = modal.querySelector('#btn-note-more');
+  const moreMenu = modal.querySelector('#note-more-menu');
+  function fmtNow() { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  function setSaveState(mode, t) {
+    if (!saveBadgeEl) return;
+    saveBadgeEl.className = 'save-badge' + (mode === 'warn' ? ' warn' : mode === 'danger' ? ' dngr' : '');
+    if (mode === 'saved') saveBadgeEl.innerHTML = NOTE_CHECK + '<span class="sb-text">已保存 ' + (t || '') + '</span>';
+    else if (mode === 'saving') saveBadgeEl.innerHTML = '<span class="sb-spin"></span><span class="sb-text">保存中…</span>';
+    else if (mode === 'warn') saveBadgeEl.innerHTML = '<span class="sb-dot"></span><span class="sb-text">未保存</span>';
+    else if (mode === 'danger') saveBadgeEl.innerHTML = NOTE_WARN + '<span class="sb-text">保存失败 · 重试</span>';
+    else saveBadgeEl.innerHTML = NOTE_CHECK + '<span class="sb-text">尚未保存</span>';
+  }
+  saveBadgeEl && saveBadgeEl.addEventListener('click', () => { if (saveBadgeEl.classList.contains('dngr')) runAutosave(); });
+  let autoT = 0;
+  function onContentChange() { setSaveState('warn'); clearTimeout(autoT); autoT = setTimeout(runAutosave, 1500); }
+  function runAutosave() {
+    if (!ta.value.trim()) { setSaveState('warn'); return; }   // 空内容不自动落库
+    setSaveState('saving');
+    doSave(true).then(ok => { if (ok) setSaveState('saved', fmtNow()); else setSaveState('danger'); });
+  }
+  // 面包屑随标题实时变化；标题/正文改动驱动徽标 + 空闲 1.5s 自动保存（与手动保存并存）
+  titleEl.addEventListener('input', () => { crumbTitleEl.textContent = titleEl.value.trim() || (isEdit ? '未命名笔记' : '新笔记'); onContentChange(); });
+  ta.addEventListener('input', onContentChange);
+  // 溢出菜单开合（外点击关闭见 wireNotesGlobal）
+  moreBtn.addEventListener('click', (e) => { e.stopPropagation(); const o = moreMenu.classList.toggle('open'); moreBtn.setAttribute('aria-expanded', String(o)); });
+
   // Close button
   const closeBtn = modal.querySelector('#btn-note-close');
   closeBtn.addEventListener('click', confirmClose);
@@ -1342,10 +1697,10 @@ async function openNoteEditor(opts = {}) {
       if (!links.length) return;
       backlinksRow.style.display = '';
       backlinksEl.innerHTML = links.map((b) =>
-        `<div class="backlink-item" data-path="${escapeHtml(b.path || '')}"><span class="backlink-name">${ICONS.note}${escapeHtml(stripExt(b.name || '') || '未命名笔记')}</span>${b.snippet ? `<span class="backlink-snippet">${escapeHtml(b.snippet)}</span>` : ''}</div>`
+        `<div class="backlink-item" data-path="${escapeHtml(b.path || '')}" data-file-id="${escapeHtml(b.file_id || '')}"><span class="backlink-name">${ICONS.note}${escapeHtml(stripExt(b.name || '') || '未命名笔记')}</span>${b.snippet ? `<span class="backlink-snippet">${escapeHtml(b.snippet)}</span>` : ''}</div>`
       ).join('');
       backlinksEl.querySelectorAll('.backlink-item').forEach((el) => {
-        el.addEventListener('click', () => { const p = el.dataset.path; close(); openNoteEditor({ path: p, name: p.split('/').pop() }); });
+        el.addEventListener('click', async () => { const p = el.dataset.path; const fid = el.dataset.fileId; await _closeNoteForSwap(); openNoteEditor({ path: p, fileId: fid, name: p.split('/').pop() }); });
       });
     }).catch(() => {});
   }
@@ -1356,7 +1711,7 @@ async function openNoteEditor(opts = {}) {
 
  let saving = false;
  let isDirty = false;  // 是否有未保存到服务端的修改
- let viewMode = loadPref('noteViewMode', 'split');
+  let viewMode = loadPref('noteViewMode', window.matchMedia('(max-width: 768px)').matches ? 'edit' : 'split');
   let noteTags = [];
   let notePinned = false;
   let suggestedTags = [];  // AI 建议但尚未被用户接受的标签
@@ -1366,6 +1721,10 @@ async function openNoteEditor(opts = {}) {
   let tocVisible = loadPref('noteTocVisible', false);
   let aiReqId = 0;            // F2: 防止 stale AI 响应覆盖最新一次请求的结果
   let currentNotePath = editPath || '';  // F4: 当前笔记路径（新建笔记首次保存后更新），用于 syncAiTags
+
+  // 注册编辑器句柄给深链路由：dirty 口径与 confirmClose 一致（有改动且有内容）
+  const _reg = { noteId: idKeyAtOpen || '', fromView: _openedFromView, get dirty() { return isDirty && !!ta.value.trim(); }, close: finalizeClose, flush: () => doSave(true), cancelAuto: () => clearTimeout(autoT) };
+  _noteEditor = _reg;
 
   // ---- 底部状态栏：字数 / 字符 / 阅读时间 / 模式 ----
   function countWords(text) {
@@ -1634,9 +1993,15 @@ ${r.html}
    } catch { Toast.show('建议标签同步失败', 'info', 2500); }
  }
 
- function closeEditor() {
-  close();
- };
+  // 关闭编辑器并按需把深链规整回列表（touchHistory=true：主动关闭；false：切换/后退已自行管理 URL）
+  function finalizeClose(touchHistory) {
+    close();
+    const _regRef = (_noteEditor === _reg) ? _noteEditor : null;   // 先取快照：置空前 fromView 仍可读
+    if (_regRef) { if (_reg.cancelAuto) _reg.cancelAuto(); _noteEditor = null; }
+    if (touchHistory && _regRef && _regRef.fromView === 'notes') { try { history.replaceState(null, '', serializeNotesHash({})); } catch {} }
+    refreshCurrentView();   // 关闭后刷新列表，使新建/编辑/删除即时反映（自动保存创建的新笔记也由此入列）
+  }
+  function closeEditor(touchHistory = true) { finalizeClose(touchHistory); }
 
   // ---- 标签输入 ----
   function renderTags() {
@@ -1773,14 +2138,23 @@ ${r.html}
     if (!content.trim()) { if (!silent) Toast.show('内容不能为空', 'warning'); return false; }
     saving = true; saveBtn.disabled = true; saveBtn.textContent = '保存中…';
     try {
+      // 目录推导：已有笔记沿用其所在目录（防自动/手动保存把子目录笔记挪到根）；新建笔记才用当前目录
+      const _existing = lastSavedPath || currentNotePath || editPath;
+      const _dir = _existing ? _existing.split('/').slice(0, -1).join('/') : (currentDir || '');
       const res = await API.post('/api/files/note', {
         name: titleEl.value.trim(), content,
-        directory: currentDir || '', group_id: (selectedGroup && selectedGroup !== SENSITIVE_GROUP_ID) ? selectedGroup : '',
+        directory: _dir, group_id: (selectedGroup && selectedGroup !== SENSITIVE_GROUP_ID) ? selectedGroup : '',
         file_id: editFileId || '',  // 编辑已有笔记时传入，后端据此原地更新（含重命名）并排除去重自检
       });
       if (!res.ok) { const d = await res.json().catch(() => ({})); Toast.show(d.detail || '保存失败', 'error'); return false; }
       const data = await res.json();
       lastSavedPath = data.path;
+      // 新建笔记首存后拿到真实 id：把深链 /new 规整为 /<id>（replace 不增历史项）
+      if (data.id && data.id !== editFileId) {
+        editFileId = data.id;
+        if (_noteEditor === _reg) _reg.noteId = editFileId;
+        try { const t = '#/notes/' + editFileId; if (location.hash !== t) history.replaceState(null, '', t); } catch {}
+      }
       currentNotePath = data.path;  // F4: 新建笔记首次保存后也更新 currentNotePath，使后续 syncAiTags 可用
       await Promise.all([
         API.put('/api/files/tags', { path: data.path, tags: noteTags }),
@@ -1793,15 +2167,23 @@ ${r.html}
     } catch (err) { Toast.show('保存失败: ' + (err.message || '未知错误'), 'error'); return false; }
     finally { saving = false; saveBtn.disabled = false; saveBtn.textContent = '保存'; }
   }
- async function save() { const ok = await doSave(false); if (ok) { closeEditor(); refreshCurrentView(); } }
+  async function save() { const ok = await doSave(false); if (ok) { setSaveState('saved', fmtNow()); refreshCurrentView(); } }  // 手动保存=强制落库+刷列表（不关闭编辑器，关闭走 X/取消/Esc）
  
   modal.querySelector('#btn-note-cancel').addEventListener('click', confirmClose);
   saveBtn.addEventListener('click', save);
  // 拦截弹窗 dismiss（遮罩/ESC）和取消按钮：有未保存修改时先确认
  async function confirmClose() {
    if (isDirty && ta.value.trim()) {
+     _notesConfirmOpen = true;   // 确认弹窗期间推迟 hashchange，避免与编辑器叠层死锁
      const ok = await confirmDialog({ title: '有未保存的修改', message: '笔记内容尚未保存到服务器，确定关闭？', confirmText: '关闭', danger: true });
-     if (!ok) return;
+     _notesConfirmOpen = false;
+     const pending = _pendingNotesHash; _pendingNotesHash = false;
+     if (!ok) {
+       // 取消关闭：补处理被推迟的后退/前进（dirty → 恢复 URL + 提示，不关）
+       if (pending && isNotesHash(location.hash)) { const { noteId, isNew } = parseNotesHash(location.hash); applyNotesHash(noteId, isNew); }
+       return;
+     }
+     // 确认关闭：被推迟的后退目标与「关回列表」一致，直接关闭即可
    }
    closeEditor();
  }
@@ -1809,14 +2191,15 @@ ${r.html}
   // ---- 扩展快捷键体系 ----
   ta.addEventListener('keydown', (e) => {
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.key === 'Enter') { e.preventDefault(); save(); }
-    else if (mod && e.key === 'b') { e.preventDefault(); wrapSelection('**', '**', '加粗文字'); }
-    else if (mod && e.key === 'i') { e.preventDefault(); wrapSelection('*', '*', '斜体文字'); }
-    else if (mod && e.key === 'k') { e.preventDefault(); wrapSelection('[', '](https://)', '链接文字'); }
-    else if (mod && e.key === 'm') { e.preventDefault(); wrapSelection('$$', '$$', 'E=mc^2'); }
-    else if (mod && e.key === 'p') { e.preventDefault(); viewBtn.click(); }
-    else if (mod && e.key === 's') { e.preventDefault(); doSave(false).then(ok => { if (ok) refreshCurrentView(); }); }
-    else if (mod && e.key === '/') { e.preventDefault(); insertBlock('\n```\n代码\n```\n'); }
+    const key = e.key.toLowerCase(); // 同全局处理器：Caps Lock 下大写字母键归一
+    if (mod && key === 'enter') { e.preventDefault(); save(); }
+    else if (mod && key === 'b') { e.preventDefault(); wrapSelection('**', '**', '加粗文字'); }
+    else if (mod && key === 'i') { e.preventDefault(); wrapSelection('*', '*', '斜体文字'); }
+    else if (mod && key === 'k') { e.preventDefault(); wrapSelection('[', '](https://)', '链接文字'); }
+    else if (mod && key === 'm') { e.preventDefault(); wrapSelection('$$', '$$', 'E=mc^2'); }
+    else if (mod && key === 'p') { e.preventDefault(); viewBtn.click(); }
+    else if (mod && key === 's') { e.preventDefault(); doSave(false).then(ok => { if (ok) { setSaveState('saved', fmtNow()); refreshCurrentView(); } else setSaveState('danger'); }); }
+    else if (mod && key === '/') { e.preventDefault(); insertBlock('\n```\n代码\n```\n'); }
     else if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -1845,6 +2228,7 @@ ${r.html}
   isDirty = false;
   updatePreview();
   updateStatusBar();
+  setSaveState('idle');   // 加载/新建完成：徽标置「尚未保存」中性态
 
   async function loadRemote() {
     try {
@@ -1852,10 +2236,24 @@ ${r.html}
         ? 'file_id=' + encodeURIComponent(editFileId)
         : 'path=' + encodeURIComponent(editPath);
       const res = await API.get('/api/files/note-content?' + noteQuery);
-      if (!res.ok) { Toast.show('加载笔记失败', 'error'); return; }
+      if (!res.ok) {
+        // 404：笔记被删/越权 → 关编辑器并把深链规整回列表（不留在打不开的 #/notes/<id>）
+        if (res.status === 404) { Toast.show('笔记不存在或已删除', 'error'); finalizeClose(true); return; }
+        Toast.show('加载笔记失败', 'error'); return;
+      }
       const data = await res.json();
+      // 按 path 打开时此处才拿到真编号：补全 editFileId / 句柄 / 深链（push 到 #/notes 基座之上）
+      const fid = data.file_id || editFileId || '';
+      if (fid && fid !== editFileId) editFileId = fid;
+      if (fid) {
+        if (_noteEditor === _reg) _reg.noteId = fid;
+        // path-only 打开的延迟补写：仅当编辑器仍存活且来自笔记视图（防止关窗后迟到的响应 push 污染其它视图历史）
+        if (!opts._fromHash && _openedFromView === 'notes' && _noteEditor === _reg) { try { const _t = serializeNotesHash({ noteId: fid }); if (location.hash !== _t) history.pushState(null, '', _t); } catch {} }
+      }
+      currentNotePath = data.path || currentNotePath;  // 记录真实路径，供保存时推导目录（防子目录笔记被挪根）
       ta.value = data.content || '';
       titleEl.value = stripExt(data.name || editName);
+      if (crumbTitleEl) crumbTitleEl.textContent = titleEl.value.trim() || (isEdit ? '未命名笔记' : '新笔记');  // 加载后同步面包屑
       noteTags = data.tags || [];
       notePinned = !!data.pinned;
       if (notePinned) pinBtn.classList.add('is-active');
@@ -1881,6 +2279,8 @@ async function handleWikilinkClick(el) {
       const preview = document.querySelector('.preview-overlay');
       if (preview) preview.remove();
       const isNote = /\.(md|markdown|mdown|mkd)$/i.test(data.name);
+      // 若当前已有编辑器，先冲刷草稿再静默关闭（保留其历史项），避免模态叠层与句柄错乱
+      await _closeNoteForSwap();
       if (isNote) {
         openNoteEditor({ path: data.path, fileId: data.file_id, name: data.name });
       } else {
@@ -1933,10 +2333,17 @@ function openCommandPalette() {
   overlay.innerHTML = `
     <div class="cmd-palette">
       <div class="cmd-input-wrap">${ICONS.search}
-        <input type="text" class="cmd-input" placeholder="搜索文件、笔记、标签…" autocomplete="off" spellcheck="false">
+        <input type="text" class="cmd-input" placeholder="执行操作，或搜索文件、笔记、标签…" autocomplete="off" spellcheck="false">
         <span class="cmd-hint">ESC 关闭</span>
       </div>
       <div class="cmd-results" id="cmd-results"></div>
+      <div class="cmd-footer">
+        <span>输入即搜索</span>
+        <span class="cmd-footer-sep"></span>
+        <kbd>&gt;</kbd><span>仅看操作</span>
+        <kbd>#</kbd><span>按标签</span>
+        <kbd>?</kbd><span>问 AI</span>
+      </div>
     </div>`;
   document.body.appendChild(overlay);
   document.body.style.overflow = 'hidden';
@@ -1946,6 +2353,7 @@ function openCommandPalette() {
   let results = [];
   let selectedIdx = 0;
   let lastQuery = '';
+  let effectiveQuery = ''; // 高亮用：去掉 >/ #/ ? 前缀后的真实检索词
   let debounceTimer = null;
 
   function closePalette() {
@@ -1964,16 +2372,24 @@ function openCommandPalette() {
 
   function renderResults() {
     if (!results.length) {
-      resultsEl.innerHTML = '<div class="cmd-empty">输入关键词搜索…</div>';
+      resultsEl.innerHTML = '<div class="cmd-empty">没有匹配项</div>';
       return;
     }
-    resultsEl.innerHTML = results.map((r, i) => {
+    let html = '';
+    let lastGroup = null;
+    results.forEach((r, i) => {
       const isAction = r.type === 'action';
-      const displayIcon = isAction ? (r.icon || ICONS.file) : getFileIcon(r.name || r.path || '', false).icon;
+      const isTag = r.type === 'tag';
+      const group = r.group || (isAction ? '操作' : '文件 · 语义搜索');
+      if (group !== lastGroup) {
+        html += `<div class="cmd-group-label">${escapeHtml(group)}</div>`;
+        lastGroup = group;
+      }
+      const displayIcon = (isAction || isTag) ? (r.icon || ICONS.file) : getFileIcon(r.name || r.path || '', false).icon;
       const displayName = r.label || r.name || r.path || '';
-      const detail = r.snippet ? hl(r.snippet, lastQuery) : escapeHtml(r.detail || '');
-      const score = (!isAction && r.score != null) ? `<span class="cmd-item-score">${Number(r.score).toFixed(2)}</span>` : '';
-      return `<div class="cmd-item${i === selectedIdx ? ' is-selected' : ''}" data-idx="${i}">
+      const detail = r.snippet ? hl(r.snippet, effectiveQuery) : escapeHtml(r.detail || '');
+      const score = (!isAction && !isTag && r.score != null) ? `<span class="cmd-item-score">${Number(r.score).toFixed(2)}</span>` : '';
+      html += `<div class="cmd-item${i === selectedIdx ? ' is-selected' : ''}" data-idx="${i}">
         <span class="cmd-item-icon">${displayIcon}</span>
         <span class="cmd-item-info">
           <span class="cmd-item-name">${escapeHtml(displayName)}</span>
@@ -1981,7 +2397,8 @@ function openCommandPalette() {
         </span>
         ${score}
       </div>`;
-    }).join('');
+    });
+    resultsEl.innerHTML = html;
     resultsEl.querySelectorAll('.cmd-item').forEach(el => {
       el.addEventListener('click', () => { selectItem(parseInt(el.dataset.idx)); });
     });
@@ -1992,7 +2409,14 @@ function openCommandPalette() {
   function selectItem(idx) {
     if (idx < 0 || idx >= results.length) return;
     const r = results[idx];
+    if (r.type === 'tag') {
+      // 留在面板：把标签作为语义检索词，用户可见地切到搜索态
+      input.value = r.label;
+      doSearch(r.label);
+      return;
+    }
     closePalette();
+    if (r.type === 'action') countActionUse(r.label);
     if (r.onClick) { r.onClick(); return; }
     const name = r.name || r.path || '';
     const isNote = /\.(md|markdown|mdown|mkd)$/i.test(name);
@@ -2001,8 +2425,35 @@ function openCommandPalette() {
   }
 
   async function doSearch(q) {
-    lastQuery = q.trim();
-    if (!lastQuery) { results = getQuickActions(); selectedIdx = 0; renderResults(); return; }
+    const raw = q.trim();
+    lastQuery = raw;
+    if (!raw) { results = getQuickActions(); selectedIdx = 0; renderResults(); return; }
+    // ">" 前缀：仅过滤操作（Notion/VS Code 式命令模式）
+    if (raw.startsWith('>')) {
+      const term = raw.slice(1).trim().toLowerCase();
+      effectiveQuery = term;
+      results = getQuickActions().filter(a => !term || (a.label + ' ' + (a.detail || '')).toLowerCase().includes(term));
+      selectedIdx = 0; renderResults(); return;
+    }
+    // "#" 前缀：按标签查找（all-tags 聚合，选中后以标签做语义检索）
+    if (raw.startsWith('#')) {
+      const term = raw.slice(1).trim().toLowerCase();
+      effectiveQuery = term;
+      const tags = await fetchAllTags();
+      if (lastQuery !== raw) return; // 已被更新的输入取代，丢弃过期结果
+      results = tags.filter(t => !term || t.toLowerCase().includes(term))
+        .slice(0, 30)
+        .map(t => ({ type: 'tag', group: '标签', label: t, icon: ICONS.tag, detail: '回车：以此标签语义查找文件' }));
+      selectedIdx = 0; renderResults(); return;
+    }
+    // "?" 前缀：把问题带到 AI 助手（预填输入框，不自动发送）
+    if (raw.startsWith('?')) {
+      const question = raw.slice(1).trim();
+      effectiveQuery = question;
+      results = question ? [{ type: 'action', group: 'AI 助手', label: '问 AI：' + question, icon: ICONS.ai, detail: '带到 AI 助手输入框，由你确认发送', onClick: () => askAiWithQuestion(question) }] : [];
+      selectedIdx = 0; renderResults(); return;
+    }
+    effectiveQuery = raw;
     try {
       const res = await API.get('/api/files/search?q=' + encodeURIComponent(q) + '&limit=15');
       if (!res.ok) { results = []; renderResults(); return; }
@@ -2015,19 +2466,32 @@ function openCommandPalette() {
 
   function getQuickActions() {
     const actions = [
-      { type: 'action', label: '新建笔记', icon: ICONS.note, detail: '创建新的 Markdown 笔记', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => showNoteEditor(), 50); } },
-      { type: 'action', label: '上传文件', icon: ICONS.upload, detail: '上传文件到当前目录', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => document.getElementById('file-input')?.click(), 100); } },
-      { type: 'action', label: 'AI 对话', icon: ICONS.chat, detail: '打开 AI 助手对话', onClick: () => App.navigate('chat') },
-      { type: 'action', label: '传输助手', icon: ICONS.transfer, detail: '打开文件传输助手', onClick: () => App.navigate('transfer') },
-      { type: 'action', label: '导出全部文件', icon: ICONS.exportIco, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
-      { type: 'action', label: '设置', icon: ICONS.settings, detail: '打开设置页', onClick: () => App.navigate('settings') },
-      { type: 'action', label: '设置 · 账户', icon: ICONS.user, detail: '账户信息、配额与登录记录', onClick: () => App.openSettings('account') },
-      { type: 'action', label: '设置 · 安全与隐私', icon: ICONS.shield, detail: '修改密码、PII 脱敏、临时下载', onClick: () => App.openSettings('security') },
-      { type: 'action', label: '设置 · 设备与会话', icon: ICONS.monitor, detail: '设备令牌与紧急吊销', onClick: () => App.openSettings('devices') },
-      { type: 'action', label: '设置 · 存储与索引', icon: ICONS.database, detail: '存储统计与索引重建', onClick: () => App.openSettings('storage') },
-      { type: 'action', label: '快捷键帮助', icon: ICONS.keyboard, detail: '查看所有键盘快捷键', onClick: () => showShortcutHelp() },
+      // —— 常用：按本地使用频次重排（同频保持注册序）——
+      { type: 'action', group: '常用', label: '新建笔记', icon: ICONS.note, detail: '创建新的 Markdown 笔记', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => showNoteEditor(), 50); } },
+      { type: 'action', group: '常用', label: '上传文件', icon: ICONS.upload, detail: '上传文件到当前目录', onClick: () => { if (App.currentView !== 'files') App.navigate('files'); setTimeout(() => document.getElementById('file-input')?.click(), 100); } },
+      { type: 'action', group: '常用', label: 'AI 对话', icon: ICONS.chat, detail: '打开 AI 助手对话', onClick: () => App.navigate('chat') },
+      { type: 'action', group: '常用', label: 'AI 对话 · 带问题', icon: ICONS.ai, detail: '把问题带到 AI 助手输入框', onClick: () => askAiWithQuestion('') },
+      { type: 'action', group: '常用', label: '传输助手', icon: ICONS.transfer, detail: '打开文件传输助手', onClick: () => App.navigate('transfer') },
+      { type: 'action', group: '常用', label: '导出全部文件', icon: ICONS.exportIco, detail: '下载所有文件为 ZIP', onClick: () => exportAllFiles() },
+      // —— 导航 ——
+      { type: 'action', group: '导航', label: '文件库', icon: ICONS.files, detail: '全部文件与目录', onClick: () => App.navigate('files') },
+      { type: 'action', group: '导航', label: '笔记', icon: ICONS.note, detail: '全部笔记', onClick: () => App.navigate('notes') },
+      { type: 'action', group: '导航', label: '回收站', icon: ICONS.trash, detail: '已删除文件，可恢复', onClick: () => App.navigate('trash') },
+      // —— 设置 ——
+      { type: 'action', group: '设置', label: '设置', icon: ICONS.settings, detail: '打开设置页', onClick: () => App.navigate('settings') },
+      { type: 'action', group: '设置', label: '设置 · 账户', icon: ICONS.user, detail: '账户信息、安全状态与登录历史', onClick: () => App.openSettings('account') },
+      { type: 'action', group: '设置', label: '设置 · 安全', icon: ICONS.shield, detail: '修改密码，旧会话立即失效', onClick: () => App.openSettings('security') },
+      { type: 'action', group: '设置', label: '设置 · 隐私', icon: ICONS.eye, detail: 'PII 服务端脱敏、零痕迹临时下载', onClick: () => App.openSettings('privacy') },
+      { type: 'action', group: '设置', label: '设置 · 设备', icon: ICONS.monitor, detail: '访问令牌与紧急吊销', onClick: () => App.openSettings('devices') },
+      { type: 'action', group: '设置', label: '设置 · 存储', icon: ICONS.database, detail: '存储用量与配额', onClick: () => App.openSettings('storage') },
+      { type: 'action', group: '设置', label: '设置 · 索引', icon: ICONS.search, detail: '语义索引状态与重建', onClick: () => App.openSettings('index') },
+      { type: 'action', group: '设置', label: '设置 · 偏好', icon: ICONS.keyboard, detail: '快捷键提示与侧栏显示', onClick: () => App.openSettings('prefs') },
+      { type: 'action', group: '设置', label: '快捷键帮助', icon: ICONS.keyboard, detail: '查看所有键盘快捷键', onClick: () => showShortcutHelp() },
     ];
-    return actions.filter(a => !(a.label === 'AI 对话' && !(App.currentUser && App.currentUser.ai_enabled)));
+    const filtered = actions.filter(a => !(a.label.startsWith('AI 对话') && !(App.currentUser && App.currentUser.ai_enabled)));
+    const useCount = loadPref('cmdActionUse', {}) || {};
+    // 稳定排序：仅组内按使用频次降序，跨组保持注册序（常用/导航/设置）
+    return filtered.sort((a, b) => (a.group === b.group ? (useCount[b.label] || 0) - (useCount[a.label] || 0) : 0));
   }
 
   input.addEventListener('input', (e) => {
@@ -2310,26 +2774,30 @@ async function exportAllFiles(groupId = '') {
 // ============ Shortcut Help (#13) ============
 function showShortcutHelp() {
   const { modal, close } = openModal({ width: 560, onDismiss: () => close() });
+  const hint = loadPref('modKeyHint', 'auto');
+  const K = (combo) => escapeHtml(fmtKey(combo, hint)); // 按平台渲染 ⌘K / Ctrl+K
+  const isMacStyle = fmtKey('mod', hint) === '⌘';
   const shortcuts = [
     { group: '全局', items: [
-      { key: 'Ctrl/Cmd + K', desc: '打开快速搜索（命令面板）' },
-      { key: 'Ctrl/Cmd + N', desc: '新建笔记' },
-      { key: 'Ctrl/Cmd + E', desc: '跳转到文件列表' },
-      { key: 'Ctrl/Cmd + ,', desc: '打开设置' },
+      { key: K('mod+k'), desc: '打开快捷操作面板（命令面板）' },
+      { key: K('mod+b'), desc: '收起 / 展开侧栏' },
+      { key: K('mod+n'), desc: '新建笔记' },
+      { key: K('mod+e'), desc: '跳转到文件列表' },
+      { key: K('mod+,'), desc: '打开设置' },
       { key: 'Alt + 1/2/3/4', desc: '切换视图（传输/AI/文件/设置）' },
       { key: '/', desc: '聚焦页内搜索（设置页内）' },
       { key: '?', desc: '显示此快捷键帮助' },
     ]},
     { group: '笔记编辑器', items: [
-      { key: 'Ctrl/Cmd + S', desc: '保存（不关闭）' },
-      { key: 'Ctrl/Cmd + Enter', desc: '保存并关闭' },
-      { key: 'Ctrl/Cmd + B', desc: '加粗' },
-      { key: 'Ctrl/Cmd + I', desc: '斜体' },
-      { key: 'Ctrl/Cmd + K', desc: '插入链接' },
-      { key: 'Ctrl/Cmd + M', desc: '插入数学公式' },
-      { key: 'Ctrl/Cmd + P', desc: '切换编辑/分屏/预览' },
-      { key: 'Ctrl/Cmd + \\', desc: '切换目录侧栏' },
-      { key: 'Ctrl/Cmd + /', desc: '插入代码块' },
+      { key: K('mod+s'), desc: '保存（不关闭）' },
+      { key: K('mod+enter'), desc: '保存并关闭' },
+      { key: K('mod+b'), desc: '加粗' },
+      { key: K('mod+i'), desc: '斜体' },
+      { key: K('mod+k'), desc: '插入链接' },
+      { key: K('mod+m'), desc: '插入数学公式' },
+      { key: K('mod+p'), desc: '切换编辑/分屏/预览' },
+      { key: K('mod+\\'), desc: '切换目录侧栏' },
+      { key: K('mod+/'), desc: '插入代码块' },
       { key: 'F11', desc: '全屏编辑' },
       { key: 'Tab / Shift+Tab', desc: '缩进 / 取消缩进' },
     ]},
@@ -2355,7 +2823,8 @@ function showShortcutHelp() {
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary" id="btn-close-shortcuts">知道了</button>
-    </div>`;
+    </div>
+    <p class="shortcut-note">${isMacStyle ? '⌘ 即 Command 键；Ctrl 组合同样可用（可在 设置 · 偏好 中调整提示风格）' : 'macOS 用户请用 ⌘（Command）代替 Ctrl（可在 设置 · 偏好 中调整提示风格）'}</p>`;
   modal.querySelector('#btn-close-shortcuts').addEventListener('click', close);
 }
 
@@ -2367,19 +2836,30 @@ function setupGlobalShortcuts() {
     const tag = (e.target.tagName || '').toLowerCase();
     const inInput = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
     const mod = e.metaKey || e.ctrlKey;
+    // 归一化：Caps Lock 开启或自动化合成事件会给出大写字母键，统一小写比较，
+    // 避免"开着大写锁定 ⌘K 就失灵"这类隐蔽 bug。
+    const key = e.key.toLowerCase();
 
-    if (mod && e.key === 'k') { e.preventDefault(); if (!_cmdPaletteOpen) openCommandPalette(); return; }
+    if (mod && key === 'k') { e.preventDefault(); if (!_cmdPaletteOpen) openCommandPalette(); return; }
+    if (mod && key === 'b' && !inInput) {
+      // ⌘B/Ctrl+B 切换主侧栏。必须排除输入态：笔记编辑器内 ⌘B=加粗（编辑器自有处理器先触发），
+      // 若此处不排除，编辑器里加粗会连带折叠侧栏。
+      e.preventDefault();
+      const sb = document.getElementById('sidebar');
+      if (sb) setSidebarCollapsed(!sb.classList.contains('collapsed'));
+      return;
+    }
     if (inInput && !mod) return;
 
-    if (mod && e.key === 'n') {
+    if (mod && key === 'n') {
       e.preventDefault();
       if (App.currentView !== 'files') App.navigate('files');
       setTimeout(() => showNoteEditor(), 50);
       return;
     }
-    if (mod && e.key === 'e') { e.preventDefault(); App.navigate('files'); return; }
-    if (mod && e.key === ',') { e.preventDefault(); App.navigate('settings'); return; }
-    if (!inInput && !mod && !e.altKey && !e.shiftKey && e.key === '/' && App.currentView === 'settings') {
+    if (mod && key === 'e') { e.preventDefault(); App.navigate('files'); return; }
+    if (mod && key === ',') { e.preventDefault(); App.navigate('settings'); return; }
+    if (!inInput && !mod && !e.altKey && !e.shiftKey && key === '/' && App.currentView === 'settings') {
       // 设置页内按 / 聚焦页内搜索（Chrome 式）
       const si = document.getElementById('settings-search-input');
       if (si) { e.preventDefault(); si.focus(); si.select(); return; }
@@ -2394,7 +2874,8 @@ function setupGlobalShortcuts() {
         return;
       }
     }
-    if (!inInput && !mod && e.shiftKey && e.key === '/') { e.preventDefault(); showShortcutHelp(); return; }
+    // "?" 帮助：真实浏览器 shift+/ 上报 key='?'（部分环境上报 '/' + shiftKey），两种都接受
+    if (!inInput && !mod && (e.key === '?' || (e.shiftKey && key === '/'))) { e.preventDefault(); showShortcutHelp(); return; }
   });
 }
 
@@ -3510,7 +3991,7 @@ async function downloadFile(path, opts = {}) {
       const auth = await requestDownloadAuth({ filePath: path, fileId: fid, defaultMode: 'single' });
       if (!auth) {
         // 用户取消：给出带深链的引导，一键直达设置页临时下载卡片
-        Toast.show('已取消下载授权', 'info', 5000, { label: '去设置开启', onClick: () => App.openSettings('security', 'download') });
+        Toast.show('已取消下载授权', 'info', 5000, { label: '去设置开启', onClick: () => App.openSettings('privacy', 'download') });
         return;
       }
       if (auth.mode === 'window') {
@@ -3583,12 +4064,13 @@ async function renameFile(path, name) {
 // ============ 回收站 ============
 
 async function loadTrashCount() {
+  // 侧栏不再展示回收站计数（角标已移除）；无角标则无需请求，直接返回
+  const badge = document.getElementById('trash-count');
+  if (!badge) return;
   try {
     const res = await API.get('/api/files/trash/stats');
     if (!res.ok) return;
     const data = await res.json();
-    const badge = document.getElementById('trash-count');
-    if (!badge) return;
     if (data.total > 0) { badge.textContent = data.total > 99 ? '99+' : data.total; badge.hidden = false; }
     else { badge.hidden = true; }
   } catch {}
@@ -5131,15 +5613,19 @@ function previewVideo(path, name, opts = {}) {
 }
 
 // ============ Settings · Chrome 式双栏（左垂直导航 + 搜索框，右独立滚动内容区）============
-// IA：账户 / 安全与隐私 / 设备与会话 / 存储与索引 / 关于随行档（见 utils/settings-search.js）
+// IA：账户 / 安全 / 隐私 / 设备 / 存储 / 索引 / 关于（见 utils/settings-search.js）
+// 条目单项化：一条目一概念，旧深链 security/pii、security/download→privacy，storage/reindex→index 自动救援
 // 深链：#/settings/<section>[/<anchor>]；页内搜索为纯前端静态索引——不发请求、不落日志（零痕迹）。
 const APP_VERSION = '2.0.0';
 
 const SECTION_ICONS = {
   account: ICONS.user,
   security: ICONS.shield,
+  privacy: ICONS.eye,
   devices: ICONS.monitor,
   storage: ICONS.database,
+  index: ICONS.search,
+  prefs: ICONS.keyboard,
   about: ICONS.info,
 };
 
@@ -5198,6 +5684,89 @@ function wireSettingsGlobal() {
   const onMq = (ev) => { if (ev.matches) closeSettingsDrawer(); };
   if (mq.addEventListener) mq.addEventListener('change', onMq);
   else if (mq.addListener) mq.addListener(onMq);
+}
+
+// ============ Notes · 深链路由（仿设置页：#/notes[/<file_id>|/new]）============
+// URL 只承载 file_id（稳定代理，不含真实路径）；hash 片段不上服务端（零痕迹 DNA）。
+// 写入一律 pushState/replaceState（不触发 hashchange），故无自身重入；
+// hashchange 仅来自用户前进/后退，handler 同步处理、绝不在其中弹模态确认（避免与编辑器叠层死锁）。
+let _notesWired = false;
+let _pendingNotesHash = false;     // 编辑器内确认弹窗期间被推迟的深链变化，关窗后补
+let _notesConfirmOpen = false;     // confirmClose 的确认弹窗是否打开（用于推迟 hashchange）
+let _noteEditor = null;            // 当前编辑器句柄：{ noteId, dirty, close(touchHistory) }
+
+function wireNotesGlobal() {
+  if (_notesWired) return;
+  _notesWired = true;
+  const handle = () => {
+    if (!isNotesHash(location.hash)) return;          // 非笔记深链交给其它视图
+    // 非编辑器确认弹窗开着时推迟（避免在弹窗底下重渲视图）；编辑器自身的确认弹窗由 _notesConfirmOpen 分支处理
+    if (document.querySelector('.modal-overlay:not(:has(.note-editor-modal))')) { _pendingNotesHash = true; return; }
+    if (App.currentView !== 'notes') App.navigate('notes', { fromHash: true });   // 跨视图后退/前进到笔记时先切视图（renderNotes 规整基座，随后再压回 /<id>）
+    const { noteId, isNew } = parseNotesHash(location.hash);
+    applyNotesHash(noteId, isNew);
+  };
+  window.addEventListener('hashchange', () => {
+    if (_notesConfirmOpen) { _pendingNotesHash = true; return; }   // 确认弹窗叠在编辑器上：关窗后补
+    handle();
+  });
+  document.addEventListener('sx-modal-close', () => {
+    if (_pendingNotesHash) { _pendingNotesHash = false; handle(); }
+    if (_pendingViewHash) {
+      _pendingViewHash = false;
+      const _m = /^#\/(transfer|chat|files|trash)\/?$/.exec((location.hash || '').trim());
+      if (_m && _m[1] !== App.currentView) App.navigate(_m[1], { fromHash: true });
+    }
+  });
+  // 排序菜单 / 编辑器溢出菜单 外点击关闭（全局一次；按钮自身 stopPropagation，不会被误关）
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.notes-sort')) {
+      const m = document.getElementById('notes-sort-menu'); if (m) m.classList.remove('open');
+      const b = document.getElementById('notes-sort-btn'); if (b) b.setAttribute('aria-expanded', 'false');
+    }
+    if (!e.target.closest('.ed-more')) {
+      const em = document.getElementById('note-more-menu'); if (em) em.classList.remove('open');
+      const eb = document.getElementById('btn-note-more'); if (eb) eb.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+// 换开关闭（深链切换 / 维基跳转 / 反链跳转）：先冲刷草稿再关旧编辑器（#1523 防静默丢稿），并停掉自动保存计时器
+async function _closeNoteForSwap() {
+  if (_noteEditor) {
+    if (_noteEditor.dirty) { try { await _noteEditor.flush(); } catch {} }
+    if (_noteEditor.cancelAuto) _noteEditor.cancelAuto();
+    _noteEditor.close(false);
+  }
+}
+
+// 把当前 URL 规整为指定笔记深链（replace 不产生历史项，用于关闭/恢复）
+function _writeNotesHash(idKey) {
+  const target = '#/notes' + (idKey ? '/' + idKey : '');
+  try { if (location.hash !== target) history.replaceState(null, '', target); } catch {}
+}
+
+// 由 hashchange 触发的状态对齐（同步、无模态）。dirty 时拒绝关闭/切换，恢复 URL 并提示，杜绝丢稿。
+function applyNotesHash(noteId, isNew) {
+  const wantOpen = !!(noteId || isNew);
+  const idKey = isNew ? 'new' : (noteId || '');
+  if (_noteEditor) {
+    if (!wantOpen) {                                              // 后退到列表
+      if (_noteEditor.dirty) { _writeNotesHash(_noteEditor.noteId); Toast.show('有未保存的更改，请先保存或丢弃', 'warning', 3000); }
+      else _noteEditor.close(false);
+    } else if (idKey !== _noteEditor.noteId) {                    // 前进/后退到另一篇
+      if (_noteEditor.dirty) { _writeNotesHash(_noteEditor.noteId); Toast.show('有未保存的更改，请先保存或丢弃', 'warning', 3000); }
+      else { _noteEditor.close(false); _openNoteFromHash(noteId, isNew); }
+    }
+  } else if (wantOpen) {
+    _openNoteFromHash(noteId, isNew);                             // 当前无编辑器（前进恢复等）
+  }
+}
+
+function _openNoteFromHash(noteId, isNew, fromHash = true) {
+  // fromHash=true：hash 已是目标（前进/后退恢复），不要再 push 造成重复历史项；
+  // fromHash=false：冷启动已在 init 把基座规整为 #/notes，此处需 push 编号到栈顶。
+  openNoteEditor(isNew ? { _fromHash: fromHash } : { fileId: noteId, _fromHash: fromHash });
 }
 
 function isSettingsDrawerMode() {
@@ -5299,7 +5868,7 @@ const SECTION_TEMPLATES = {
     <div class="settings-section" data-anchor="profile">
       <div class="setting-head">
         <div class="setting-head-icon icon-primary">${ICONS.user}</div>
-        <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、存储配额、安全状态与登录记录</p></div>
+        <div class="setting-head-text"><h3>账户信息</h3><p class="section-desc">账号身份、安全状态与登录历史</p></div>
       </div>
       <div class="setting-body" id="account-info">加载中...</div>
     </div>
@@ -5312,8 +5881,8 @@ const SECTION_TEMPLATES = {
     </div>`,
 
   security: () => `
-    <div class="settings-panel-title">安全与隐私</div>
-    <div class="settings-panel-desc">修改密码后旧令牌与会话立即失效；浏览器端默认禁止下载（零痕迹），需要时开临时窗口；AI 回复中的 PII 在送达前端前自动遮罩。</div>
+    <div class="settings-panel-title">安全</div>
+    <div class="settings-panel-desc">凭据相关：修改密码后本机保持登录，其他所有设备与会话立即退出，旧令牌同时失效。</div>
     <div class="settings-section" data-anchor="password">
       <div class="setting-head">
         <div class="setting-head-icon icon-primary">${ICONS.lock}</div>
@@ -5323,7 +5892,11 @@ const SECTION_TEMPLATES = {
       <div class="setting-body">
         <p class="setting-meta" id="pwd-changed-at">加载中…</p>
       </div>
-    </div>
+    </div>`,
+
+  privacy: () => `
+    <div class="settings-panel-title">隐私</div>
+    <div class="settings-panel-desc">数据不外流：AI 回复中的 PII 在送达浏览器前自动遮罩，真实值不落前端；浏览器端默认禁止下载（零痕迹），需要时验证密码开临时窗口。</div>
     <div class="settings-section" data-anchor="pii">
       <div class="setting-head">
         <div class="setting-head-icon icon-neutral">${ICONS.shield}</div>
@@ -5363,8 +5936,8 @@ const SECTION_TEMPLATES = {
     </div>`,
 
   devices: () => `
-    <div class="settings-panel-title">设备与会话</div>
-    <div class="settings-panel-desc">每个设备令牌对应一台机器或一次浏览器会话，吊销即切断访问。离职时一键吊销全部，公司端不留痕迹。</div>
+    <div class="settings-panel-title">设备</div>
+    <div class="settings-panel-desc">每台机器或浏览器会话各对应一条访问令牌，吊销即切断访问。离职时一键吊销全部，公司端不留痕迹。</div>
     <div class="settings-section" data-anchor="tokens">
       <div class="setting-head">
         <div class="setting-head-icon icon-primary">${ICONS.monitor}</div>
@@ -5392,8 +5965,8 @@ const SECTION_TEMPLATES = {
     </div>`,
 
   storage: () => `
-    <div class="settings-panel-title">存储与索引</div>
-    <div class="settings-panel-desc">查看存储用量与配额，以及检索索引状态。上传的文件会自动建立语义索引，支持自然语言搜索。</div>
+    <div class="settings-panel-title">存储</div>
+    <div class="settings-panel-desc">查看文件存储用量与配额。</div>
     <div class="settings-section" data-anchor="stats">
       <div class="setting-head">
         <div class="setting-head-icon icon-primary">${ICONS.database}</div>
@@ -5401,7 +5974,11 @@ const SECTION_TEMPLATES = {
         <div class="setting-head-action"><button class="btn btn-ghost btn-sm" id="btn-stats-refresh">${ICONS.refresh}<span>刷新</span></button></div>
       </div>
       <div class="setting-body" id="stats-content">加载中...</div>
-    </div>
+    </div>`,
+
+  index: () => `
+    <div class="settings-panel-title">索引</div>
+    <div class="settings-panel-desc">上传的文件自动建立语义索引，支持自然语言搜索；文件大量变动或搜索不准时可重建。</div>
     <div class="settings-section" data-anchor="reindex">
       <div class="setting-head">
         <div class="setting-head-icon icon-neutral">${ICONS.refresh}</div>
@@ -5410,26 +5987,59 @@ const SECTION_TEMPLATES = {
       </div>
     </div>`,
 
+  prefs: () => `
+    <div class="settings-panel-title">偏好设置</div>
+    <div class="settings-panel-desc">这些偏好默认只保存在当前设备浏览器中；开启同步后可跟随账户跨设备沿用（仅界面偏好，不含任何文件数据）。</div>
+    <div class="settings-section" data-anchor="modkey">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.keyboard}</div>
+        <div class="setting-head-text"><h3>快捷键提示风格</h3><p class="section-desc">侧栏与快捷键帮助中修饰键的显示方式；实际按键 ⌘ 与 Ctrl 始终通用</p></div>
+      </div>
+      <div class="setting-body">
+        <div class="prefs-radio-row" role="radiogroup" aria-label="快捷键提示风格">
+          <label class="prefs-radio"><input type="radio" name="modkey-hint" value="auto"><span>自动（跟随系统）</span></label>
+          <label class="prefs-radio"><input type="radio" name="modkey-hint" value="mac"><span>Mac 风格（⌘）</span></label>
+          <label class="prefs-radio"><input type="radio" name="modkey-hint" value="win"><span>Windows 风格（Ctrl）</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="settings-section" data-anchor="sidebar">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.files}</div>
+        <div class="setting-head-text"><h3>侧栏显示</h3><p class="section-desc">收起后仅保留图标，悬停显示名称；随时可用 ${escapeHtml(fmtKey('mod+b', loadPref('modKeyHint', 'auto')))} 切换</p></div>
+      </div>
+      <div class="setting-body">
+        <label class="prefs-check"><input type="checkbox" id="prefs-sidebar-collapsed"><span>默认收起侧栏</span></label>
+      </div>
+    </div>
+    <div class="settings-section" data-anchor="sync">
+      <div class="setting-head">
+        <div class="setting-head-icon icon-primary">${ICONS.refresh}</div>
+        <div class="setting-head-text"><h3>偏好同步</h3><p class="section-desc">把侧栏状态、快捷键风格同步到账户，其他设备登录后自动沿用（不含文件、令牌与任何敏感数据）</p></div>
+      </div>
+      <div class="setting-body">
+        <label class="prefs-check"><input type="checkbox" id="prefs-cloud-sync"><span>同步到我的账户</span></label>
+        <p class="setting-meta" id="prefs-sync-status"></p>
+      </div>
+    </div>`,
+
   about: () => `
-    <div class="settings-panel-title">关于随行档</div>
+    <div class="settings-panel-title">关于</div>
     <div class="settings-panel-desc">一个长在你自己服务器上、靠浏览器访问、用对话驱动的私人文件中枢。</div>
     <div class="settings-section">
       <div class="about-brand">
         <div class="about-avatar">随</div>
         <div class="about-meta">
-          <div class="about-name">随行档 Suixingdang <span class="about-ver">v${APP_VERSION}</span></div>
+          <div class="about-name">随行档 Suixingdang</div>
           <div class="about-slogan">私人文件中枢 · 自托管 · 多账户 · AI 驱动</div>
         </div>
       </div>
+      <div class="about-version"><span class="about-version-label">当前版本</span><strong>v${APP_VERSION}</strong></div>
       <ul class="about-dna">
         <li>${ICONS.shield}<div><strong>零痕迹</strong><span>公司电脑默认只看不留，在线预览 no-store，离职一键吊销令牌即切断访问</span></div></li>
         <li>${ICONS.ai}<div><strong>即问即得</strong><span>用自然语言告诉 agent 意图，它找到文件、传好、通知你</span></div></li>
         <li>${ICONS.database}<div><strong>懂你的文件</strong><span>索引过文件名和内容，能分类、能提醒、能建议</span></div></li>
       </ul>
-      <div class="about-links">
-        <a class="about-link" href="https://github.com/wupenghello/Suixingdang" target="_blank" rel="noopener noreferrer">${ICONS.fileCabinet}<span>GitHub 仓库</span></a>
-        <a class="about-link" href="https://github.com/wupenghello/Suixingdang/tree/main/docs" target="_blank" rel="noopener noreferrer">${ICONS.fileText}<span>部署文档</span></a>
-      </div>
     </div>`,
 };
 
@@ -5504,6 +6114,44 @@ function flashAnchor(content, anchor, tries = 0) {
   setTimeout(() => target.classList.remove('settings-flash'), 1400);
 }
 
+// ---- 偏好设置章节（修饰键提示 / 侧栏默认状态 / 云同步）----
+function wirePrefsSection() {
+  const hint = normalizeHint(loadPref('modKeyHint', 'auto'));
+  document.querySelectorAll('input[name="modkey-hint"]').forEach(r => {
+    r.checked = r.value === hint;
+    r.addEventListener('change', () => {
+      savePref('modKeyHint', r.value);
+      // 重建应用壳让 ⌘/Ctrl 提示全站即刻生效，并停留在偏好章节
+      App.renderLayout();
+      App.navigate('settings', { section: 'prefs' });
+    });
+  });
+  const sbCheck = document.getElementById('prefs-sidebar-collapsed');
+  if (sbCheck) {
+    sbCheck.checked = !!loadPref('sidebarCollapsed', false);
+    sbCheck.addEventListener('change', () => setSidebarCollapsed(sbCheck.checked));
+  }
+  const syncCheck = document.getElementById('prefs-cloud-sync');
+  const status = document.getElementById('prefs-sync-status');
+  if (syncCheck) {
+    syncCheck.checked = !!loadPref('prefsCloudSync', false);
+    syncCheck.addEventListener('change', async () => {
+      savePref('prefsCloudSync', syncCheck.checked);
+      if (!syncCheck.checked) {
+        if (status) status.textContent = '已停止同步，偏好仅保留在各设备本地。';
+        return;
+      }
+      if (status) status.textContent = '正在上传当前偏好…';
+      try {
+        const res = await API.put('/api/auth/prefs', { prefs: collectCloudPrefs() });
+        if (status) status.textContent = res.ok ? '已同步到账户，其他设备登录后自动沿用。' : '同步失败（' + res.status + '），偏好仍保留在本设备。';
+      } catch {
+        if (status) status.textContent = '同步失败（网络错误），偏好仍保留在本设备。';
+      }
+    });
+  }
+}
+
 // 渲染章节面板（导航/搜索框不重建 → 搜索词跨章节保留）
 function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
   const section = normalizeSectionId(sectionRaw);
@@ -5534,13 +6182,13 @@ function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
   } else if (section === 'security') {
     document.getElementById('btn-change-pwd')?.addEventListener('click', openChangePasswordDialog);
     renderPasswordChangedAt();
+  } else if (section === 'privacy') {
     loadDownloadGrant();
   } else if (section === 'devices') {
     document.getElementById('btn-create-token')?.addEventListener('click', createToken);
     document.getElementById('btn-revoke-all-tokens')?.addEventListener('click', revokeAllTokens);
     loadTokens();
   } else if (section === 'storage') {
-    document.getElementById('btn-reindex')?.addEventListener('click', rebuildIndex);
     document.getElementById('btn-stats-refresh')?.addEventListener('click', (e) => {
       const btn = e.currentTarget;
       btn.disabled = true;
@@ -5548,6 +6196,10 @@ function renderTab(sectionRaw, anchorRaw, { persist = true } = {}) {
       loadStats().finally(() => { btn.disabled = false; btn.classList.remove('btn-loading'); });
     });
     loadStats();
+  } else if (section === 'index') {
+    document.getElementById('btn-reindex')?.addEventListener('click', rebuildIndex);
+  } else if (section === 'prefs') {
+    wirePrefsSection();
   }
 
   if (anchor) requestAnimationFrame(() => flashAnchor(content, anchor));
@@ -5642,10 +6294,9 @@ async function loadAccountInfo() {
     const statusBadge = me.status === 'active'
       ? '<span class="badge badge-success">正常</span>'
       : '<span class="badge badge-danger">已禁用</span>';
-    const quotaText = me.quota_mb && me.quota_mb > 0 ? `${me.quota_mb} MB` : '不限';
     const roleText = escapeHtml(roleMap[me.role] || me.role); // 统一转义，与弹层保持一致
 
-    // 先渲染主体（不阻塞），再异步填充存储用量
+    // 配额/用量收敛在「存储」章节，账户卡只保留身份信息（2026-07 去重）
     el.innerHTML = `
       <div class="account-info">
         <div class="account-row">
@@ -5659,78 +6310,73 @@ async function loadAccountInfo() {
           <div class="account-field"><span class="account-label">用户名</span><span class="account-value">${escapeHtml(me.username)}</span></div>
           <div class="account-field"><span class="account-label">角色</span><span class="account-value">${roleText}</span></div>
           <div class="account-field"><span class="account-label">账户状态</span><span class="account-value">${statusBadge}</span></div>
-          <div class="account-field"><span class="account-label">存储配额</span><span class="account-value">${quotaText}</span></div>
           <div class="account-field"><span class="account-label">最近登录</span><span class="account-value">${me.last_login_at ? formatDateTime(me.last_login_at) : '-'}</span></div>
           <div class="account-field"><span class="account-label">注册时间</span><span class="account-value">${me.created_at ? formatDateTime(me.created_at) : '-'}</span></div>
-          <div class="account-field"><span class="account-label">已用空间</span><span class="account-value" id="acct-used">-</span></div>
-          <div class="account-field"><span class="account-label">剩余配额</span><span class="account-value" id="acct-remain">-</span></div>
         </div>
-        <div id="acct-storage" data-anchor="quota"></div>
         <div class="login-history" id="login-history" data-anchor="history"></div>
       </div>`;
 
-    // 异步填充存储用量（失败降级，不阻塞主体）
-    fillAccountStorage();
-
-    // 加载登录历史（带竞态防护）
+    // 加载登录历史（服务端分页 + 竞态防护）
     loadLoginHistory();
   } catch {
     renderErrorState(el, '账户信息加载失败', () => loadAccountInfo());
   }
 }
 
-// 异步填充账户页存储用量（共享 renderStorageBar）
-async function fillAccountStorage() {
-  const usedEl = document.getElementById('acct-used');
-  if (!usedEl) return;
-  try {
-    const d = await getStats();
-    if (!usedEl.isConnected) return; // 已离开账户页
-    if (!d) return;
-    const used = Number(d.total_size_mb) || 0;
-    const quota = Number(d.quota_mb) || 0;
-    const { limited, remaining } = computeStorageFill(used, quota);
-    usedEl.textContent = used + ' MB';
-    const remainEl = document.getElementById('acct-remain');
-    if (remainEl) remainEl.textContent = limited ? remaining + ' MB' : '不限';
-    const storageEl = document.getElementById('acct-storage');
-    if (storageEl) storageEl.innerHTML = renderStorageBar(d);
-  } catch { /* 失败保持「-」降级 */ }
-}
-
-// 登录历史：读 /api/auth/login-history，仅当前用户自身记录（后端强制 user_id 过滤）
-// 筛选 chip（全部/登录/安全）纯前端过滤已取回的记录，不发新请求（零痕迹）。
-// 事件标签/色点/分类全部来自共享词表 utils/audit-actions.js（与管理端同源）。
+// 登录历史：读 /api/auth/login-history（服务端分页信封 {items,total,offset,limit}），
+// 仅当前用户自身记录（后端强制 user_id 过滤）。
+// 筛选 chip（全部/登录/安全）走 kind 参数由后端分类过滤（词表与 utils/audit-actions.js 同源）；
+// 事件标签/色点来自共享词表 utils/audit-actions.js（与管理端同源）。
+const LH_PAGE_SIZE = 10;
 let _loginHistorySeq = 0; // 竞态防护：丢弃过期响应
 let _lhLogs = [];
+let _lhTotal = 0;
 let _lhFilter = 'all';
+let _lhOffset = 0;
 
-async function loadLoginHistory() {
+async function loadLoginHistory({ resetPage = false } = {}) {
   const el = document.getElementById('login-history');
   if (!el) return;
+  if (resetPage) _lhOffset = 0;
   const seq = ++_loginHistorySeq;
+  el.classList.add('is-loading');
   try {
-    const res = await API.get('/api/auth/login-history?limit=30');
+    const res = await API.get(`/api/auth/login-history?offset=${_lhOffset}&limit=${LH_PAGE_SIZE}&kind=${_lhFilter}`);
     if (seq !== _loginHistorySeq) return; // 已有更新请求，丢弃本响应
-    if (!res || !res.ok) { el.innerHTML = '<div class="lh-empty">登录记录加载失败</div>'; return; }
-    _lhLogs = (await res.json()) || [];
+    el.classList.remove('is-loading');
+    if (!res || !res.ok) { el.innerHTML = '<div class="lh-empty">登录历史加载失败</div>'; return; }
+    const d = (await res.json()) || {};
+    _lhLogs = d.items || [];
+    _lhTotal = Number(d.total) || 0;
     renderLoginHistoryList();
-  } catch { if (seq === _loginHistorySeq) el.innerHTML = '<div class="lh-empty">登录记录加载失败</div>'; }
+  } catch {
+    if (seq === _loginHistorySeq) { el.classList.remove('is-loading'); el.innerHTML = '<div class="lh-empty">登录历史加载失败</div>'; }
+  }
 }
 
 function renderLoginHistoryList() {
   const el = document.getElementById('login-history');
   if (!el) return;
-  const logs = _lhFilter === 'all' ? _lhLogs : _lhLogs.filter(l => auditCategory(l.action) === _lhFilter);
   const chip = (f, label) => `<button class="lh-chip${_lhFilter === f ? ' is-active' : ''}" data-filter="${f}">${label}</button>`;
   // 空态区分「真无记录」与「该分类无记录」——隐私产品里不能让人误以为记录被清
   const emptyText = _lhFilter === 'all' ? '暂无登录记录' : '该分类下暂无记录';
+  const pages = Math.max(1, Math.ceil(_lhTotal / LH_PAGE_SIZE));
+  const page = Math.min(Math.floor(_lhOffset / LH_PAGE_SIZE) + 1, pages);
+  // 有记录才给分页条：上一页/下一页 + 「共 N 条 · 第 x/y 页」，首页/末页对应禁用
+  const pager = _lhTotal > 0 ? `
+    <div class="lh-pager">
+      <span class="lh-pager-info">共 ${_lhTotal} 条 · 第 ${page}/${pages} 页</span>
+      <span class="lh-pager-btns">
+        <button class="lh-page-btn" data-page="prev" ${page <= 1 ? 'disabled' : ''}>‹ 上一页</button>
+        <button class="lh-page-btn" data-page="next" ${page >= pages ? 'disabled' : ''}>下一页 ›</button>
+      </span>
+    </div>` : '';
   el.innerHTML = `
     <div class="lh-head">
-      <div class="lh-title">最近登录记录</div>
+      <div class="lh-title">登录历史</div>
       <div class="lh-filters">${chip('all', '全部')}${chip('login', '登录')}${chip('security', '安全')}</div>
     </div>
-    ${logs.length ? `<div class="lh-list">${logs.map(l => {
+    ${_lhLogs.length ? `<div class="lh-list">${_lhLogs.map(l => {
       const detail = (l.detail || '').trim();
       return `<div class="lh-item">
         <span class="lh-dot ${auditCls(l.action)}"></span>
@@ -5738,11 +6384,16 @@ function renderLoginHistoryList() {
         ${detail ? `<span class="lh-detail">${escapeHtml(detail)}</span>` : ''}
         <span class="lh-time">${l.created_at ? formatDateTime(l.created_at) : ''}</span>
       </div>`;
-    }).join('')}</div>` : `<div class="lh-empty">${emptyText}</div>`}`;
+    }).join('')}</div>` : `<div class="lh-empty">${emptyText}</div>`}
+    ${pager}`;
   el.querySelectorAll('.lh-chip').forEach(c => c.addEventListener('click', () => {
     if (_lhFilter === c.dataset.filter) return;
     _lhFilter = c.dataset.filter;
-    renderLoginHistoryList();
+    loadLoginHistory({ resetPage: true }); // 换分类回第一页
+  }));
+  el.querySelectorAll('.lh-page-btn').forEach(b => b.addEventListener('click', () => {
+    _lhOffset = Math.max(0, _lhOffset + (b.dataset.page === 'prev' ? -LH_PAGE_SIZE : LH_PAGE_SIZE));
+    loadLoginHistory();
   }));
 }
 
@@ -6208,16 +6859,25 @@ const App = {
       const res = await API.get('/api/auth/me', { _skipLogoutRedirect: true });
       if (!res || !res.ok) { renderLogin(); return; }
       this.currentUser = await res.json();
+      // 云端偏好回填：仅填补本地未设置的键，失败静默（旧后端无此接口时等同纯本地模式）
+      await pullCloudPrefs();
     } catch {
       renderLogin(); return;
     }
     this.renderLayout();
-    this.navigate('transfer');
-    // 设置深链冷启动直达：#/settings/<section>[/<anchor>]（其他 hash 不受影响）
-    if ((location.hash || '').startsWith('#/settings/')) {
-      const { section, anchor } = parseSettingsHash(location.hash);
-      this.navigate('settings', { section, anchor });
+    // 冷启动按 URL 深链直达：设置子状态 / 笔记(可带 id|new) / 通用视图 #/<view>；无匹配回落传输助手
+    const _ih = (location.hash || '').trim();
+    let _iv = 'transfer', _iopts = {};
+    if (_ih.startsWith('#/settings/')) { _iv = 'settings'; const { section, anchor } = parseSettingsHash(_ih); _iopts = { section, anchor }; }
+    else if (isNotesHash(_ih)) { _iv = 'notes'; }
+    else { const _vm = /^#\/(transfer|chat|files|trash)\/?$/.exec(_ih); if (_vm) _iv = _vm[1]; }
+    _iopts.fromHash = true;   // 冷启动用 replace，避免在已加载的 URL 之上重复压栈
+    this.navigate(_iv, _iopts);
+    if (_iv === 'notes') {
+      const { noteId, isNew } = parseNotesHash(_ih);
+      if (noteId || isNew) _openNoteFromHash(noteId, isNew, false);   // renderNotes 已规整 #/notes 基座，此处压入 #/notes/<id>
     }
+    wireViewHash();   // 通用视图间的前进/后退路由
     setupDragDrop();
     setupPaste();
     setupGlobalShortcuts();
@@ -6230,11 +6890,12 @@ const App = {
     const username = this.currentUser ? this.currentUser.username : '随行档';
     const initial = this.currentUser ? this.currentUser.username.charAt(0).toUpperCase() : '档';
     const aiEnabled = this.currentUser && this.currentUser.ai_enabled;
-    const collapsed = loadPref('sidebarCollapsed', false) ? ' collapsed' : '';
+    const collapsed = loadPref('sidebarCollapsed', false);
+    const modHint = loadPref('modKeyHint', 'auto');
 
     document.getElementById('app').innerHTML = `
-      <div class="app-layout">
-        <aside class="sidebar${collapsed}" id="sidebar">
+      <div class="app-layout${collapsed ? ' sidebar-collapsed' : ''}">
+        <aside class="sidebar${collapsed ? ' collapsed' : ''}" id="sidebar">
           <div class="sidebar-header">
             <div class="workspace" id="sidebar-logo" title="随行档">
               <div class="workspace-avatar">${initial}</div>
@@ -6245,24 +6906,25 @@ const App = {
             </div>
           </div>
           <div class="sidebar-search">
-            <div class="sidebar-search-box" id="sidebar-search-trigger">
+            <div class="sidebar-search-box" id="sidebar-search-trigger" role="button" tabindex="0"
+                 data-tip="快捷操作" title="快捷操作（${escapeHtml(fmtKey('mod+k', modHint))}）">
               ${ICONS.search}
-              <span>搜索</span>
-              <kbd>Ctrl K</kbd>
+              <span>快捷操作</span>
+              <kbd>${escapeHtml(fmtKey('mod+k', modHint))}</kbd>
             </div>
           </div>
           <nav class="sidebar-nav">
             <div class="nav-section">
               <div class="nav-section-label">工作区</div>
-              <button class="nav-item active" data-view="transfer">${ICONS.transfer}<span class="nav-item-label">传输助手</span></button>
-              ${aiEnabled ? `<button class="nav-item" data-view="chat">${ICONS.chat}<span class="nav-item-label">AI 助手</span></button>` : ''}
-              <button class="nav-item" data-view="files">${ICONS.files}<span class="nav-item-label">文件库</span></button>
-              <button class="nav-item" data-view="notes">${ICONS.note}<span class="nav-item-label">笔记</span></button>
-              <button class="nav-item" data-view="trash">${ICONS.trash}<span class="nav-item-label">回收站</span><span class="nav-badge" id="trash-count" hidden>0</span></button>
+              <button class="nav-item active" data-view="transfer" data-tip="传输助手" title="传输助手">${ICONS.transfer}<span class="nav-item-label">传输助手</span></button>
+              ${aiEnabled ? `<button class="nav-item" data-view="chat" data-tip="AI 助手" title="AI 助手">${ICONS.chat}<span class="nav-item-label">AI 助手</span></button>` : ''}
+              <button class="nav-item" data-view="files" data-tip="文件库" title="文件库">${ICONS.files}<span class="nav-item-label">文件库</span></button>
+              <button class="nav-item" data-view="notes" data-tip="笔记" title="笔记">${ICONS.note}<span class="nav-item-label">笔记</span></button>
+              <button class="nav-item" data-view="trash" data-tip="回收站" title="回收站">${ICONS.trash}<span class="nav-item-label">回收站</span></button>
             </div>
             <div class="nav-section">
               <div class="nav-section-label">系统</div>
-              <button class="nav-item" data-view="settings">${ICONS.settings}<span class="nav-item-label">设置</span></button>
+              <button class="nav-item" data-view="settings" data-tip="设置" title="设置">${ICONS.settings}<span class="nav-item-label">设置</span></button>
             </div>
           </nav>
           <div class="sidebar-footer">
@@ -6276,8 +6938,9 @@ const App = {
               <button class="nav-item nav-logout" id="btn-sidebar-logout" title="退出登录" aria-label="退出登录">${ICONS.logout}</button>
             </div>
           </div>
-          <button class="sidebar-collapse" id="sidebar-toggle" title="收起侧栏">${ICON_CHEVRON_LEFT}</button>
         </aside>
+        <button class="sidebar-collapse${loadPref('sidebarHintSeen', false) ? '' : ' pulse-once'}" id="sidebar-toggle"
+                aria-expanded="${!collapsed}" title="${collapsed ? '展开侧栏' : '收起侧栏'}">${ICON_CHEVRON_LEFT}</button>
         <div class="main-content" id="main-content"></div>
       </div>`;
     document.querySelectorAll('.sidebar .nav-item').forEach(btn => {
@@ -6301,23 +6964,38 @@ const App = {
     const logoBtn = document.getElementById('sidebar-logo');
     if (logoBtn) logoBtn.addEventListener('click', () => this.navigate('settings'));
     const searchTrigger = document.getElementById('sidebar-search-trigger');
-    if (searchTrigger) searchTrigger.addEventListener('click', () => { if (typeof openCommandPalette === 'function') openCommandPalette(); });
+    if (searchTrigger) {
+      searchTrigger.addEventListener('click', () => openCommandPalette());
+      searchTrigger.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCommandPalette(); }
+      });
+    }
     const toggleBtn = document.getElementById('sidebar-toggle');
     if (toggleBtn) toggleBtn.addEventListener('click', () => {
       const sb = document.getElementById('sidebar');
-      const isCollapsed = sb.classList.toggle('collapsed');
-      savePref('sidebarCollapsed', isCollapsed);
+      if (sb) setSidebarCollapsed(!sb.classList.contains('collapsed'));
     });
  },
  navigate(view, opts = {}) {
    // 离开聊天视图时中止进行中的流式回复，避免向已分离的 DOM 继续写入
    if (this.currentView === 'chat' && view !== 'chat' && currentChatAbort) currentChatAbort.abort();
-   // 离开设置视图时清除深链 hash（防返回键意外回到旧章节；hash 仅在设置视图内有意义）
-   if (this.currentView === 'settings' && view !== 'settings') {
-     try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+   const _changingView = view !== this.currentView;   // 点击已激活项=刷新，不应入栈（否则后退空转）
+   // 离开笔记视图：有未保存编辑器则拦截并还原深链（防丢稿 / 浮层残留 / 后退时 URL 与视图错位），否则静默关编辑器
+   if (this.currentView === 'notes' && view !== 'notes') {
+     if (_noteEditor) {
+       if (_noteEditor.dirty) {
+         Toast.show('有未保存的笔记更改，请先保存或丢弃', 'warning', 3000);
+         try { history.replaceState(null, '', '#/notes/' + (_noteEditor.noteId || '')); } catch {}   // 拦截后退时把 URL 还原到当前编辑器
+         return;
+       }
+       _noteEditor.close(false);
+     }
+     noteSelectMode = false; noteSelection.clear();   // 离开视图即退出选择态
    }
    this.currentView = view;
     document.querySelectorAll('.sidebar .nav-item[data-view]').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+   // 视图级深链：settings/notes 在 render 时写子状态深链，其余视图写 #/<view>（侧栏点击 push 以支持后退，hash 驱动/冷启动 replace）
+   if (view !== 'settings' && view !== 'notes' && _changingView) { try { history[opts.fromHash ? 'replaceState' : 'pushState'](null, '', '#/' + view); } catch {} }
    if (view === 'chat' && !(this.currentUser && this.currentUser.ai_enabled)) {
       document.getElementById('main-content').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;color:var(--text-muted)">${ICONS.chat}<p>管理员未为您开通 AI 助手功能</p></div>`;
       return;

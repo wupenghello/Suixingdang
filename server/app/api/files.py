@@ -5,6 +5,7 @@ from pathlib import Path
 import mimetypes
 import json
 import re
+from app.core.text_util import plain_excerpt
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FAFile, Query, Request, Body
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -18,6 +19,11 @@ from .auth import get_current_user, get_current_session, _log, verify_stepup_pas
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/files", tags=["files"])
+
+
+# 笔记正文节选缓存：file_id -> (content_hash, modified_ts, snippet)。
+# list_notes 每次刷新都跑，命中缓存的笔记跳过磁盘 IO，仅内容变化（content_hash 变）的重读 → 刷新 ~O(变化数) 而非 O(N)。
+_snippet_cache = {}
 
 
 # 可在浏览器内联渲染并执行脚本的类型：预览时强制下载，避免上传恶意 HTML/SVG 后预览触发存储型 XSS。
@@ -405,7 +411,7 @@ def get_note_content(path: str = Query(None), file_id: str = Query(None), db: Se
         content = fh.read()
     db.add(AccessLog(user_id=user.id, action="file_preview", detail=path))
     db.commit()
-    result = {"content": content, "name": f.name if f else path, "path": path}
+    result = {"content": content, "name": f.name if f else path, "path": path, "file_id": f.id if f else ""}
     result.update(_file_meta(f) if f else {"tags": [], "pinned": False, "summary": "", "ai_tags": []})
     return result
 
@@ -653,15 +659,35 @@ def list_notes(db: Session = Depends(get_db), user=Depends(get_current_user)):
     notes = []
     for f in rows:
         meta = _file_meta(f)
+        # 正文节选（摘要回退链第二档）：有 AI 摘要则跳过磁盘 IO；否则按 (content_hash, mtime) 缓存，
+        # 仅内容变化的笔记重读磁盘（前 2KB 剥离格式，IO 受限、失败静默为空）
+        summary = meta["summary"]
+        if summary:
+            snippet = ""                       # 前端优先用摘要，跳过磁盘 IO
+        else:
+            _ck = (f.content_hash, f.modified_at.timestamp() if f.modified_at else 0)
+            _hit = _snippet_cache.get(f.id)
+            if _hit and _hit[0] == _ck[0] and _hit[1] == _ck[1]:
+                snippet = _hit[2]
+            else:
+                try:
+                    _p = storage.read_file(user.id, f.path)
+                    with open(_p, "r", encoding="utf-8", errors="replace") as _fh:
+                        snippet = plain_excerpt(_fh.read(2048))
+                except Exception:
+                    snippet = ""
+                _snippet_cache[f.id] = (_ck[0], _ck[1], snippet)
         notes.append({
             "file_id": f.id,
             "path": f.path,
             "name": f.name,
-            "summary": meta["summary"],
+            "summary": summary,
+            "snippet": snippet,
             "tags": meta["tags"],
             "ai_tags": meta["ai_tags"],
             "pinned": meta["pinned"],
             "modified": f.modified_at.timestamp() if f.modified_at else 0,
+            "created": f.uploaded_at.timestamp() if f.uploaded_at else 0,
             "size": f.size,
             "group_id": f.group_id or "",
             "group_name": group_map.get(f.group_id, "") if f.group_id else "",
@@ -1437,7 +1463,7 @@ def trash_preview(file_id: str = Query(...), db: Session = Depends(get_db), user
     media_type = f.mime_type or mimetypes.guess_type(str(p))[0] or "application/octet-stream"
     if media_type in _UNSAFE_PREVIEW_TYPES:
         raise HTTPException(415, "此类型不支持浏览器预览")
-    db.add(AccessLog(user_id=user.id, action="file_preview", detail=f"[trash] {f.path}"))
+    db.add(AccessLog(user_id=user.id, action="trash_preview", detail=f"[trash] {f.path}"))
     db.commit()
     return FileResponse(path=str(p), media_type=media_type, headers=_NO_STORE)
 

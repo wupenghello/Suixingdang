@@ -7,7 +7,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import hashlib
-
+import json
 import time
 
 from ..db.models import (
@@ -927,22 +927,120 @@ def get_me(user=Depends(get_current_user)):
     }
 
 
+# ---- 界面偏好（仅当前用户自身；key 白名单 + 类型校验 + 体积上限）----
+# 与前端 CLOUD_PREF_KEYS（web/assets/app.js）一一对应；新增 key 必须两端同改。
+# 刻意不收任何文件/令牌/凭证类数据——偏好同步不得成为 PII 通道。
+_PREFS_SCHEMA = {
+    "sidebarCollapsed": bool,
+    "modKeyHint": str,
+    "cmdActionUse": dict,
+}
+_PREFS_MAX_BYTES = 4096
+_MODKEY_VALUES = {"auto", "mac", "win"}
+_CMD_ACTION_MAX_KEYS = 64
+
+
+def _validate_prefs(raw) -> dict:
+    """白名单 + 类型校验：未知 key / 类型不符 / 取值非法一律 400，绝不让脏数据落库。"""
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "prefs 必须是 JSON 对象")
+    out = {}
+    for k, v in raw.items():
+        expected = _PREFS_SCHEMA.get(k)
+        if expected is None:
+            raise HTTPException(400, f"未知偏好项: {k}")
+        # bool 是 int 的子类：cmdActionUse 计数必须排除 bool 偷渡
+        if not isinstance(v, expected) or (expected is not bool and isinstance(v, bool)):
+            raise HTTPException(400, f"偏好项类型错误: {k}")
+        if k == "modKeyHint" and v not in _MODKEY_VALUES:
+            raise HTTPException(400, "modKeyHint 取值非法")
+        if k == "cmdActionUse" and (
+            len(v) > _CMD_ACTION_MAX_KEYS
+            or not all(isinstance(kk, str) and isinstance(vv, int) and not isinstance(vv, bool) for kk, vv in v.items())
+        ):
+            raise HTTPException(400, "cmdActionUse 必须是 {动作名: 整数次数}，且不超过 64 项")
+        out[k] = v
+    return out
+
+
+@router.get("/prefs")
+def get_prefs(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """读取当前用户界面偏好。严格 owner 隔离：只读自己这一行；管理端令牌走独立认证体系，无法命中本端点。"""
+    try:
+        prefs = json.loads(user.prefs or "{}")
+        if not isinstance(prefs, dict):
+            prefs = {}
+    except (ValueError, TypeError):
+        prefs = {}  # 历史脏数据自愈为空，不 500
+    return {"prefs": prefs}
+
+
+@router.put("/prefs")
+async def put_prefs(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """整体覆盖当前用户界面偏好（白名单 key、4KB 上限）。只写自己这一行，无跨账户面。"""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须是 JSON")
+    if not isinstance(body, dict) or "prefs" not in body:
+        raise HTTPException(400, "缺少 prefs 字段")
+    prefs = _validate_prefs(body["prefs"])
+    encoded = json.dumps(prefs, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > _PREFS_MAX_BYTES:
+        raise HTTPException(400, "偏好体积超限（4KB）")
+    user.prefs = encoded
+    db.commit()
+    return {"ok": True}
+
+
 # ---- 登录历史（仅当前用户自身的 access_logs；强制 user_id 过滤，防 IDOR）----
 
+# 分类筛选词表：与前端单一真源 web/assets/utils/audit-actions.js 的 category 保持同步
+# （login=登录类 · security=密码/授权/令牌类）。admin_* 事件 user_id=None，本就不进用户历史。
+_LOGIN_HISTORY_KINDS = {
+    "login": {
+        "login_success", "login_failed", "login_locked", "login_blocked",
+        "login_new_device", "register",
+    },
+    "security": {
+        "password_changed", "password_reset_success", "password_reset_failed",
+        "password_reset_locked", "stepup_failed", "revoke_other_tokens",
+        "revoke_all_tokens", "download_grant", "download_grant_failed",
+        "download_grant_single", "download_revoke",
+    },
+}
+
+
 @router.get("/login-history")
-def login_history(limit: int = 20, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def login_history(
+    offset: int = 0,
+    limit: int = 10,
+    kind: str = "all",
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    offset = max(0, int(offset))
     limit = max(1, min(int(limit), 50))  # 钳制 1..50，规避超大 limit 拖库
+    q = db.query(AccessLog).filter(AccessLog.user_id == user.id)
+    actions = _LOGIN_HISTORY_KINDS.get(kind)
+    if actions:
+        q = q.filter(AccessLog.action.in_(actions))
+    total = q.count()
     logs = (
-        db.query(AccessLog)
-        .filter(AccessLog.user_id == user.id)
-        .order_by(AccessLog.created_at.desc())
+        q.order_by(AccessLog.created_at.desc())
+        .offset(offset)
         .limit(limit)
         .all()
     )
-    return [
-        {"action": l.action, "detail": l.detail, "ip": l.ip or "", "created_at": str(l.created_at)}
-        for l in logs
-    ]
+    return {
+        "items": [
+            {"action": l.action, "detail": l.detail, "ip": l.ip or "", "created_at": str(l.created_at)}
+            for l in logs
+        ],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 # ---- 日志 ----

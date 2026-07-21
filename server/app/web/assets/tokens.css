@@ -76,6 +76,13 @@
   --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
 
+  /* —— 动效族（UI_SPEC §2.6）—— */
+  --dur-fast: 120ms;   /* 按下 / 淡入淡出 */
+  --dur-base: 160ms;   /* 悬停 / 菜单 */
+  --dur-slow: 240ms;   /* 弹层开合 */
+  --ease: cubic-bezier(.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(.2, .8, .2, 1);
+
   /* —— 兼容别名（admin/auth/旧组件过渡用，新代码勿引用）—— */
   --seal: #3370FF;
   --seal-2: #2860E8;

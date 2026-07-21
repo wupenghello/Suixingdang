@@ -74,7 +74,7 @@ def test_audit_log_records_change_events(client):
     logs = client.get(
         "/api/auth/login-history?limit=50",
         headers={"Authorization": f"Bearer {new_access}"},
-    ).json()
+    ).json()["items"]
     actions = [l["action"] for l in logs]
     assert "password_changed" in actions
     assert "stepup_failed" in actions
