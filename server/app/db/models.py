@@ -137,7 +137,28 @@ class ChatMessage(Base):
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     tool_calls = Column(Text, default="[]")
+    tool_results = Column(Text, default="[]")      # S2：多轮回放保留工具结果（修复丢证据）
+    pending_state = Column(Text, nullable=True)    # S2：HITL 挂起状态（messages + 待确认调用）
+    trace_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AgentTrace(Base):
+    """Agent 运行追踪：每次对话一条（S2 可观测性 / 数据中心数据源）。"""
+    __tablename__ = "agent_traces"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    session_id = Column(String, default="", index=True)
+    trace_id = Column(String, default="", index=True)
+    skill = Column(String, default="file-assistant")
+    rounds = Column(Integer, default=0)
+    tokens_in = Column(Integer, default=0)
+    tokens_out = Column(Integer, default=0)
+    duration_ms = Column(Integer, default=0)
+    status = Column(String, default="ok")          # ok / error / pending
+    tool_calls = Column(Text, default="[]")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class AccessToken(Base):

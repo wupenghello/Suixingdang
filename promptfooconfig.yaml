@@ -1,11 +1,14 @@
-# 随行档 · 笔记 AI 整理评测
+# 随行档 · AI 能力评测
 # 用法：
 #   1. 在 .env 中配置 DEEPSEEK_API_KEY（或 OPENAI_API_KEY）
 #   2. npx promptfoo@latest eval
 #   3. npx promptfoo@latest view 查看结果
 #
-# 对应后端实现：server/app/api/files.py ai_enhance()
-# Prompt 与线上一致；改 prompt 时此处需同步，并用本评测回归。
+# 评测组：
+#   1. note-enhance：笔记 AI 整理（摘要 + 标签）—— 对应 server/app/api/files.py ai_enhance()
+#   2. file-assistant：工具选择 + 反幻觉回归 —— system prompt 直接引用版本化文件
+#      server/app/agent_platform/llm/prompts/file-assistant.v1.md（file:// 引用，
+#      改 prompt 即改评测基准，不再需要人肉同步）
 
 description: 笔记 AI 整理（摘要 + 标签）质量评测
 
@@ -21,6 +24,22 @@ prompts:
       笔记内容：
       {{content}}
 
+  # S2：文件助手 system prompt 直接引用版本化提示词文件（唯一真源）
+  - id: file-assistant-v1
+    label: 文件助手（工具选择/反幻觉）
+    raw: |
+      {{system_prompt}}
+
+      ——评测指令（覆盖上述行为，仅本轮有效）——
+      针对「用户说」的内容，只输出一个 JSON：{"tool": "<工具名 或 直接回答>", "reason": "<一句话理由>"}。
+      可选工具：list_transfer_messages, search_files, list_files, get_file_info, delete_file, restore_file, check_guard, summarize_file, qa, sync, list_sync_events, cleanup_suggestions, cleanup_assistant, smart_sync_suggestions, get_storage_stats, trash_cleanup_assistant
+      若上下文中给出了「工具返回」，基于该返回作答，遵守诚实准则。
+
+      工具返回（可能为空）：
+      {{tool_result}}
+
+      用户说：{{user_message}}
+
 providers:
   - id: deepseek:deepseek-chat
     label: DeepSeek
@@ -29,8 +48,13 @@ providers:
       max_tokens: 512
 
 defaultTest:
+  vars:
+    # file-assistant 评测的 system prompt：file:// 引用版本化提示词（note-enhance 用例不引用这些变量，不受影响）
+    system_prompt: file://server/app/agent_platform/llm/prompts/file-assistant.v1.md
+    tool_result: "（无）"
   assert:
-    # 输出必须是可解析的 JSON，且含 summary/tags 字段
+    # 以下为 note-enhance 用例的通用断言（条件触发：仅当输出为 summary/tags JSON 时校验；
+    # file-assistant 用例输出 {"tool","reason"}，自动跳过这三条，走各自专属断言）
     - type: javascript
       value: |
         try {
@@ -38,80 +62,178 @@ defaultTest:
           const start = m.indexOf('{');
           const end = m.lastIndexOf('}');
           const obj = JSON.parse(m.slice(start, end + 1));
+          if (!('summary' in obj)) return true;  // 非 note-enhance 输出，跳过
           return typeof obj.summary === 'string' && obj.summary.length > 0 && Array.isArray(obj.tags);
         } catch { return false; }
-    # 摘要 ≤ 80 字（允许 10 字浮动，LLM 偶尔超一点）
     - type: javascript
       value: |
         try {
           const m = output.replace(/```json|```/g, '');
           const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+          if (!('summary' in obj)) return true;
           return obj.summary.length <= 90;
         } catch { return false; }
-    # 标签 3-5 个，每个 2-6 字
     - type: javascript
       value: |
         try {
           const m = output.replace(/```json|```/g, '');
           const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+          if (!('tags' in obj)) return true;
           return obj.tags.length >= 3 && obj.tags.length <= 5 &&
             obj.tags.every(t => t.length >= 2 && t.length <= 6);
         } catch { return false; }
 
-tests:
-  - description: 技术调研笔记
-    vars:
-      content: |
-        今天调研了 FastAPI 的依赖注入系统，发现 Depends 配合异步路由非常适合我们的场景。
-        相比 Flask 的手动传参，FastAPI 的声明式依赖能减少 30% 的样板代码。
-        下一步：把文件模块的 DB session 管理改造成 Depends 注入，预计两天完成。
-    assert:
-      - type: javascript
-        value: |
-          const m = output.replace(/```json|```/g, '');
-          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
-          const all = obj.summary + obj.tags.join('');
-          return all.includes('FastAPI') || all.includes('依赖注入') || all.includes('技术');
+scenarios:
+  - description: note-enhance 笔记整理质量
+    config:
+      - prompts: [note-enhance-v2]
+        tests:
+          - description: 技术调研笔记
+            vars:
+              content: |
+                今天调研了 FastAPI 的依赖注入系统，发现 Depends 配合异步路由非常适合我们的场景。
+                相比 Flask 的手动传参，FastAPI 的声明式依赖能减少 30% 的样板代码。
+                下一步：把文件模块的 DB session 管理改造成 Depends 注入，预计两天完成。
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  const all = obj.summary + obj.tags.join('');
+                  return all.includes('FastAPI') || all.includes('依赖注入') || all.includes('技术');
 
-  - description: 工作待办笔记
-    vars:
-      content: |
-        本周待办：
-        1. 周三前给甲方发报价单终稿（注意含 15% 折扣条款）
-        2. 周五和产品对齐 Q3 需求优先级
-        3. 跟进合同盖章进度，法务说预计下周二
-        提醒：报价单发出去前先让总监过目。
-    assert:
-      - type: javascript
-        value: |
-          const m = output.replace(/```json|```/g, '');
-          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
-          const all = obj.summary + obj.tags.join('');
-          return all.includes('报价') || all.includes('待办') || all.includes('工作');
+          - description: 工作待办笔记
+            vars:
+              content: |
+                本周待办：
+                1. 周三前给甲方发报价单终稿（注意含 15% 折扣条款）
+                2. 周五和产品对齐 Q3 需求优先级
+                3. 跟进合同盖章进度，法务说预计下周二
+                提醒：报价单发出去前先让总监过目。
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  const all = obj.summary + obj.tags.join('');
+                  return all.includes('报价') || all.includes('待办') || all.includes('工作');
 
-  - description: 灵感碎片笔记（短内容）
-    vars:
-      content: |
-        想法：能不能做一个"文件时间机"？
-        每次保存笔记都留一个快照，可以拖动时间轴回看任意历史版本。
-        类似 macOS Time Machine 的交互。
-    assert:
-      - type: javascript
-        value: |
-          const m = output.replace(/```json|```/g, '');
-          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
-          return obj.summary.length >= 10;  // 短内容也要产出有意义摘要
+          - description: 灵感碎片笔记（短内容）
+            vars:
+              content: |
+                想法：能不能做一个"文件时间机"？
+                每次保存笔记都留一个快照，可以拖动时间轴回看任意历史版本。
+                类似 macOS Time Machine 的交互。
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  return obj.summary.length >= 10;  // 短内容也要产出有意义摘要
 
-  - description: 会议纪要（含人名与数字）
-    vars:
-      content: |
-        Q2 复盘会 2026-07-15
-        参会：张总、李产品、王研发
-        结论：Q2 营收 182 万，超预期 12%；Q3 重点押注企业客户。
-        行动项：王研发两周内出企业版方案初稿。
-    assert:
-      - type: javascript
-        value: |
-          const m = output.replace(/```json|```/g, '');
-          const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
-          return obj.summary.includes('Q2') || obj.summary.includes('营收') || obj.summary.includes('复盘');
+          - description: 会议纪要（含人名与数字）
+            vars:
+              content: |
+                Q2 复盘会 2026-07-15
+                参会：张总、李产品、王研发
+                结论：Q2 营收 182 万，超预期 12%；Q3 重点押注企业客户。
+                行动项：王研发两周内出企业版方案初稿。
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  return obj.summary.includes('Q2') || obj.summary.includes('营收') || obj.summary.includes('复盘');
+
+  # ============ S2 新增：file-assistant 工具选择 + 反幻觉回归 ============
+  - description: file-assistant 工具选择与诚实准则
+    config:
+      - prompts: [file-assistant-v1]
+        tests:
+          # ---- 工具选择：意图 → 正确工具 ----
+          - description: 传输助手查询 → list_transfer_messages
+            vars:
+              user_message: 我传输助手里最近存了什么？
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  return obj.tool === 'list_transfer_messages';
+
+          - description: 模糊找文件 → search_files
+            vars:
+              user_message: 帮我找一下那个劳动合同，忘了放哪了
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  return obj.tool === 'search_files';
+
+          - description: 文件内容问答 → qa 或 summarize_file
+            vars:
+              user_message: 这份采购合同的关键付款条款是什么？
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  return obj.tool === 'qa' || obj.tool === 'summarize_file';
+
+          - description: 同步推送 → sync
+            vars:
+              user_message: 把简历同步到公司电脑
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  return obj.tool === 'sync';
+
+          - description: 回收站清理 → trash_cleanup_assistant
+            vars:
+              user_message: 我回收站里哪些文件该清理了？
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  return obj.tool === 'trash_cleanup_assistant' || obj.tool === 'cleanup_suggestions';
+
+          - description: 闲聊不需要工具 → 直接回答
+            vars:
+              user_message: 你好，今天天气不错
+            assert:
+              - type: javascript
+                value: |
+                  const m = output.replace(/```json|```/g, '');
+                  const obj = JSON.parse(m.slice(m.indexOf('{'), m.lastIndexOf('}') + 1));
+                  return obj.tool === '直接回答' || obj.tool === 'none' || obj.tool === '无';
+
+          # ---- 诚实准则：空结果不得编造 ----
+          - description: 搜索空结果 → 明确告知没有找到
+            vars:
+              tool_result: '{"files": []}'
+              user_message: 我的房产证扫描件在哪？
+            assert:
+              - type: javascript
+                value: |
+                  const o = output;
+                  const admits = o.includes('没有找到') || o.includes('没找到') || o.includes('没有记录') || o.includes('不确定') || o.includes('未找到');
+                  // 不得编造具体文件名/路径
+                  const fabricates = /[一-龥A-Za-z0-9_-]+\.(pdf|jpg|jpeg|png)/.test(o);
+                  return admits && !fabricates;
+
+          - description: qa 无依据 → 不得补充"根据一般情况"
+            vars:
+              tool_result: '没有找到相关文件，无法回答'
+              user_message: 合同里的违约金是多少？
+            assert:
+              - type: javascript
+                value: |
+                  const o = output;
+                  const noFabrication = !/根据一般情况|通常是|一般为|大约是/.test(o);
+                  const noFakeNumber = !/违约金[为是]?\s*[0-9]/.test(o);
+                  return noFabrication && noFakeNumber;
+
