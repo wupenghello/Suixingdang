@@ -19,6 +19,7 @@ from .context import RunContext
 from . import events as E
 from .masking import MaskingStream
 from ..tools.registry import ToolRegistry, get_default_registry
+from ..skills.registry import get_active_skill, schemas_for
 from ..llm.gateway import resolve_client
 from ..llm.prompts import get_prompt
 
@@ -27,8 +28,9 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT_NAME = "file-assistant"
 
 
-def _system_message() -> dict:
-    text, _version = get_prompt(SYSTEM_PROMPT_NAME)
+def _system_message(skill=None) -> dict:
+    prompt_name = skill.prompt_name if skill else SYSTEM_PROMPT_NAME
+    text, _version = get_prompt(prompt_name)
     return {"role": "system", "content": text}
 
 
@@ -47,6 +49,8 @@ async def run_agent(
       （调用前应把批准的指纹加入 ctx.confirmed）
     """
     registry = registry or get_default_registry()
+    # 技能驱动：system prompt 与可见工具集由用户启用的技能决定
+    skill = get_active_skill(ctx.user_id)
     masking = MaskingStream(ctx.user_id)
     tool_call_log: list[dict] = []
     usage_out: dict = {}
@@ -56,7 +60,7 @@ async def run_agent(
         messages = list(resume_state["messages"])
         pending = resume_state.get("pending")
     else:
-        messages = [_system_message()]
+        messages = [_system_message(skill)]
         messages.extend(history or [])
         messages.append({"role": "user", "content": message})
         pending = None
@@ -68,7 +72,7 @@ async def run_agent(
         yield E.error(str(e), code="LLM_UNAVAILABLE")
         return
 
-    tools_schema = registry.openai_schemas()
+    tools_schema = schemas_for(skill, registry)
 
     # ---- 恢复模式：先执行被挂起的破坏性调用（确定性继续，不重新问模型） ----
     if pending:

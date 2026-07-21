@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from .uploads import router as uploads_router
 from .trash import router as trash_router
 from .chat import router as chat_router
+from .placeholders import router as placeholders_router
 from .. import auth, files, chat, sync, admin, transfer
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/api/v1", tags=["v1"])
 router.include_router(uploads_router)
 router.include_router(trash_router)
 router.include_router(chat_router)
+router.include_router(placeholders_router)
 
 # 兼容挂载：既有端点在 v1 前缀下同样可达
 for _r in (auth.router, files.router, chat.router, sync.router, admin.router, transfer.router):

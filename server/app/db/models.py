@@ -161,6 +161,80 @@ class AgentTrace(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+# ============ S5 展位：未来产品功能的数据模型（建表冻结字段，业务逻辑待实现） ============
+
+class KbCollection(Base):
+    """知识库（展位）：一个 bot/场景绑定一个知识库。"""
+    __tablename__ = "kb_collections"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    owner_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, default="")
+    chunk_config = Column(JSON, default=dict)      # 分块/embedding 配置
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KbDocument(Base):
+    """知识库文档（展位）：来源可为上传/Notion/飞书/web。"""
+    __tablename__ = "kb_documents"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    collection_id = Column(String, ForeignKey("kb_collections.id"), nullable=False, index=True)
+    owner_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    file_id = Column(String, nullable=True)        # 关联 files 表（上传来源）
+    source = Column(String, default="upload")      # upload / notion / feishu / web
+    source_ref = Column(Text, default="")          # 外部来源标识（Notion page id 等）
+    title = Column(String, default="")
+    status = Column(String, default="pending")     # pending / indexing / ready / failed
+    chunk_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class McpServer(Base):
+    """MCP 服务器连接（展位）：用户配置的远程 MCP server，工具经适配层接入注册表。"""
+    __tablename__ = "mcp_servers"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    transport = Column(String, default="streamable_http")
+    credential_enc = Column(Text, default="")      # Fernet 加密的凭据
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SkillConfig(Base):
+    """用户技能开关（展位）：内置技能默认启用，可按用户关闭/配置。"""
+    __tablename__ = "skills_config"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    skill_id = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True)
+    config = Column(JSON, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Bot(Base):
+    """智能客服 bot（展位）：skill + 知识库 + 渠道 的组合。"""
+    __tablename__ = "bots"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    owner_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    skill_id = Column(String, default="customer-service")
+    kb_collection_id = Column(String, ForeignKey("kb_collections.id"), nullable=True)
+    channel = Column(String, default="web")        # web / feishu / wechat（展位）
+    welcome = Column(Text, default="")
+    config = Column(JSON, default=dict)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class AccessToken(Base):
     __tablename__ = "access_tokens"
 
