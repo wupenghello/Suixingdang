@@ -138,14 +138,27 @@ jobs:
               sleep 3
             done
             docker compose up -d
-            # Caddyfile 变更 up -d 感知不到（bind mount 内容不计入 compose 配置
-            # hash），显式校验 + 热加载：配置相同则无变化，非法则拒绝并使本 job 失败。
-            # caddy 刚重建时可能尚未 running（崩溃重启中 exec 会直接报错），先等状态。
-            for i in $(seq 1 15); do
-              [ "$(docker inspect -f '{{.State.Running}}' suixingdang-caddy 2>/dev/null)" = true ] && break
+            # Caddyfile 以 bind mount 挂入 caddy：内容变更不计入 compose 配置
+            # hash，普通 up -d 既不重建 caddy、也感知不到新配置（配置非法时
+            # caddy 还会陷入崩溃重启退避，越拖越久）。策略：
+            # 1) 一次性容器先校验新配置——非法则 job 失败，运行中的 caddy 不受
+            #    影响（零停机纪律：坏配置不上线）
+            # 2) 校验通过后强制重建 caddy（顺带重置崩溃重启退避）
+            # 3) 等连续 running 才算稳定（规避崩溃循环中瞬时 Running 的竞态），
+            #    最后 reload 兜底（配置相同则无变化）
+            docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            docker compose up -d --force-recreate caddy
+            stable=0
+            for i in $(seq 1 30); do
+              if [ "$(docker inspect -f '{{.State.Running}}' suixingdang-caddy 2>/dev/null)" = true ]; then
+                stable=$((stable+1))
+                [ "$stable" -ge 3 ] && break
+              else
+                stable=0
+              fi
               sleep 2
             done
-            docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            [ "$stable" -ge 3 ] || { echo 'ERROR: caddy 60s 内未稳定 running，附日志：' >&2; docker compose logs --tail=30 caddy >&2; exit 1; }
             docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
             docker compose ps
             # 健康检查：输出含 version，可在日志确认部署到的版本号；超时则 job 失败
@@ -185,5 +198,12 @@ jobs:
             if [ "$ok" != 1 ]; then
               echo 'ERROR: 验证失败，/api/health 未就绪，附 server 日志：' >&2
               docker compose logs --tail=60 server >&2 || true
+              exit 1
+            fi
+            caddy_state=$(docker inspect -f '{{.State.Status}}' suixingdang-caddy 2>/dev/null || echo missing)
+            echo "caddy 状态: $caddy_state"
+            if [ "$caddy_state" != running ]; then
+              echo 'ERROR: caddy 未运行（公网入口不可用），附日志：' >&2
+              docker compose logs --tail=30 caddy >&2 || true
               exit 1
             fi
