@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from .config import settings
+from .version import __version__
 from .db.models import init_db
 from .core.storage import ensure_storage
 from .core.sensitive_paths import is_sensitive_path
@@ -50,7 +51,7 @@ def _trash_purge_on_startup():
 
 
 app = FastAPI(
-    title="随行档 Suixingdang", version="2.0.0", lifespan=lifespan,
+    title="随行档 Suixingdang", version=__version__, lifespan=lifespan,
     # 默认关闭自动文档：生产环境不暴露 API 结构。本地开发置 ENABLE_API_DOCS=true 开启。
     docs_url="/docs" if settings.ENABLE_API_DOCS else None,
     redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,
@@ -82,7 +83,7 @@ install_exception_handlers(app)
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "Suixingdang", "version": "2.0.0"}
+    return {"status": "ok", "service": "Suixingdang", "version": __version__}
 
 
 # 用户端前端

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from .config import settings
+from .version import __version__
 from .db.models import init_db
 from .core.storage import ensure_storage
 from .core.sensitive_paths import is_sensitive_path
@@ -25,7 +26,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="随行档 Admin", version="2.0.0", lifespan=lifespan,
+    title="随行档 Admin", version=__version__, lifespan=lifespan,
     docs_url="/docs" if settings.ENABLE_API_DOCS else None,
     redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,
     openapi_url="/openapi.json" if settings.ENABLE_API_DOCS else None,

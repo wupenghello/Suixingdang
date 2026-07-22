@@ -10,6 +10,7 @@ from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSet
 from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password, verify_password
 from ..core import storage, indexer
 from ..config import settings
+from ..version import __version__
 from ..services import trash as trash_service
 from .auth import get_current_admin, _log, _bump_password_version, _limiter_key, _set_user_password
 
@@ -563,7 +564,7 @@ def system_info(admin=Depends(get_current_admin)):
     return {
         "python_version": sys.version.split()[0],
         "platform": platform.platform(),
-        "app_version": "2.0.0",
+        "app_version": __version__,
         "storage_dir": settings.STORAGE_DIR,
         "database_path": settings.DATABASE_PATH,
         "llm_provider": (default.name if default else "未配置"),
