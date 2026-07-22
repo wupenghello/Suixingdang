@@ -219,5 +219,12 @@ jobs:
               docker compose logs --tail=30 caddy >&2 || true
               exit 1
             fi
-            echo '=== 新前端 /next/（应返回 React index.html）==='
-            curl -fsS http://127.0.0.1:8000/next/ 2>/dev/null | head -c 300 || echo 'WARN: /next/ 不可用（新前端未构建进镜像）'
+            echo '=== 新前端 /next/（应返回 React 产物，含 /next/assets/ 引用）==='
+            next_html=$(curl -fsS http://127.0.0.1:8000/next/ 2>/dev/null || true)
+            if echo "$next_html" | grep -q '/next/assets/'; then
+              echo 'OK: 新前端已挂载（index.html 引用 /next/assets/）'
+            else
+              echo 'ERROR: /next/ 未返回新前端构建产物（可能 web/dist 未进镜像），实际内容前 300 字节：' >&2
+              echo "$next_html" | head -c 300 >&2
+              exit 1
+            fi
