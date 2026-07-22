@@ -928,7 +928,7 @@ def get_me(user=Depends(get_current_user)):
 
 
 # ---- 界面偏好（仅当前用户自身；key 白名单 + 类型校验 + 体积上限）----
-# 与前端 CLOUD_PREF_KEYS（web/assets/app.js）一一对应；新增 key 必须两端同改。
+# 与前端偏好同步的 key 白名单一一对应；新增 key 必须两端同改。
 # 刻意不收任何文件/令牌/凭证类数据——偏好同步不得成为 PII 通道。
 _PREFS_SCHEMA = {
     "sidebarCollapsed": bool,

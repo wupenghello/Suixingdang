@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from .config import settings
 from .version import __version__
@@ -86,40 +86,51 @@ def health():
     return {"status": "ok", "service": "Suixingdang", "version": __version__}
 
 
-# 用户端前端
-WEB_DIR = Path(__file__).parent / "web"
+# 用户端前端：React + TS 构建产物（web/ 源码，CI 构建后打进镜像 /web/dist）。
+# v2.1.x 起直接服务根路径 /（唯一正式版，旧 SPA 与 /next 灰度已下线）。
+WEB_DIR = Path(__file__).parent / "web"                # 管理后台 / 落地页等随包静态资源
+WEB_DIST = Path(__file__).parents[2] / "web" / "dist"  # 容器内 /web/dist；本地仓库 web/dist
+ADMIN_DIR = WEB_DIR / "admin"
 
-# 新前端（S3：React+TS 构建产物）灰度入口 /next/*（绞杀者迁移：旧 SPA 保持默认，
-# 验证完毕后切换默认入口并下线旧前端）
-NEW_WEB_DIST = Path(__file__).parents[2] / "web" / "dist"
+# 管理后台静态资源（独立目录，与用户端 /assets 互不干扰）
+if (ADMIN_DIR / "assets").is_dir():
+    app.mount("/admin/assets", StaticFiles(directory=ADMIN_DIR / "assets"), name="admin-assets")
 
-# 构建产物完整（CI 自动构建进镜像 /web/dist，本地为 web/dist）才挂载 /next/*：
-# 空目录 / 缺 assets 时若强行 mount，StaticFiles 会因目录不存在抛 RuntimeError
-# 导致启动失败（源码构建未跑 web 构建的部署场景）。
-if (NEW_WEB_DIST / "index.html").exists() and (NEW_WEB_DIST / "assets").is_dir():
-    app.mount("/next/assets", StaticFiles(directory=NEW_WEB_DIST / "assets"), name="next-assets")
+# 落地页（/welcome）与样式：与用户端应用壳解耦，独立保留
+_landing_html = WEB_DIR / "landing.html"
+_landing_css = WEB_DIR / "landing.css"
 
+if _landing_css.exists():
+    @app.get("/landing.css")
+    def landing_css():
+        return FileResponse(str(_landing_css), media_type="text/css")
+
+@app.get("/welcome")
+def welcome():
+    if _landing_html.exists():
+        return FileResponse(str(_landing_html))
+    return {"detail": "Landing page not built."}
+
+# 管理后台 SPA 入口：/admin 及子路径返回 admin/index.html
+# （/admin/assets/* 已由上方 StaticFiles 挂载承接）
+_admin_index = ADMIN_DIR / "index.html"
+
+@app.get("/admin")
+@app.get("/admin/{rest:path}")
+def serve_admin(rest: str = ""):
+    if _admin_index.exists():
+        return FileResponse(str(_admin_index))
+    return {"detail": "Admin frontend not built."}
+
+# 用户端 SPA：构建产物完整才挂载。空目录 / 缺 assets 时强行 mount，StaticFiles
+# 会因目录不存在抛 RuntimeError 导致启动失败（源码部署未跑 web 构建的场景）。
+if (WEB_DIST / "index.html").exists() and (WEB_DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+
+    # 灰度旧地址过渡：/next/* 301 到 /*（hash 片段由浏览器自动保留）
     @app.get("/next/{rest:path}")
-    def serve_next_spa(rest: str):
-        return FileResponse(str(NEW_WEB_DIST / "index.html"))
-
-if WEB_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
-    # 落地页样式独立于 app.css，避免缓存耦合
-    _landing_css = WEB_DIR / "landing.css"
-    if _landing_css.exists():
-        @app.get("/landing.css")
-        def landing_css():
-            return FileResponse(str(_landing_css), media_type="text/css")
-
-    # 独立落地页：未登录用户的产品介绍页，与应用壳解耦
-    _landing_html = WEB_DIR / "landing.html"
-
-    @app.get("/welcome")
-    def welcome():
-        if _landing_html.exists():
-            return FileResponse(str(_landing_html))
-        return {"detail": "Landing page not built."}
+    def next_legacy_redirect(rest: str):
+        return RedirectResponse(url=f"/{rest}", status_code=301)
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
@@ -133,17 +144,18 @@ if WEB_DIR.exists():
         # 扫描器常探的敏感路径直接 404,不返回 SPA index.html(否则会被当 200 命中)
         if is_sensitive_path(full_path):
             raise HTTPException(status_code=404, detail="Not Found")
-        # 管理后台前端入口：/admin 及其子路径返回 admin/index.html
-        admin_index = WEB_DIR / "admin" / "index.html"
-        if full_path == "admin" or full_path.startswith("admin/"):
-            if admin_index.exists():
-                return FileResponse(str(admin_index))
-            return {"detail": "Admin frontend not built."}
-        index = WEB_DIR / "index.html"
-        if index.exists():
-            return FileResponse(str(index))
-        return {"detail": "Frontend not built."}
+        return FileResponse(str(WEB_DIST / "index.html"))
 else:
-    @app.get("/")
-    def root():
-        return {"service": "随行档", "status": "running", "api_docs": "/docs"}
+    # 构建产物缺失（源码部署未构建 web/dist）：仅 admin / welcome / API 可用
+    @app.get("/{full_path:path}")
+    def serve_spa_fallback(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        if full_path == "welcome":
+            if _landing_html.exists():
+                return FileResponse(str(_landing_html))
+            return {"detail": "Landing page not built."}
+        if is_sensitive_path(full_path):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return {"service": "随行档", "status": "running",
+                "detail": "Frontend not built. Run scripts/build_web.sh first."}

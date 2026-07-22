@@ -30,25 +30,8 @@ jobs:
         run: pip-audit -r server/requirements.txt
         continue-on-error: true
 
-  frontend:
-    name: 前端单测（vitest）
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: 'server/.nvmrc'
-          cache: 'npm'
-          cache-dependency-path: 'server/package-lock.json'
-      - name: 装前端测试依赖
-        run: npm ci
-        working-directory: server
-      - name: 跑前端单测
-        run: npm test
-        working-directory: server
-
   build-and-push:
-    needs: [test, frontend]
+    needs: [test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -219,12 +202,20 @@ jobs:
               docker compose logs --tail=30 caddy >&2 || true
               exit 1
             fi
-            echo '=== 新前端 /next/（应返回 React 产物，含 /next/assets/ 引用）==='
-            next_html=$(curl -fsS http://127.0.0.1:8000/next/ 2>/dev/null || true)
-            if echo "$next_html" | grep -q '/next/assets/'; then
-              echo 'OK: 新前端已挂载（index.html 引用 /next/assets/）'
+            echo '=== 用户端 /（应为 React 正式版，index.html 引用 /assets/index-*）==='
+            root_html=$(curl -fsS http://127.0.0.1:8000/ 2>/dev/null || true)
+            if echo "$root_html" | grep -q 'assets/index-'; then
+              echo 'OK: / 已服务新前端正式版'
             else
-              echo 'ERROR: /next/ 未返回新前端构建产物（可能 web/dist 未进镜像），实际内容前 300 字节：' >&2
-              echo "$next_html" | head -c 300 >&2
+              echo 'ERROR: / 未返回新前端构建产物（可能 web/dist 未进镜像），实际内容前 300 字节：' >&2
+              echo "$root_html" | head -c 300 >&2
               exit 1
             fi
+            echo '=== /next 旧灰度地址应 301 回 / ==='
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/next/)
+            [ "$code" = 301 ] || { echo "ERROR: /next/ 期望 301，实际 $code" >&2; exit 1; }
+            echo '=== 管理后台 /admin 与落地页 /welcome ==='
+            curl -fsS http://127.0.0.1:8000/admin 2>/dev/null | grep -q 'admin/assets/admin.js' \
+              || { echo 'ERROR: /admin 不可用或未引用迁移后的 admin/assets' >&2; exit 1; }
+            curl -fsSo /dev/null http://127.0.0.1:8000/welcome \
+              || { echo 'ERROR: /welcome 落地页不可用' >&2; exit 1; }

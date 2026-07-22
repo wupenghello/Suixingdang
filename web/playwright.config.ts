@@ -13,7 +13,7 @@ export default defineConfig({
   timeout: 30_000,
   retries: 0,
   use: {
-    baseURL: "http://127.0.0.1:5173/next/",
+    baseURL: "http://127.0.0.1:5173/",
     trace: "retain-on-failure",
   },
   webServer: {

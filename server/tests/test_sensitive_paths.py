@@ -28,5 +28,6 @@ def test_normal_paths_still_served(client):
     for path in ["/", "/admin"]:
         r = client.get(path)
         assert r.status_code == 200, f"{path} 应可访问,实际 {r.status_code}"
-    r = client.get("/assets/app.js")
-    assert r.status_code == 200, f"/assets/app.js 应可访问,实际 {r.status_code}"
+    # 管理后台静态资源（随仓库存在，不依赖 web/dist 构建）
+    r = client.get("/admin/assets/admin.js")
+    assert r.status_code == 200, f"/admin/assets/admin.js 应可访问,实际 {r.status_code}"

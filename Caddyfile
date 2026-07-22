@@ -26,13 +26,12 @@
 	# HTML 入口禁用启发式缓存：部署后浏览器每次协商验证，立即拿到新入口，
 	# 不再出现"合并了但页面还是旧的"（此前无 Cache-Control，浏览器按
 	# Last-Modified 启发式缓存落地页，旧 HTML 继续引用旧版资源）。
-	# Caddy 没有按响应头匹配的 matcher（header_resp 不存在，直接使用会解析
-	# 失败导致 caddy 崩溃循环），改用请求路径反向排除：带版本化静态资源的
-	# 路径（/assets/*、/next/assets/*）与 API 之外全部 no-cache，自然覆盖
-	# SPA 所有深链入口（/、/admin*、/next*、/welcome 等）。
-	# 静态资源自带 ?v= / 内容 hash，缓存策略不受此条影响。
+	# Caddy 没有按响应头匹配的 matcher（header_resp 不存在），用请求路径
+	# 反向排除：带版本化静态资源的路径（用户端 /assets/* 内容 hash、管理后台
+	# /admin/assets/* 手动 ?v=）与 API 之外全部 no-cache，自然覆盖 SPA 所有
+	# 深链入口（/、/admin*、/welcome 等）。
 	@html {
-		not path /api/* /assets/* /next/assets/* /landing.css
+		not path /api/* /assets/* /admin/assets/* /landing.css
 	}
 	header @html Cache-Control "no-cache"
 

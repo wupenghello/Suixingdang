@@ -210,7 +210,7 @@ cd ..
 
 ```
 ┌─ 前端（web/，React 19 + TS + Vite + Tailwind v4）────────────┐
-│  灰度入口 /next/*（旧 SPA 保持默认，验证完毕后切换）            │
+│  根路径 / 直接服务（正式版；旧 SPA 已下线，/next 301 过渡）     │
 │  契约：OpenAPI → @hey-api/openapi-ts 生成类型                  │
 ├─ API 层（api/ 薄路由 + api/v1 类型化契约，统一错误体）─────────┤
 ├─ 服务层（services/ 入库管道收敛 + 回收站收敛）────────────────┤
@@ -233,14 +233,14 @@ cd ..
 | S0 止血 | daemon 数据丢失修复（冲突检测失效/离线删除撤销/空 manifest 熔断）；agent 循环健壮性（坏 JSON 回喂/异常类名回喂/60s 超时）；密钥校验 fail-fast；备份覆盖用户文件 |
 | S1 地基 | 服务层/仓库层；Alembic 迁移体系；`/api/v1` 类型化契约 + 统一错误体 `{code,message,detail}`；jobs 任务队列 + worker；PostgreSQL+pgvector 支持（SQLite 默认） |
 | S2 Agent 平台 | `agent_platform/`：真 token 流式 + 事件协议；工具注册表（权限分级）；技能驱动 prompt/工具集；块级 RAG（分块嵌入，长文档深处可检索）；HITL 破坏性操作确认；`agent_traces` 追踪 |
-| S3 前端终局 | `web/` 新 SPA（React 19 + TS + Tailwind v4），七视图全量；内容 hash 构建（手动 `?v=` 退场）；`/next/*` 灰度；Playwright 冒烟 |
+| S3 前端终局 | `web/` 新 SPA（React 19 + TS + Tailwind v4），七视图全量；内容 hash 构建（手动 `?v=` 退场）；根路径 `/` 正式版（旧 SPA 已下线，`/next/*` 301 过渡）；Playwright 冒烟 |
 | S4 Daemon v2 | SQLite 状态库（原子/并发安全）+ 失败退避重试队列 + 单事件循环；服务端 `/api/sync/*` 协议不变（v1 客户端兼容） |
 | S5 展位 | 知识库 / MCP / 智能客服 / 数据中心：表结构 + 接口协议 + 501 占位路由冻结；技能体系真接入 |
 
 **升级注意**：
 - 迁移自动执行：启动时 Alembic 升级到 head；存量库（无 alembic_version）自动 stamp 后接管，无需手工操作
 - compose 新增 `worker` 服务（与 server 同镜像）；`db`（PostgreSQL+pgvector）在 `pg` profile 下可选启用
-- 新前端构建：`./scripts/build_web.sh`，产物由 FastAPI 以 `/next/*` 提供
+- 前端构建：`./scripts/build_web.sh`（CI 自动执行并打进镜像），产物由 FastAPI 在根路径 `/` 提供
 
 ---
 

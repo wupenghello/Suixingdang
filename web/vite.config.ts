@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 // 开发期经 Vite 代理到本地 uvicorn（start.sh 起 8899 用户端）
 export default defineConfig({
-  base: "/next/",
+  base: "/",
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,

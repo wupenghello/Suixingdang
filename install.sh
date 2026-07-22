@@ -114,14 +114,14 @@ fi
 # ---------- 启动 ----------
 if [ -d server ]; then
   # 有源码(clone 部署):从本地构建,不依赖镜像是否已发布
-  # 新前端:有 npm 则构建并拷入镜像构建上下文;无 npm 跳过(/next 不可用,旧前端不受影响)
+  # 前端:有 npm 则构建并拷入镜像构建上下文;无 npm 跳过(/ 返回 JSON 兜底,admin 不受影响)
   if command -v npm >/dev/null 2>&1 && [ -d web ]; then
-    say "构建新前端(web/dist)..."
+    say "构建前端(web/dist)..."
     if (cd web && npm ci --no-audit --no-fund && npm run build); then
       mkdir -p server/web-dist && cp -r web/dist/. server/web-dist/
-      ok "新前端已构建进镜像(灰度入口 /next/*)"
+      ok "前端已构建进镜像(根路径 / 正式版)"
     else
-      warn "新前端构建失败,/next 暂不可用(旧前端不受影响)"
+      warn "前端构建失败,/ 暂不可用(admin 与 /welcome 不受影响)"
     fi
   fi
   say "从源码构建并启动..."
