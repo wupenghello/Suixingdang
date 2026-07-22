@@ -49,7 +49,7 @@ git push origin main
 
 ### 4. CI 自动部署到服务器(无需手动操作)
 
-镜像构建成功后,CI 会自动 SSH 登录服务器执行 `docker compose pull && docker compose up -d`。构建+部署约 5-10 分钟,Actions 页面看到 deploy job 变绿 ✓ 即部署完成。
+镜像构建成功后,CI 会先把仓库里的 `docker-compose.yml` / `Caddyfile` 同步到部署目录(此前 install.sh 一次性放置后从不更新,新增服务/配置调整到生产不生效),再 SSH 执行 `docker compose pull && up -d`,最后对 Caddyfile 做 `caddy validate` + 零停机 `reload`(bind mount 内容变更 `up -d` 感知不到,必须显式加载;配置非法时 reload 拒绝生效并使 job 失败)。构建+部署约 5-10 分钟,Actions 页面看到 deploy job 变绿 ✓ 即部署完成。
 
 > 一次性配置:仓库 Secrets 存了 `SSH_HOST` / `SSH_USER` / `SSH_KEY`(专用 deploy key,公钥在服务器 `~/.ssh/authorized_keys`) / `SSH_PORT`(可选) / `DEPLOY_DIR`(可选)。换服务器或换密钥时更新这些 Secret。
 
@@ -64,8 +64,10 @@ git push origin main
 deploy job 日志里有 `docker compose ps` 输出可看容器状态。浏览器打开站点点几个功能确认,也可 curl 健康检查:
 
 ```bash
-curl -s https://你的域名/api/health    # 返回 {"status":"ok"...}
+curl -s https://你的域名/api/health    # 返回 {"status":"ok","version":"<应用版本>"}
 ```
+
+`version` 来自 `server/app/version.py` 单一常量,发版时只改这一处(OpenAPI 文档、管理后台系统信息同源)。
 
 整个流程只需本地改代码 + `git push`,后续全自动。
 
@@ -87,7 +89,7 @@ cd server
 ../.venv/bin/alembic upgrade head                        # 本地应用
 ```
 
-**worker 服务**：compose 新增 `worker`（与 server 同镜像，跑 `python -m app.worker`，消费 jobs 表：回收站清理、索引重建等后台任务）。服务器上 `docker compose up -d` 会自动拉起。
+**worker 服务**：compose 新增 `worker`（与 server 同镜像，跑 `python -m app.worker`，消费 jobs 表：回收站清理、索引重建等后台任务）。CI 部署时自动把仓库 `docker-compose.yml` 同步到部署目录，`docker compose up -d` 会自动拉起。
 
 **新前端部署**：CI 的 `webapp` job 验证构建；生产部署前在本地或 CI 跑 `./scripts/build_web.sh`，把 `web/dist/` 同步到部署机（随仓库或产物分发皆可，FastAPI 检测到即挂载 `/next/*`）。
 

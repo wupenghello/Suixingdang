@@ -23,6 +23,13 @@
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 	}
 
+	# HTML 入口禁用启发式缓存：部署后浏览器每次协商验证，立即拿到新入口，
+	# 不再出现"合并了但页面还是旧的"（此前无 Cache-Control，浏览器按
+	# Last-Modified 启发式缓存落地页，旧 HTML 继续引用旧版资源）。
+	# 静态资源自带 ?v= / 内容 hash，缓存策略不受此条影响。
+	@html header_resp Content-Type text/html*
+	header @html Cache-Control "no-cache"
+
 	log {
 		output file /data/access.log
 	}

@@ -5616,7 +5616,7 @@ function previewVideo(path, name, opts = {}) {
 // IA：账户 / 安全 / 隐私 / 设备 / 存储 / 索引 / 关于（见 utils/settings-search.js）
 // 条目单项化：一条目一概念，旧深链 security/pii、security/download→privacy，storage/reindex→index 自动救援
 // 深链：#/settings/<section>[/<anchor>]；页内搜索为纯前端静态索引——不发请求、不落日志（零痕迹）。
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 
 const SECTION_ICONS = {
   account: ICONS.user,

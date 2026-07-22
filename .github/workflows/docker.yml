@@ -77,7 +77,9 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    # 镜像构建成功后自动 SSH 登录服务器拉新镜像并重启，省掉手动 pull && up。
+    # 镜像构建成功后：先把仓库里的 docker-compose.yml / Caddyfile 同步到服务器部署目录
+    # （此前 install.sh 一次性放置后从不更新，仓库里新增的 worker 服务、Caddyfile
+    # 调整到生产永远不生效），再 SSH 拉新镜像重启，省掉手动 pull && up。
     # 所需 Secrets（仓库 Settings → Secrets and variables → Actions）：
     #   SSH_HOST    服务器 IP 或域名
     #   SSH_USER    SSH 登录用户（如 root）
@@ -88,6 +90,16 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:
+      - uses: actions/checkout@v4
+      - name: 推送 compose/Caddyfile 到服务器暂存区
+        uses: appleboy/scp-action@v0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          source: "docker-compose.yml,Caddyfile"
+          target: "/tmp/suixingdang-deploy"
       - name: SSH 部署到服务器
         uses: appleboy/ssh-action@v1
         with:
@@ -98,7 +110,16 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.DEPLOY_DIR || '~' }}
+            # 主机侧配置与仓库对齐。用 cp 而非 mv：Caddyfile 以文件 bind mount
+            # 挂进 caddy 容器，挂载认原 inode，改名换 inode 的替换容器内不可见。
+            cp /tmp/suixingdang-deploy/docker-compose.yml docker-compose.yml
+            cp /tmp/suixingdang-deploy/Caddyfile Caddyfile
+            rm -rf /tmp/suixingdang-deploy
             docker compose pull
             docker compose up -d
+            # Caddyfile 变更 up -d 感知不到（bind mount 内容不计入 compose 配置
+            # hash），显式校验 + 热加载：配置相同则无变化，非法则拒绝并使本 job 失败
+            docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
             docker compose ps
             docker image prune -f || true
