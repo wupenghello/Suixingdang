@@ -130,14 +130,25 @@ jobs:
             fi
             free -m
             docker compose pull
+            # 错峰启动：先等 server 完全就绪（Alembic 迁移 + chromadb 加载），
+            # 再拉 worker，避免两个进程同时加载 chromadb 挤爆 1G 内存触发查杀。
+            docker compose up -d server
+            for i in $(seq 1 40); do
+              curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break
+              sleep 3
+            done
             docker compose up -d
             # Caddyfile 变更 up -d 感知不到（bind mount 内容不计入 compose 配置
-            # hash），显式校验 + 热加载：配置相同则无变化，非法则拒绝并使本 job 失败
+            # hash），显式校验 + 热加载：配置相同则无变化，非法则拒绝并使本 job 失败。
+            # caddy 刚重建时可能尚未 running（崩溃重启中 exec 会直接报错），先等状态。
+            for i in $(seq 1 15); do
+              [ "$(docker inspect -f '{{.State.Running}}' suixingdang-caddy 2>/dev/null)" = true ] && break
+              sleep 2
+            done
             docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
             docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
             docker compose ps
-            # 健康检查：等新镜像 server 就绪（Alembic 自动迁移 + chromadb 冷启动
-            # 需几秒）。输出含 version，可在日志确认部署到的版本号；超时则 job 失败
+            # 健康检查：输出含 version，可在日志确认部署到的版本号；超时则 job 失败
             # 并附 server 日志，避免"CI 绿了但服务没起来"的静默失败。
             ok=0
             for i in $(seq 1 20); do
@@ -146,3 +157,33 @@ jobs:
             done
             [ "$ok" = 1 ] || { echo 'ERROR: /api/health 60s 内未就绪' >&2; docker compose logs --tail=50 server >&2; exit 1; }
             docker image prune -f || true
+      - name: SSH 验证部署结果（独立会话：主步骤失败也取证）
+        if: always()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          command_timeout: 5m
+          script: |
+            cd ${{ secrets.DEPLOY_DIR || '~' }}
+            echo '=== 内存 ==='
+            free -m
+            echo '=== 最近内核查杀记录（OOM killer）==='
+            dmesg -T 2>/dev/null | grep -iE 'oom|killed process' | tail -10 || true
+            echo '=== 容器状态（含重启计数）==='
+            docker compose ps -a
+            echo '=== caddy 日志 ==='
+            docker compose logs --tail=30 caddy || true
+            echo '=== 健康检查（输出 version）==='
+            ok=0
+            for i in $(seq 1 10); do
+              if curl -fsS http://127.0.0.1:8000/api/health; then ok=1; echo; break; fi
+              sleep 3
+            done
+            if [ "$ok" != 1 ]; then
+              echo 'ERROR: 验证失败，/api/health 未就绪，附 server 日志：' >&2
+              docker compose logs --tail=60 server >&2 || true
+              exit 1
+            fi
