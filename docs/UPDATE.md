@@ -91,7 +91,7 @@ cd server
 
 **worker 服务**：compose 新增 `worker`（与 server 同镜像，跑 `python -m app.worker`，消费 jobs 表：回收站清理、索引重建等后台任务）。CI 部署时自动把仓库 `docker-compose.yml` 同步到部署目录，`docker compose up -d` 会自动拉起。
 
-**新前端部署**：CI 的 `webapp` job 验证构建；生产部署前在本地或 CI 跑 `./scripts/build_web.sh`，把 `web/dist/` 同步到部署机（随仓库或产物分发皆可，FastAPI 检测到即挂载 `/next/*`）。
+**新前端部署**：CI 的 `webapp` job 验证构建；`build-and-push` 会自动构建 `web/dist/` 并打进镜像（容器内 `/web/dist`，FastAPI 检测到 `index.html` 即挂载 `/next/*` 灰度入口）。本地源码构建（`install.sh` 走 `up -d --build`）若机器有 npm 会自动构建，否则 `/next` 不可用、旧前端不受影响。本地开发跑 `./scripts/build_web.sh` 生成 `web/dist/` 即可在本地容器/uvicorn 看到 `/next/*`。
 
 **切换 PostgreSQL（可选终局）**：`.env` 设 `DATABASE_URL=postgresql+psycopg://suixingdang:suixingdang@db:5432/suixingdang`，然后 `docker compose --profile pg up -d`（自动起 pgvector/pg16 容器）。SQLite 仍是零配置默认。
 

@@ -93,7 +93,10 @@ WEB_DIR = Path(__file__).parent / "web"
 # 验证完毕后切换默认入口并下线旧前端）
 NEW_WEB_DIST = Path(__file__).parents[2] / "web" / "dist"
 
-if NEW_WEB_DIST.exists():
+# 构建产物完整（CI 自动构建进镜像 /web/dist，本地为 web/dist）才挂载 /next/*：
+# 空目录 / 缺 assets 时若强行 mount，StaticFiles 会因目录不存在抛 RuntimeError
+# 导致启动失败（源码构建未跑 web 构建的部署场景）。
+if (NEW_WEB_DIST / "index.html").exists() and (NEW_WEB_DIST / "assets").is_dir():
     app.mount("/next/assets", StaticFiles(directory=NEW_WEB_DIST / "assets"), name="next-assets")
 
     @app.get("/next/{rest:path}")

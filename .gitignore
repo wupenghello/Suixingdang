@@ -21,6 +21,10 @@ venv/
 node_modules/
 # 新前端构建产物（CI/部署时构建，不入库）
 web/dist/
+# 镜像构建上下文暂存目录：内容由 CI / install.sh 构建时拷入，不入库；
+# 保留占位 .gitkeep 使 Dockerfile 的 COPY 在无构建产物时也恒成立
+server/web-dist/*
+!server/web-dist/.gitkeep
 # 锚定仓库根：根 package.json(playwright 截图脚本)不入库；server/package.json 是正式前端工具链，须入库供 CI 使用
 /package.json
 /package-lock.json
