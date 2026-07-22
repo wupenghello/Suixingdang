@@ -17,5 +17,8 @@ echo "[build_web] 运行前端单测…"
 echo "[build_web] 构建生产产物…"
 (cd "$WEB" && npm run build)
 
+echo "[build_web] 图标系统一致性校验…"
+node "$ROOT/scripts/check-icons.mjs"
+
 echo "[build_web] 完成：$WEB/dist（FastAPI 以 /next/* 提供，base=/next/）"
 ls -la "$WEB/dist"

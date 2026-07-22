@@ -8,6 +8,9 @@
 html { overflow-x: hidden; }
 body { font-family: var(--font-sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.55; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 
+/* 统一图标精灵契约：fill/stroke/线宽/线帽（尺寸由各上下文 .xxx svg 规则控制） */
+.sx-ico { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
 /* ---- Layout ---- */
 .admin-layout { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 /* 管理壳视图锁 body（admin.js 在 renderLayout 时给 body 加 view-shell；登录页不加） */

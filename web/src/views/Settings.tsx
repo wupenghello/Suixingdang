@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { ConfirmDialog, Dialog, Spinner, formatSize } from "../components/ui";
+import { Icon } from "../components/Icon";
 // toast 实际导出在 stores/toast（ui.tsx 未再导出，与 Files.tsx 的既有写法不同）
 import { toast } from "../stores/toast";
 import { formatDateTime, relativeTime } from "../lib/format";
@@ -8,11 +9,11 @@ import { formatDateTime, relativeTime } from "../lib/format";
 /* ================= 分区定义 ================= */
 
 const SECTIONS = [
-  { key: "password", label: "修改密码", icon: "🔑" },
-  { key: "history", label: "登录历史", icon: "🕘" },
-  { key: "tokens", label: "设备令牌", icon: "🎟" },
-  { key: "storage", label: "存储统计", icon: "📊" },
-  { key: "about", label: "关于", icon: "ℹ️" },
+  { key: "password", label: "修改密码", icon: "key" },
+  { key: "history", label: "登录历史", icon: "history" },
+  { key: "tokens", label: "设备令牌", icon: "ticket" },
+  { key: "storage", label: "存储统计", icon: "database" },
+  { key: "about", label: "关于", icon: "info" },
 ] as const;
 
 type SectionKey = (typeof SECTIONS)[number]["key"];
@@ -68,7 +69,7 @@ function PasswordSection() {
             placeholder="再输一次新密码"
           />
         </Field>
-        {err && <div className="rounded-md bg-danger-soft px-3 py-2 text-[12.5px] text-danger">⚠ {err}</div>}
+        {err && <div className="flex items-center gap-1 rounded-md bg-danger-soft px-3 py-2 text-[12.5px] text-danger"><Icon name="triangle-alert" size={13} />{err}</div>}
         <button className="btn-primary" onClick={submit} disabled={busy}>
           {busy && <Spinner className="mr-1.5 border-white border-t-transparent" />}
           确认修改
@@ -283,7 +284,7 @@ function TokensSection() {
         </div>
         <button className="btn-primary" onClick={doCreate} disabled={creating}>
           {creating && <Spinner className="mr-1.5 border-white border-t-transparent" />}
-          ＋ 创建令牌
+          <Icon name="plus" size={14} className="mr-1.5" />创建令牌
         </button>
         <button className="btn-ghost hover:!border-danger hover:!text-danger" onClick={() => setRevokeOthers(true)}>
           注销其他设备
@@ -307,7 +308,7 @@ function TokensSection() {
                 t.revoked ? "border-line-light opacity-60" : "border-line hover:border-line-strong"
               }`}
             >
-              <span className="text-[16px]">{t.kind === "session" ? "🌐" : "🎟"}</span>
+              <Icon name={t.kind === "session" ? "globe" : "ticket"} size={16} className="text-ink-muted" />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="truncate text-[13.5px] font-medium">{t.label || "未命名令牌"}</span>
@@ -329,11 +330,12 @@ function TokensSection() {
               </div>
               {!t.revoked && !t.is_current && (
                 <button
-                  className="row-btn opacity-0 transition-opacity group-hover:opacity-100 hover:!text-danger"
+                  className="row-btn inline-flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 hover:!text-danger"
                   title="吊销该令牌"
+                  aria-label="吊销该令牌"
                   onClick={() => setRevokeId(t)}
                 >
-                  ❌
+                  <Icon name="circle-x" size={15} />
                 </button>
               )}
             </div>
@@ -350,7 +352,7 @@ function TokensSection() {
           <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-sunken px-3 py-2.5 font-mono text-[12.5px]">
             {created?.token}
           </code>
-          <button className="btn-primary shrink-0" onClick={copyToken}>📋 复制</button>
+          <button className="btn-primary shrink-0" onClick={copyToken}><Icon name="copy" size={14} className="mr-1.5" />复制</button>
         </div>
         <div className="mt-4 flex justify-end">
           <button className="btn-ghost" onClick={() => setCreated(null)}>我已保存</button>
@@ -422,9 +424,9 @@ function StorageSection() {
       ) : (
         <div className="max-w-xl space-y-5">
           <div className="grid grid-cols-3 gap-3">
-            <StatTile icon="📄" label="文件数" value={String(stats.files)} />
-            <StatTile icon="💾" label="已用空间" value={formatSize(stats.used)} />
-            <StatTile icon="🗃" label="配额" value={stats.quota > 0 ? formatSize(stats.quota) : "不限"} />
+            <StatTile icon="file" label="文件数" value={String(stats.files)} />
+            <StatTile icon="hard-drive" label="已用空间" value={formatSize(stats.used)} />
+            <StatTile icon="database" label="配额" value={stats.quota > 0 ? formatSize(stats.quota) : "不限"} />
           </div>
           {stats.quota > 0 ? (
             <div>
@@ -442,7 +444,7 @@ function StorageSection() {
               </div>
               {pct >= 80 && (
                 <div className="mt-1.5 text-[12px] text-warning">
-                  {pct >= 95 ? "⚠ 空间即将用尽，请清理回收站或删除大文件" : "空间已用大半，建议尽早整理"}
+                  {pct >= 95 ? <span className="inline-flex items-center gap-1"><Icon name="triangle-alert" size={12} />空间即将用尽，请清理回收站或删除大文件</span> : "空间已用大半，建议尽早整理"}
                 </div>
               )}
             </div>
@@ -515,7 +517,7 @@ function StatTile({ icon, label, value }: { icon: string; label: string; value: 
   return (
     <div className="rounded-md bg-sunken px-3.5 py-3">
       <div className="flex items-center gap-1.5 text-[12px] text-ink-muted">
-        <span>{icon}</span>
+        <Icon name={icon} size={15} />
         {label}
       </div>
       <div className="mt-1 text-[18px] font-semibold tabular-nums">{value}</div>
@@ -548,7 +550,7 @@ export function SettingsView() {
                 {active && (
                   <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r bg-primary" />
                 )}
-                <span className={`text-[14px] ${active ? "" : "opacity-80"}`}>{s.icon}</span>
+                <Icon name={s.icon} size={15} className={active ? "" : "opacity-80"} />
                 {s.label}
               </button>
             );

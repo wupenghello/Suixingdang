@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { ConfirmDialog, EmptyState, FileIcon, Spinner, formatSize } from "../components/ui";
+import { Icon } from "../components/Icon";
 // toast 实际导出在 stores/toast（ui.tsx 未再导出，与 Files.tsx 的既有写法不同）
 import { toast } from "../stores/toast";
 import { formatDateTime } from "../lib/format";
@@ -146,29 +147,29 @@ export function TrashView() {
       {/* 统计条 */}
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-6 py-3.5">
         <div className="flex items-center gap-2 rounded-md bg-sunken px-3 py-1.5">
-          <span className="text-[15px]">🗂</span>
+          <Icon name="folder" size={15} className="text-ink-muted" />
           <span className="text-[12.5px] text-ink-muted">总数</span>
           <span className="text-[14px] font-semibold tabular-nums">{stats?.total ?? "—"}</span>
         </div>
         <div className="flex items-center gap-2 rounded-md bg-sunken px-3 py-1.5">
-          <span className="text-[15px]">💾</span>
+          <Icon name="hard-drive" size={15} className="text-ink-muted" />
           <span className="text-[12.5px] text-ink-muted">占用</span>
           <span className="text-[14px] font-semibold tabular-nums">{stats ? formatSize(stats.total_size) : "—"}</span>
         </div>
         <div className="flex items-center gap-2 rounded-md bg-sunken px-3 py-1.5">
-          <span className="text-[15px]">⏳</span>
+          <Icon name="clock" size={15} className="text-ink-muted" />
           <span className="text-[12.5px] text-ink-muted">保留期</span>
           <span className="text-[14px] font-semibold tabular-nums">{stats ? `${stats.retention_days} 天` : "—"}</span>
         </div>
         {(stats?.will_expire_24h ?? 0) > 0 && (
-          <span className="rounded-full border border-warning/40 bg-warning/[0.08] px-2.5 py-1 text-[12px] font-medium text-warning">
-            ⚠ {stats!.will_expire_24h} 个文件 24 小时内过期
+          <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/[0.08] px-2.5 py-1 text-[12px] font-medium text-warning">
+            <Icon name="triangle-alert" size={12} className="mr-1" />{stats!.will_expire_24h} 个文件 24 小时内过期
           </span>
         )}
         <div className="ml-auto">
           <button className="btn-ghost" onClick={doPurge} disabled={purging || loading}>
             {purging && <Spinner className="mr-1.5 h-3.5 w-3.5" />}
-            🧹 清理过期文件
+            <Icon name="trash" size={14} className="mr-1.5" />清理过期文件
           </button>
         </div>
       </div>
@@ -183,9 +184,9 @@ export function TrashView() {
           </div>
         ) : items.length === 0 ? (
           <EmptyState
-            icon="🗑"
+            icon="trash"
             title="回收站是空的"
-            hint="删除的文件会在这里保留，保留期内可随时恢复；锁定 🔒 的文件不受自动清理影响。"
+            hint="删除的文件会在这里保留，保留期内可随时恢复；锁定的文件不受自动清理影响。"
           />
         ) : (
           <table className="w-full border-separate border-spacing-0">
@@ -208,10 +209,10 @@ export function TrashView() {
                   <tr key={id || it.path} className="group transition-colors hover:bg-surface-hover/60">
                     <td className="border-b border-line-light py-2.5">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-[17px]"><FileIcon name={it.name} /></span>
+                        <span className="flex items-center"><FileIcon name={it.name} size={17} /></span>
                         <span className="max-w-[360px] truncate text-[13.5px]">{it.name}</span>
                         {locked && (
-                          <span title="已锁定：不受自动清理影响" className="shrink-0 text-[12px]">🔒</span>
+                          <span title="已锁定：不受自动清理影响" className="shrink-0 inline-flex text-ink-muted"><Icon name="lock" size={12} /></span>
                         )}
                         {it.group_name && (
                           <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] text-ink-muted">
@@ -241,16 +242,17 @@ export function TrashView() {
                           <Spinner className="ml-2 h-3.5 w-3.5" />
                         ) : (
                           <>
-                            <button className="row-btn" title="恢复到原位置" onClick={() => doRestore(it)}>♻️</button>
+                            <button className="row-btn" title="恢复到原位置" aria-label="恢复到原位置" onClick={() => doRestore(it)}><Icon name="rotate-ccw" size={15} /></button>
                             <button
                               className="row-btn"
+                              aria-label={locked ? "解锁" : "锁定"}
                               title={locked ? "解锁（恢复自动清理）" : "锁定（跳过自动清理）"}
                               onClick={() => doToggleLock(it)}
                             >
-                              {locked ? "🔓" : "🔒"}
+                              <Icon name={locked ? "unlock" : "lock"} size={15} />
                             </button>
-                            <button className="row-btn hover:!text-danger" title="彻底删除（不可恢复）" onClick={() => setDel(it)}>
-                              ❌
+                            <button className="row-btn hover:!text-danger" title="彻底删除（不可恢复）" aria-label="彻底删除" onClick={() => setDel(it)}>
+                              <Icon name="circle-x" size={15} />
                             </button>
                           </>
                         )}
@@ -276,8 +278,8 @@ export function TrashView() {
         body={
           <>
             确定彻底删除「{del?.name}」吗？
-            <div className="mt-2 rounded-md bg-danger-soft px-3 py-2 text-[12.5px] text-danger">
-              ⚠ 文件将被物理清除，此操作不可恢复。只是想找回来请用「恢复」。
+            <div className="mt-2 flex items-center gap-1.5 rounded-md bg-danger-soft px-3 py-2 text-[12.5px] text-danger">
+              <Icon name="triangle-alert" size={13} />文件将被物理清除，此操作不可恢复。只是想找回来请用「恢复」。
             </div>
           </>
         }
