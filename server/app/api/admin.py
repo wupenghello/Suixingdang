@@ -506,16 +506,36 @@ def audit_logs(
 
 @router.get("/settings")
 def get_settings_api(db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    from ..core.security import decrypt_api_key
+    secret_enc = get_setting(db, "sms_aliyun_access_key_secret", "")
+    secret_masked = ""
+    if secret_enc:
+        plain = decrypt_api_key(secret_enc)
+        secret_masked = plain[:4] + "****" + plain[-4:] if len(plain) > 8 else "****"
     return {
         "allow_register": get_setting(db, "allow_register", str(settings.ALLOW_REGISTER).lower()),
         "default_quota_mb": int(get_setting(db, "default_quota_mb", str(settings.DEFAULT_QUOTA_MB))),
         "site_name": get_setting(db, "site_name", ""),
         "trash_retention_days": int(get_setting(db, "trash_retention_days", str(DEFAULT_TRASH_RETENTION_DAYS))),
+        # 短信
+        "sms_enabled": get_setting(db, "sms_enabled", "false"),
+        "sms_aliyun_access_key_id": get_setting(db, "sms_aliyun_access_key_id", ""),
+        "sms_aliyun_access_key_secret_masked": secret_masked,
+        "sms_aliyun_sign_name": get_setting(db, "sms_aliyun_sign_name", ""),
+        "sms_aliyun_template_code": get_setting(db, "sms_aliyun_template_code", ""),
+        "sms_aliyun_endpoint": get_setting(db, "sms_aliyun_endpoint", "dysmsapi.aliyuncs.com"),
+        "sms_required_for_login": get_setting(db, "sms_required_for_login", "true"),
+        "sms_required_for_register": get_setting(db, "sms_required_for_register", "true"),
+        "sms_code_ttl_seconds": int(get_setting(db, "sms_code_ttl_seconds", "300")),
+        "sms_max_attempts": int(get_setting(db, "sms_max_attempts", "5")),
+        "sms_cooldown_seconds": int(get_setting(db, "sms_cooldown_seconds", "60")),
+        "sms_daily_limit_per_phone": int(get_setting(db, "sms_daily_limit_per_phone", "20")),
     }
 
 
 @router.put("/settings")
 def update_settings(req: dict, request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    from ..core.sms import invalidate_sms_config_cache
     if "allow_register" in req:
         set_setting(db, "allow_register", str(req["allow_register"]).lower())
     if "default_quota_mb" in req:
@@ -533,6 +553,38 @@ def update_settings(req: dict, request: Request, db: Session = Depends(get_db), 
             set_setting(db, "trash_retention_days", str(v))
         except (ValueError, TypeError):
             raise HTTPException(400, "保留天数必须是 1-90 之间的整数")
+    # 短信设置
+    sms_bool_keys = ("sms_enabled", "sms_required_for_login", "sms_required_for_register")
+    for k in sms_bool_keys:
+        if k in req:
+            set_setting(db, k, str(req[k]).lower() in ("true", "1", "yes"))
+    if "sms_aliyun_access_key_id" in req:
+        set_setting(db, "sms_aliyun_access_key_id", str(req["sms_aliyun_access_key_id"]).strip())
+    if "sms_aliyun_access_key_secret" in req:
+        v = str(req["sms_aliyun_access_key_secret"]).strip()
+        if v and v != "****":
+            set_setting(db, "sms_aliyun_access_key_secret", encrypt_api_key(v))
+    if "sms_aliyun_sign_name" in req:
+        set_setting(db, "sms_aliyun_sign_name", str(req["sms_aliyun_sign_name"]).strip())
+    if "sms_aliyun_template_code" in req:
+        set_setting(db, "sms_aliyun_template_code", str(req["sms_aliyun_template_code"]).strip())
+    if "sms_aliyun_endpoint" in req:
+        set_setting(db, "sms_aliyun_endpoint", str(req["sms_aliyun_endpoint"]).strip() or "dysmsapi.aliyuncs.com")
+    for k, lo, hi in (
+        ("sms_code_ttl_seconds", 60, 3600),
+        ("sms_max_attempts", 3, 10),
+        ("sms_cooldown_seconds", 30, 300),
+        ("sms_daily_limit_per_phone", 5, 100),
+    ):
+        if k in req:
+            try:
+                v = int(req[k])
+                if not (lo <= v <= hi):
+                    raise ValueError
+                set_setting(db, k, str(v))
+            except (ValueError, TypeError):
+                raise HTTPException(400, f"{k} 必须是 {lo}-{hi} 之间的整数")
+    invalidate_sms_config_cache()
     parts = []
     if "allow_register" in req:
         parts.append(f"允许注册={'开' if str(req['allow_register']).lower() == 'true' else '关'}")
@@ -542,8 +594,30 @@ def update_settings(req: dict, request: Request, db: Session = Depends(get_db), 
         parts.append(f"站点名称={req['site_name']}")
     if "trash_retention_days" in req:
         parts.append(f"回收站保留={req['trash_retention_days']}天")
-    _log(db, None, "admin_update_settings", "、".join(parts), request)
+    if "sms_enabled" in req:
+        parts.append(f"短信={'开' if str(req['sms_enabled']).lower() == 'true' else '关'}")
+    _log(db, None, "admin_update_settings", "、".join(parts) or "短信配置更新", request)
     return {"message": "设置已保存"}
+
+
+class _SmsTestRequest(BaseModel):
+    phone: str
+
+
+@router.post("/settings/sms/test")
+def test_sms_settings(req: _SmsTestRequest, request: Request,
+                      db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    """给指定手机号发一条测试短信（验证配置是否生效）。"""
+    from ..services.sms_code import create_and_send_code
+    from ..core.sms import is_sms_enabled, SmsError
+    if not is_sms_enabled(db):
+        raise HTTPException(400, "短信服务未启用或配置不完整")
+    try:
+        res = create_and_send_code(db, req.phone, "bind", client_ip=_client_ip(request))
+        _log(db, None, "admin_sms_test", f"测试发送至 {res.get('masked_phone', '')}", request)
+        return {"ok": True, "message": f"测试短信已发送至 {res['masked_phone']}"}
+    except SmsError as e:
+        raise HTTPException(502, f"发送失败: {e}")
 
 
 # ---- 系统信息 ----

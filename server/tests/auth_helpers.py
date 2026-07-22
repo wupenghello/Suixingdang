@@ -26,13 +26,16 @@ def grab(client):
     return access, refresh
 
 
-def register(client, username=None, password="Test1234pass"):
+def register(client, username=None, password="Test1234pass", phone=None):
     """注册新用户，返回 (access, refresh, username)；取令牌后清 jar。"""
     username = username or f"u{uuid.uuid4().hex[:8]}"
-    r = client.post("/api/auth/register", json={
+    body = {
         "username": username, "password": password,
         "security_question": "q?", "security_answer": "a",
-    })
+    }
+    if phone:
+        body["phone"] = phone
+    r = client.post("/api/auth/register", json=body)
     assert r.status_code == 200, r.text
     access, refresh = grab(client)
     return access, refresh, username

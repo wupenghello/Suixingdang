@@ -11,7 +11,7 @@ import json
 import time
 
 from ..db.models import (
-    User, Admin, AccessToken, AccessLog, SystemSetting,
+    User, Admin, AccessToken, AccessLog, SystemSetting, SmsVerificationCode,
     get_db, get_setting, set_setting, get_cached_setting,
     login_limiter_check, login_limiter_record, login_limiter_reset,
 )
@@ -37,6 +37,8 @@ class RegisterRequest(BaseModel):
     password: str
     security_question: str = ""
     security_answer: str = ""
+    phone: str = ""          # 可选；开启短信强制时必填
+    sms_code: str = ""       # 短信验证码（开启短信强制时必填）
 
 
 class AdminLoginRequest(BaseModel):
@@ -57,8 +59,34 @@ class ForgotPasswordStep1Request(BaseModel):
 
 class ForgotPasswordStep2Request(BaseModel):
     username: str
-    answer: str
-    new_password: str
+    answer: str = ""
+    new_password: str = ""
+    sms_code: str = ""       # 短信验证码（与密保答案二选一）
+
+
+# ---- 短信端点请求模型 ----
+
+class SmsSendRequest(BaseModel):
+    phone: str
+    purpose: str = "register"          # register / login / reset / bind
+    username: str = ""                 # login / reset 时必填（用于定位用户）
+
+
+class SmsStatusResponse(BaseModel):
+    sms_enabled: bool
+    sms_required_for_login: bool
+    sms_required_for_register: bool
+    masked_phone: str = ""             # login 阶段返回绑定手机号脱敏
+
+
+class LoginVerifyRequest(BaseModel):
+    username: str
+    sms_code: str
+
+
+class BindPhoneRequest(BaseModel):
+    phone: str
+    sms_code: str
 
 
 # ---- 依赖注入 ----
@@ -551,6 +579,14 @@ def login(req: LoginRequest, request: Request, response: Response, db: Session =
         _log(db, user.id, "login_blocked", "账号已被禁用", request)
         raise HTTPException(403, "账户已被禁用")
 
+    # 短信强制且用户已绑手机 → 进入二阶段，不发 session
+    from ..services.sms_code import _mask_phone
+    from ..core.sms import is_sms_required_for
+    if is_sms_required_for(db, "login") and user.phone:
+        login_limiter_reset(db, key)
+        _log(db, user.id, "login_password_ok_pending_sms", "", request)
+        return {"role": "user", "sms_required": True, "phone_masked": _mask_phone(user.phone)}
+
     user.last_login_at = datetime.utcnow()
     db.commit()
     login_limiter_reset(db, key)
@@ -563,10 +599,54 @@ def login(req: LoginRequest, request: Request, response: Response, db: Session =
         AccessToken.device_fingerprint == fp,
     ).first()
     if not seen:
-        ip = _client_ip(request)
-        geo = _geo_lookup(ip)
-        where = f"{geo}·{ip}" if geo else ip
+        ip2 = _client_ip(request)
+        geo = _geo_lookup(ip2)
+        where = f"{geo}·{ip2}" if geo else ip2
         _log(db, user.id, "login_new_device", f"{_session_label(request)} {where}", request)
+    access, refresh = _issue_session_tokens(db, user, request)
+    db.commit()
+    _set_session_cookies(response, access, refresh)
+    return {"role": "user"}
+
+
+@router.post("/login/verify")
+def login_verify(req: LoginVerifyRequest, request: Request, response: Response,
+                 db: Session = Depends(get_db)):
+    """短信二阶段登录：密码阶段通过后提交验证码，签发 session。
+
+    安全：仍需走 login scope 限流（同一用户名预算），验证码错误计入该码 attempt_count。
+    """
+    from ..services.sms_code import verify_code, remaining_attempts
+    ip = _client_ip(request)
+    key = _limiter_key("login", req.username, ip)
+    locked = login_limiter_check(db, key)
+    if locked:
+        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
+
+    user = db.query(User).filter_by(username=req.username).first()
+    if not user or user.status == "disabled":
+        # 时序对齐：补一次 dummy 校验
+        from ..core.security import verify_password
+        verify_password(req.sms_code, "$2b$12$" + "x" * 53)
+        login_limiter_record(db, key)
+        raise HTTPException(401, "用户名或密码错误")
+
+    if not user.phone:
+        login_limiter_record(db, key)
+        raise HTTPException(400, "该用户未绑定手机号")
+
+    if not verify_code(db, user.phone, req.sms_code, purpose="login"):
+        remaining = remaining_attempts(db, user.phone, "login")
+        login_limiter_record(db, key)
+        _log(db, user.id, "login_sms_verify_failed",
+             f"{req.username}（剩余 {remaining} 次）", request)
+        if remaining <= 0:
+            raise HTTPException(400, "验证码已作废，请重新获取")
+        raise HTTPException(400, f"验证码错误，剩余 {remaining} 次")
+
+    user.last_login_at = datetime.utcnow()
+    login_limiter_reset(db, key)
+    _log(db, user.id, "login_sms_success", "", request)
     access, refresh = _issue_session_tokens(db, user, request)
     db.commit()
     _set_session_cookies(response, access, refresh)
@@ -593,11 +673,39 @@ def register(req: RegisterRequest, request: Request, response: Response, db: Ses
         raise HTTPException(400, pwd_err)
     if db.query(User).filter_by(username=req.username).first():
         raise HTTPException(409, "用户名已存在")
-    if not req.security_question or not req.security_answer:
-        raise HTTPException(400, "请设置密保问题和答案")
 
-    # 密保答案 bcrypt 哈希存储
-    answer_hash = _hash_security_answer(req.security_answer)
+    # 密保可选：若填了答案则必须也填问题（避免只填一半）
+    has_question = bool(req.security_question.strip())
+    has_answer = bool(req.security_answer.strip())
+    if has_answer and not has_question:
+        raise HTTPException(400, "填写密保答案时必须同时填写密保问题")
+
+    # 短信校验（若开启）
+    from ..services.sms_code import verify_code, _normalize_phone, _validate_phone_format
+    from ..core.sms import is_sms_required_for
+    phone = _normalize_phone(req.phone) if req.phone else ""
+    if is_sms_required_for(db, "register"):
+        if not phone:
+            raise HTTPException(400, "请填写手机号")
+        fmt_err = _validate_phone_format(phone)
+        if fmt_err:
+            raise HTTPException(400, fmt_err)
+        if not req.sms_code:
+            raise HTTPException(400, "请填写短信验证码")
+        if db.query(User).filter_by(phone=phone).first():
+            raise HTTPException(409, "该手机号已被注册")
+        if not verify_code(db, phone, req.sms_code, purpose="register"):
+            raise HTTPException(400, "短信验证码错误或已过期")
+    elif phone:
+        # 未强制但用户主动填了手机号 → 校验格式与唯一性
+        fmt_err = _validate_phone_format(phone)
+        if fmt_err:
+            raise HTTPException(400, fmt_err)
+        if db.query(User).filter_by(phone=phone).first():
+            raise HTTPException(409, "该手机号已被注册")
+
+    # 密保答案 bcrypt 哈希存储（仅当填写时）
+    answer_hash = _hash_security_answer(req.security_answer) if has_answer else ""
 
     db_quota = get_setting(db, "default_quota_mb", "")
     quota = int(db_quota) if db_quota else settings.DEFAULT_QUOTA_MB
@@ -607,14 +715,16 @@ def register(req: RegisterRequest, request: Request, response: Response, db: Ses
         password_hash=hash_password(req.password),
         status="active",
         quota_mb=quota,
-        security_question=req.security_question,
+        security_question=req.security_question.strip() if has_question else "",
         security_answer=answer_hash,
+        phone=phone or None,
+        phone_verified=bool(phone),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    _log(db, user.id, "register", "", request)
+    _log(db, user.id, "register", f"phone={'yes' if phone else 'no'}", request)
     access, refresh = _issue_session_tokens(db, user, request)
     db.commit()
     _set_session_cookies(response, access, refresh)
@@ -630,14 +740,48 @@ def get_security_question(req: ForgotPasswordStep1Request, db: Session = Depends
     return {"username": req.username, "question": "请输入您注册时设置的密保答案"}
 
 
+@router.post("/forgot-password/sms")
+def forgot_password_sms(req: ForgotPasswordStep1Request, request: Request,
+                          db: Session = Depends(get_db)):
+    """触发短信找回：给用户绑定手机号发验证码。
+
+    为避免用户名枚举，无论用户是否存在 / 是否绑手机，都返回统一提示。
+    仅当用户存在且已绑手机时才真正发送。
+    """
+    from ..services.sms_code import create_and_send_code, _mask_phone
+    from ..core.sms import is_sms_enabled
+    ip = _client_ip(request)
+    key = _limiter_key("reset", req.username, ip)
+    locked = login_limiter_check(db, key)
+    if locked:
+        raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
+
+    user = db.query(User).filter_by(username=req.username).first()
+    sent = False
+    masked = ""
+    if is_sms_enabled(db) and user and user.phone:
+        try:
+            res = create_and_send_code(db, user.phone, "reset",
+                                      user_id=user.id, username=user.username,
+                                      client_ip=ip)
+            sent = True
+            masked = res["masked_phone"]
+        except Exception as e:
+            _log(db, user.id, "password_reset_sms_failed",
+                 f"{req.username}（{e}）", request)
+    # 无论是否真实发送，返回统一提示
+    return {"message": "如果该用户名已绑定手机号，验证码将发送至绑定手机",
+            "masked_phone": masked}
+
+
 @router.post("/forgot-password/reset")
 def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Session = Depends(get_db)):
-    """验证密保答案后重置密码。
+    """验证密保答案或短信验证码后重置密码。
 
-    - 用户不存在与答案错误返回相同提示，避免枚举；
-    - reset 用独立限流 scope，不被登录锁定连累；
-    - 对不存在用户 / 旧 sha256 用户补一次 dummy bcrypt，使各分支耗时一致，规避时序枚举；
-    - 答案正确后立即清零失败计数，即便新密码校验失败也不再累积。
+    双通道二选一：
+    - 密保答案正确；或
+    - 短信验证码正确（用户已绑手机时）。
+    两者都未提供 / 都错误则拒绝。
     """
     ip = _client_ip(request)
     key = _limiter_key("reset", req.username, ip)
@@ -647,21 +791,32 @@ def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Sessio
         raise HTTPException(429, f"尝试过于频繁，请 {locked} 秒后再试")
 
     user = db.query(User).filter_by(username=req.username).first()
-    # 时序对齐：bcrypt 路径（存在且非 legacy）的真实校验本身就是一次 bcrypt；
-    # 其余分支（不存在 / legacy sha256）补一次 dummy bcrypt，使每次请求耗时近似一致。
-    if not (user and user.security_answer and not _is_legacy_answer(user.security_answer)):
-        verify_password(
-            hashlib.sha256(req.answer.strip().lower().encode()).hexdigest(),
-            _dummy_answer_hash(),
-        )
 
-    if not user or not user.security_answer or not _verify_security_answer(req.answer, user.security_answer):
+    # 尝试密保通道
+    security_ok = False
+    if req.answer and user and user.security_answer:
+        # 时序对齐：非 bcrypt 路径补 dummy
+        if not (not _is_legacy_answer(user.security_answer)):
+            verify_password(
+                hashlib.sha256(req.answer.strip().lower().encode()).hexdigest(),
+                _dummy_answer_hash(),
+            )
+        security_ok = bool(user and user.security_answer
+                           and _verify_security_answer(req.answer, user.security_answer))
+
+    # 尝试短信通道
+    sms_ok = False
+    if req.sms_code and user and user.phone:
+        from ..services.sms_code import verify_code
+        sms_ok = verify_code(db, user.phone, req.sms_code, purpose="reset")
+
+    if not security_ok and not sms_ok:
         login_limiter_record(db, key)
         _log(db, user.id if user else None, "password_reset_failed",
-             f"{req.username}（用户不存在或答案错误）", request)
-        raise HTTPException(400, "密保答案错误")
+             f"{req.username}（用户不存在或验证失败）", request)
+        raise HTTPException(400, "密保答案或短信验证码错误")
 
-    # 答案已验证正确：立即清零失败计数（即便新密码校验失败也不再累积）
+    # 验证通过：立即清零失败计数（即便新密码校验失败也不再累积）
     login_limiter_reset(db, key)
 
     pwd_err = validate_password(req.new_password, req.username)
@@ -670,7 +825,7 @@ def reset_password(req: ForgotPasswordStep2Request, request: Request, db: Sessio
 
     _set_user_password(db, user, req.new_password)  # 哈希+时间戳+bump 原子内聚
     # 顺带把旧 sha256 密保答案升级为 bcrypt（sha256 预哈希）
-    if _is_legacy_answer(user.security_answer):
+    if user and _is_legacy_answer(user.security_answer):
         user.security_answer = _hash_security_answer(req.answer)
     db.commit()
     _log(db, user.id, "password_reset_success", "", request)
@@ -753,6 +908,119 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
                         db.commit()
     _clear_session_cookies(response)
     return {"message": "已退出"}
+
+
+# ---- 短信服务 ----
+
+@router.get("/sms/status", response_model=SmsStatusResponse)
+def sms_status(db: Session = Depends(get_db)):
+    """查询短信功能是否启用（前端决定是否展示短信输入框）。"""
+    from ..core.sms import is_sms_enabled, is_sms_required_for
+    return SmsStatusResponse(
+        sms_enabled=is_sms_enabled(db),
+        sms_required_for_login=is_sms_required_for(db, "login"),
+        sms_required_for_register=is_sms_required_for(db, "register"),
+    )
+
+
+@router.post("/sms/send")
+def sms_send(req: SmsSendRequest, request: Request, db: Session = Depends(get_db)):
+    """发送短信验证码。
+
+    purpose:
+    - register：无需登录，phone 必填。
+    - login：username 必填（取用户绑定手机号），未绑手机 400。
+    - reset：username 必填（取用户绑定手机号），用于找回密码。
+    - bind：需登录（当前未实现，留给前端调用）。
+
+    限流：同手机 60s、同 IP 10/min（复用 rate_limit_acquire）。
+    """
+    from ..services.sms_code import (
+        create_and_send_code, _normalize_phone, _validate_phone_format, _mask_phone,
+    )
+    from ..core.sms import is_sms_enabled, SmsError
+    from ..core.rate_limit import rate_limit_acquire
+
+    if req.purpose not in ("register", "login", "reset", "bind"):
+        raise HTTPException(400, "非法用途")
+
+    if not is_sms_enabled(db):
+        raise HTTPException(400, "短信服务未启用")
+
+    ip = _client_ip(request)
+
+    # IP 级频控：10 条/min
+    ip_key = f"sms:send:{ip}"
+    if rate_limit_acquire(db, ip_key, max_requests=10, window=60, lock_seconds=60):
+        raise HTTPException(429, "请求过于频繁，请稍后再试")
+
+    # login / reset 需要用户名 → 取绑定手机号
+    phone = req.phone
+    user_id = ""
+    username = req.username
+    if req.purpose in ("login", "reset"):
+        if not req.username:
+            raise HTTPException(400, "请提供用户名")
+        u = db.query(User).filter_by(username=req.username).first()
+        # 时序对齐：用户不存在时也走一遍发送流程（dummy），但不真发
+        if not u or not u.phone:
+            # 返回统一成功假象，避免用户名枚举
+            return {"ok": True, "masked_phone": "", "cooldown_seconds": 60}
+        phone = u.phone
+        user_id = u.id
+        username = u.username
+    else:
+        if not phone:
+            raise HTTPException(400, "请填写手机号")
+        phone = _normalize_phone(phone)
+        fmt_err = _validate_phone_format(phone)
+        if fmt_err:
+            raise HTTPException(400, fmt_err)
+
+    try:
+        res = create_and_send_code(db, phone, req.purpose,
+                                  user_id=user_id, username=username,
+                                  client_ip=ip)
+        _log(db, None, "sms_send", f"{req.purpose} {res.get('masked_phone', '')}", request)
+        return res
+    except SmsError as e:
+        _log(db, None, "sms_send_failed", f"{req.purpose} {e}", request)
+        if "未配置" in str(e):
+            raise HTTPException(400, "短信服务未配置")
+        if str(e).startswith("请稍后再试"):
+            raise HTTPException(429, str(e))
+        if "上限" in str(e):
+            raise HTTPException(429, str(e))
+        raise HTTPException(502, f"短信发送失败: {e}")
+
+
+@router.post("/bind-phone")
+def bind_phone(req: BindPhoneRequest, request: Request, response: Response,
+               db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """已登录用户绑定手机号。需先通过 /sms/send 获取验证码（purpose=bind）。"""
+    from ..services.sms_code import verify_code, _normalize_phone, _validate_phone_format
+    from ..core.sms import is_sms_enabled
+
+    if not is_sms_enabled(db):
+        raise HTTPException(400, "短信服务未启用")
+    if user.phone:
+        raise HTTPException(400, "已绑定手机号，暂不支持换绑")
+
+    phone = _normalize_phone(req.phone)
+    fmt_err = _validate_phone_format(phone)
+    if fmt_err:
+        raise HTTPException(400, fmt_err)
+    if db.query(User).filter(User.phone == phone, User.id != user.id).first():
+        raise HTTPException(409, "该手机号已被其他用户使用")
+
+    if not verify_code(db, phone, req.sms_code, purpose="bind"):
+        raise HTTPException(400, "短信验证码错误或已过期")
+
+    user.phone = phone
+    user.phone_verified = True
+    db.commit()
+    _log(db, user.id, "phone_bound", _mask_phone(phone), request)
+    return {"message": "手机号绑定成功", "phone_masked": _mask_phone(phone)}
 
 
 # ---- 管理员登录（独立入口）----
@@ -921,6 +1189,8 @@ def get_me(user=Depends(get_current_user)):
         "status": user.status,
         "quota_mb": user.quota_mb,
         "ai_enabled": user.ai_enabled,
+        "phone": user.phone or "",
+        "phone_verified": bool(user.phone_verified),
         "last_login_at": str(user.last_login_at) if user.last_login_at else "",
         "password_changed_at": str(user.password_changed_at) if user.password_changed_at else "",
         "created_at": str(user.created_at) if user.created_at else "",

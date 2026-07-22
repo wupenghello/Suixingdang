@@ -32,8 +32,10 @@ class User(Base):
     quota_mb = Column(Integer, default=0)             # 存储配额 MB，0=无限
     ai_enabled = Column(Boolean, default=True)         # 是否允许使用 AI 助手
     llm_provider_id = Column(String, nullable=True)    # 分配的大模型，为空则用默认
-    security_question = Column(Text, default="")      # 密保问题
-    security_answer = Column(Text, default="")        # 密保答案（哈希存储）
+    security_question = Column(Text, default="")      # 密保问题（可选）
+    security_answer = Column(Text, default="")        # 密保答案（哈希存储，可选）
+    phone = Column(String, default=None, index=True, unique=True, nullable=True)  # 手机号（可选、唯一；E.164 建议）
+    phone_verified = Column(Boolean, default=False)    # 手机号是否已验证
     password_version = Column(Integer, default=1)     # 密码版本号：改/重置密码时 +1，使旧 refresh/access 立即失效
     password_changed_at = Column(DateTime, nullable=True)  # 最近一次修改/重置密码时间（注册初始设置不计，NULL=从未修改）
     prefs = Column(Text, default="{}")                # 界面偏好 JSON 串（侧栏状态/快捷键风格等）；key 白名单与类型校验在 api/auth.py，无 PII
@@ -232,6 +234,27 @@ class Bot(Base):
     welcome = Column(Text, default="")
     config = Column(JSON, default=dict)
     enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SmsVerificationCode(Base):
+    """短信验证码：bcrypt 哈希落盘，一次性消费。
+
+    不存明文验证码——即便 DB 泄露也无法直接重用。
+    purpose: register / login / reset / bind
+    """
+    __tablename__ = "sms_verification_codes"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    phone = Column(String, nullable=False, index=True)
+    code_hash = Column(String, nullable=False)             # bcrypt 哈希
+    purpose = Column(String, nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    username = Column(String, default="")                  # 冗余：注册/登录时关联的用户名（审计用）
+    client_ip = Column(String, default="")
+    attempt_count = Column(Integer, default=0)             # 已校验次数（防在线爆破）
+    expires_at = Column(DateTime, nullable=False)
+    consumed_at = Column(DateTime, nullable=True)          # 使用时间（一次性消费标记）
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

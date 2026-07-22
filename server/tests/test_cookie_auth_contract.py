@@ -8,6 +8,11 @@
 - /logout 清除 cookie，之后 /me 401。
 """
 import uuid
+import random
+
+
+def _random_phone():
+    return f"139{random.randint(10000000, 99999999)}"
 
 
 def _register(client, username=None, password="Test1234pass"):
@@ -15,6 +20,7 @@ def _register(client, username=None, password="Test1234pass"):
     r = client.post("/api/auth/register", json={
         "username": username, "password": password,
         "security_question": "q?", "security_answer": "a",
+        "phone": _random_phone(),
     })
     assert r.status_code == 200, r.text
     return r, username

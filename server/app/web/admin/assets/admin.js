@@ -3,6 +3,8 @@
 // 与用户端共享的模块：改密弹窗接线（消灭双端复制漂移）+ 审计词表单一真源
 import { changePasswordFormHTML, wireChangePasswordForm } from './utils/password-dialog.js?v=96';
 import { AUDIT_ACTIONS, auditLabel } from './utils/audit-actions.js?v=97';
+// 统一反馈层（toast/confirm/alert/modal）· 与用户端 components/feedback 同形态
+import { toast, confirm } from './utils/feedback.mjs?v=1';
 
 const API = {
   // 管理员令牌存 HttpOnly cookie（与用户端一致），前端 JS 不可读，防 XSS 偷令牌。
@@ -29,17 +31,6 @@ const API = {
 // 审计事件标签来自共享词表 utils/audit-actions.js（与用户端单一真源，不再手同步）
 const ACTION_LABELS = Object.fromEntries(Object.entries(AUDIT_ACTIONS).map(([k, v]) => [k, v.label]));
 function actionLabel(a) { return ACTION_LABELS[a] || auditLabel(a); }
-
-const Toast = {
-  show(msg, type = 'info', dur = 3000) {
-    let c = document.getElementById('toasts');
-    if (!c) { c = document.createElement('div'); c.id = 'toasts'; c.className = 'toast-container'; document.body.appendChild(c); }
-    const el = document.createElement('div');
-    el.className = `toast ${type}`; el.textContent = msg;
-    c.appendChild(el);
-    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200); }, dur);
-  }
-};
 
 const ico = (n) => `<svg class="sx-ico" viewBox="0 0 24 24"><use href="#sx-ico-${n}"/></svg>`;
 const ICONS = {
@@ -146,9 +137,9 @@ function renderLogin() {
         body: JSON.stringify({ username: u, password: p }),
       });
       const data = await res.json();
-      if (res.ok) { Toast.show('登录成功', 'success'); init(); }
-      else { Toast.show(data.detail || '登录失败', 'error'); }
-    } catch { Toast.show('网络错误', 'error'); }
+      if (res.ok) { toast('登录成功', 'success'); init(); }
+      else { toast(data.detail || '登录失败', 'error'); }
+    } catch { toast('网络错误', 'error'); }
   });
 }
 
@@ -410,7 +401,7 @@ async function viewUserDetail(userId) {
     </table>`;
     loadUserTokens(u.id);
     loadUserAiSettings(u);
-  } catch { Toast.show('加载用户详情失败', 'error'); }
+  } catch { toast('加载用户详情失败', 'error'); }
 }
 window.viewUserDetail = viewUserDetail;
 
@@ -427,9 +418,9 @@ async function loadUserAiSettings(u) {
     };
     try {
       const res = await API.put(`/api/admin/users/${u.id}/ai`, body);
-      if (res.ok) Toast.show('AI 设置已保存', 'success');
-      else { const d = await res.json().catch(() => ({})); Toast.show(d.detail || '保存失败', 'error'); }
-    } catch { Toast.show('保存失败，请检查网络', 'error'); }
+      if (res.ok) toast('AI 设置已保存', 'success');
+      else { const d = await res.json().catch(() => ({})); toast(d.detail || '保存失败', 'error'); }
+    } catch { toast('保存失败，请检查网络', 'error'); }
   });
   if (!sel) return;
   try {
@@ -440,15 +431,15 @@ async function loadUserAiSettings(u) {
       providers.map(p => `<option value="${p.id}" ${p.id === u.llm_provider_id ? 'selected' : ''}>${esc(p.name)} (${esc(p.model)})${p.is_default ? ' [默认]' : ''}</option>`).join('');
   } catch {
     // 列表加载失败时给出提示，避免管理员在不知情的情况下保存并清空已有分配。
-    Toast.show('可分配模型列表加载失败，保存将清除当前分配', 'warning', 5000);
+    toast('可分配模型列表加载失败，保存将清除当前分配', 'warning', 5000);
   }
 }
 
 async function toggleUser(id, status) {
   try {
     const res = await API.put(`/api/admin/users/${id}`, { status });
-    if (res.ok) { Toast.show(status === 'disabled' ? '用户已禁用' : '用户已启用', 'success'); viewUserDetail(id); }
-  } catch { Toast.show('操作失败', 'error'); }
+    if (res.ok) { toast(status === 'disabled' ? '用户已禁用' : '用户已启用', 'success'); viewUserDetail(id); }
+  } catch { toast('操作失败', 'error'); }
 }
 window.toggleUser = toggleUser;
 
@@ -506,30 +497,38 @@ async function createUserToken(userId) {
     if (res.ok) {
       const data = await res.json();
       prompt('访问令牌已创建（请妥善保存，仅显示一次）：', data.token);
-      Toast.show('令牌已创建', 'success');
+      toast('令牌已创建', 'success');
       loadUserTokens(userId);
-    } else { const d = await res.json(); Toast.show(d.detail || '创建失败', 'error'); }
-  } catch { Toast.show('创建失败', 'error'); }
+    } else { const d = await res.json(); toast(d.detail || '创建失败', 'error'); }
+  } catch { toast('创建失败', 'error'); }
 }
 window.createUserToken = createUserToken;
 
 async function revokeUserToken(userId, tokenId) {
-  if (!confirm('确定吊销该访问令牌？吊销后该令牌将立即无法访问。')) return;
+  const ok = await confirm({
+    title: '吊销令牌', danger: true, confirmText: '吊销',
+    body: '确定吊销该访问令牌？吊销后该令牌将立即无法访问。',
+  });
+  if (!ok) return;
   try {
     const res = await API.del(`/api/admin/users/${userId}/tokens/${tokenId}`);
-    if (res.ok) { Toast.show('令牌已吊销', 'success'); loadUserTokens(userId); }
-    else { const d = await res.json(); Toast.show(d.detail || '吊销失败', 'error'); }
-  } catch { Toast.show('吊销失败', 'error'); }
+    if (res.ok) { toast('令牌已吊销', 'success'); loadUserTokens(userId); }
+    else { const d = await res.json(); toast(d.detail || '吊销失败', 'error'); }
+  } catch { toast('吊销失败', 'error'); }
 }
 window.revokeUserToken = revokeUserToken;
 
 async function revokeAllUserTokens(userId) {
-  if (!confirm('确定吊销该用户的全部令牌（含浏览器会话）？所有设备与会话将立即下线。')) return;
+  const ok = await confirm({
+    title: '吊销全部令牌', danger: true, confirmText: '吊销',
+    body: '确定吊销该用户的全部令牌（含浏览器会话）？所有设备与会话将立即下线。',
+  });
+  if (!ok) return;
   try {
     const res = await API.del(`/api/admin/users/${userId}/tokens`);
-    if (res.ok) { const d = await res.json(); Toast.show(d.message, 'success'); loadUserTokens(userId); }
-    else { const d = await res.json(); Toast.show(d.detail || '操作失败', 'error'); }
-  } catch { Toast.show('操作失败', 'error'); }
+    if (res.ok) { const d = await res.json(); toast(d.message, 'success'); loadUserTokens(userId); }
+    else { const d = await res.json(); toast(d.detail || '操作失败', 'error'); }
+  } catch { toast('操作失败', 'error'); }
 }
 window.revokeAllUserTokens = revokeAllUserTokens;
 
@@ -561,24 +560,28 @@ function showUserModal(id, username, quota, status) {
       const body = { quota_mb: parseInt(mQ ? mQ.value : (quota || 0)), status: mS ? mS.value : 'active' };
       if (mP && mP.value) body.password = mP.value;
       const res = await API.put(`/api/admin/users/${id}`, body);
-      if (res.ok) { Toast.show('已更新', 'success'); modal.remove(); loadUsers(''); }
-      else { const dt = await res.json(); Toast.show(dt.detail || '更新失败', 'error'); }
+      if (res.ok) { toast('已更新', 'success'); modal.remove(); loadUsers(''); }
+      else { const dt = await res.json(); toast(dt.detail || '更新失败', 'error'); }
     } else {
       const res = await API.post('/api/admin/users', {
         username: mU ? mU.value : '', password: mP ? mP.value : '',
         quota_mb: parseInt(mQ ? mQ.value : 0),
       });
-      if (res.ok) { Toast.show('用户已创建', 'success'); modal.remove(); loadUsers(''); }
-      else { const dt = await res.json(); Toast.show(dt.detail || '创建失败', 'error'); }
+      if (res.ok) { toast('用户已创建', 'success'); modal.remove(); loadUsers(''); }
+      else { const dt = await res.json(); toast(dt.detail || '创建失败', 'error'); }
     }
   });
 }
 
 async function deleteUser(id, name) {
-  if (!confirm(`确定删除用户 "${name}"？该用户的所有文件和数据将被永久删除！`)) return;
+  const ok = await confirm({
+    title: '删除用户', danger: true, confirmText: '删除',
+    body: `确定删除用户 "${name}"？该用户的所有文件和数据将被永久删除！`,
+  });
+  if (!ok) return;
   const res = await API.del(`/api/admin/users/${id}`);
-  if (res.ok) { Toast.show('用户已删除', 'success'); loadUsers(''); }
-  else { Toast.show('删除失败', 'error'); }
+  if (res.ok) { toast('用户已删除', 'success'); loadUsers(''); }
+  else { toast('删除失败', 'error'); }
 }
 window.editUser = showUserModal;
 window.deleteUser = deleteUser;
@@ -688,10 +691,14 @@ async function loadGroups(search, page) {
 }
 
 async function adminDeleteGroup(id, name) {
-  if (!confirm(`确定删除分组 "${name}"？分组内文件不会被删除，仅解除关联。`)) return;
+  const ok = await confirm({
+    title: '删除分组', danger: true, confirmText: '删除',
+    body: `确定删除分组 "${name}"？分组内文件不会被删除，仅解除关联。`,
+  });
+  if (!ok) return;
   const res = await API.del(`/api/admin/groups/${id}`);
-  if (res.ok) { Toast.show('分组已删除', 'success'); loadGroups(document.getElementById('group-search') ? document.getElementById('group-search').value : '', pager.groups.page); }
-  else { const d = await res.json(); Toast.show(d.detail || '删除失败', 'error'); }
+  if (res.ok) { toast('分组已删除', 'success'); loadGroups(document.getElementById('group-search') ? document.getElementById('group-search').value : '', pager.groups.page); }
+  else { const d = await res.json(); toast(d.detail || '删除失败', 'error'); }
 }
 window.adminDeleteGroup = adminDeleteGroup;
 
@@ -813,7 +820,7 @@ function showLlmModal(id) {
       }
       saveBtn.disabled = false;
     }).catch(() => {
-      if (overlay.isConnected) { overlay.remove(); Toast.show('加载配置失败，请重试', 'error'); }
+      if (overlay.isConnected) { overlay.remove(); toast('加载配置失败，请重试', 'error'); }
     });
   }
 
@@ -829,9 +836,9 @@ function showLlmModal(id) {
       enabled: document.getElementById('llm-enabled').checked,
       is_default: document.getElementById('llm-default').checked,
     };
-    if (!body.name) { Toast.show('名称不能为空', 'error'); return; }
-    if (!isEdit && !body.api_key) { Toast.show('API Key 不能为空', 'error'); return; }
-    if (!body.model) { Toast.show('模型名称不能为空', 'error'); return; }
+    if (!body.name) { toast('名称不能为空', 'error'); return; }
+    if (!isEdit && !body.api_key) { toast('API Key 不能为空', 'error'); return; }
+    if (!body.model) { toast('模型名称不能为空', 'error'); return; }
     const saveBtn = document.getElementById('llm-save');
     saveBtn.disabled = true;  // 防止重复提交导致重复创建
     try {
@@ -839,15 +846,15 @@ function showLlmModal(id) {
         ? await API.put(`/api/admin/llm/providers/${id}`, body)
         : await API.post('/api/admin/llm/providers', body);
       if (res.ok) {
-        Toast.show(isEdit ? '大模型已更新' : '大模型已添加', 'success');
+        toast(isEdit ? '大模型已更新' : '大模型已添加', 'success');
         overlay.remove();
         loadLlmProviders();
       } else {
         const d = await res.json().catch(() => ({}));
-        Toast.show(d.detail || '保存失败', 'error');
+        toast(d.detail || '保存失败', 'error');
       }
     } catch {
-      Toast.show('保存失败，请检查网络', 'error');
+      toast('保存失败，请检查网络', 'error');
     } finally {
       if (overlay.isConnected) saveBtn.disabled = false;
     }
@@ -858,22 +865,26 @@ async function editLlmProvider(id) { showLlmModal(id); }
 window.editLlmProvider = editLlmProvider;
 
 async function deleteLlmProvider(id, name) {
-  if (!confirm(`确定删除大模型「${name}」？\n已分配此模型的用户将回退到默认模型。`)) return;
+  const ok = await confirm({
+    title: '删除大模型', danger: true, confirmText: '删除',
+    body: `确定删除大模型「${name}」？已分配此模型的用户将回退到默认模型。`,
+  });
+  if (!ok) return;
   const res = await API.del(`/api/admin/llm/providers/${id}`);
-  if (res.ok) { Toast.show('大模型已删除', 'success'); loadLlmProviders(); }
-  else { const d = await res.json(); Toast.show(d.detail || '删除失败', 'error'); }
+  if (res.ok) { toast('大模型已删除', 'success'); loadLlmProviders(); }
+  else { const d = await res.json(); toast(d.detail || '删除失败', 'error'); }
 }
 window.deleteLlmProvider = deleteLlmProvider;
 
 async function testLlmProvider(id) {
-  Toast.show('正在测试连通性...', 'info', 5000);
+  toast('正在测试连通性...', 'info', 5000);
   try {
     const res = await API.post(`/api/admin/llm/providers/${id}/test`);
     const d = await res.json();
-    if (d.ok) Toast.show(`连通成功，模型回复：${d.reply || '(空)'}`, 'success', 5000);
-    else Toast.show(`连通失败：${d.error || '未知错误'}`, 'error', 5000);
+    if (d.ok) toast(`连通成功，模型回复：${d.reply || '(空)'}`, 'success', 5000);
+    else toast(`连通失败：${d.error || '未知错误'}`, 'error', 5000);
   } catch {
-    Toast.show('连通测试请求失败，请检查网络或后端服务', 'error', 5000);
+    toast('连通测试请求失败，请检查网络或后端服务', 'error', 5000);
   }
 }
 window.testLlmProvider = testLlmProvider;
@@ -901,7 +912,72 @@ async function renderSettings() {
           <label>新用户默认配额 (MB，0=无限)</label>
           <input type="number" id="set-quota" class="form-input form-max" value="${s.default_quota_mb}">
         </div>
-        <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
+      </div>
+      <div class="settings-section settings-group-gap">
+        <h3>阿里云短信（登录 / 注册 / 找回）</h3>
+        <p style="opacity:.7;font:12px/1.5 system-ui;margin:0 0 12px">未配置时登录注册回退为纯密码流程。AccessKey 在服务端 Fernet 加密落盘。</p>
+        <div class="form-group">
+          <label>启用短信</label>
+          <select id="set-sms-enabled" class="form-input form-max">
+            <option value="true" ${s.sms_enabled === 'true' ? 'selected' : ''}>启用</option>
+            <option value="false" ${s.sms_enabled !== 'true' ? 'selected' : ''}>关闭</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>AccessKeyId</label>
+          <input id="set-sms-ak-id" class="form-input form-max" value="${esc(s.sms_aliyun_access_key_id || '')}" placeholder="RAM 子账号 AccessKeyId">
+        </div>
+        <div class="form-group">
+          <label>AccessKeySecret</label>
+          <input id="set-sms-ak-secret" type="password" class="form-input form-max" placeholder="${s.sms_aliyun_access_key_secret_masked ? '已设置（留空则不修改）' : 'RAM 子账号 AccessKeySecret'}">
+        </div>
+        <div class="form-group">
+          <label>短信签名</label>
+          <input id="set-sms-sign" class="form-input form-max" value="${esc(s.sms_aliyun_sign_name || '')}" placeholder="如：随行档">
+        </div>
+        <div class="form-group">
+          <label>模板 CODE</label>
+          <input id="set-sms-tpl" class="form-input form-max" value="${esc(s.sms_aliyun_template_code || '')}" placeholder="如：SMS_123456789">
+        </div>
+        <div class="form-group">
+          <label>模板变量名</label>
+          <input class="form-input form-max" value="code（默认，一般无需修改）" disabled style="opacity:.6">
+        </div>
+        <div class="form-group">
+          <label>强制登录需短信</label>
+          <select id="set-sms-req-login" class="form-input form-max">
+            <option value="true" ${s.sms_required_for_login === 'false' ? '' : 'selected'}>是</option>
+            <option value="false" ${s.sms_required_for_login === 'false' ? 'selected' : ''}>否</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>强制注册需短信</label>
+          <select id="set-sms-req-register" class="form-input form-max">
+            <option value="true" ${s.sms_required_for_register === 'false' ? '' : 'selected'}>是</option>
+            <option value="false" ${s.sms_required_for_register === 'false' ? 'selected' : ''}>否</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>验证码有效期（秒，60-3600）</label>
+          <input type="number" id="set-sms-ttl" class="form-input form-max" value="${s.sms_code_ttl_seconds || 300}" min="60" max="3600">
+        </div>
+        <div class="form-group">
+          <label>单码最多错误次数（3-10）</label>
+          <input type="number" id="set-sms-max" class="form-input form-max" value="${s.sms_max_attempts || 5}" min="3" max="10">
+        </div>
+        <div class="form-group">
+          <label>同手机号重发间隔（秒，30-300）</label>
+          <input type="number" id="set-sms-cooldown" class="form-input form-max" value="${s.sms_cooldown_seconds || 60}" min="30" max="300">
+        </div>
+        <div class="form-group">
+          <label>单手机号日上限（5-100）</label>
+          <input type="number" id="set-sms-daily" class="form-input form-max" value="${s.sms_daily_limit_per_phone || 20}" min="5" max="100">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
+          <button class="btn btn-secondary" id="btn-test-sms">发送测试短信</button>
+          <span id="test-sms-status" style="font:12px system-ui;opacity:.7"></span>
+        </div>
       </div>
       <div class="settings-section settings-group-gap">
         <h3>系统信息</h3>
@@ -917,13 +993,37 @@ async function renderSettings() {
         </table>
       </div>`;
     document.getElementById('btn-save-settings').addEventListener('click', async () => {
+      const secret = document.getElementById('set-sms-ak-secret').value;
       const body = {
         allow_register: document.getElementById('set-register').value === 'true',
-        default_quota_mb: parseInt(document.getElementById('set-quota').value),
+        default_quota_mb: parseInt(document.getElementById('set-quota').value || '0'),
+        sms_enabled: document.getElementById('set-sms-enabled').value === 'true',
+        sms_aliyun_access_key_id: document.getElementById('set-sms-ak-id').value.trim(),
+        sms_aliyun_sign_name: document.getElementById('set-sms-sign').value.trim(),
+        sms_aliyun_template_code: document.getElementById('set-sms-tpl').value.trim(),
+        sms_required_for_login: document.getElementById('set-sms-req-login').value === 'true',
+        sms_required_for_register: document.getElementById('set-sms-req-register').value === 'true',
+        sms_code_ttl_seconds: parseInt(document.getElementById('set-sms-ttl').value || '300'),
+        sms_max_attempts: parseInt(document.getElementById('set-sms-max').value || '5'),
+        sms_cooldown_seconds: parseInt(document.getElementById('set-sms-cooldown').value || '60'),
+        sms_daily_limit_per_phone: parseInt(document.getElementById('set-sms-daily').value || '20'),
       };
+      if (secret && secret !== '****') body.sms_aliyun_access_key_secret = secret;
       const res = await API.put('/api/admin/settings', body);
-      if (res.ok) Toast.show('设置已保存', 'success');
-      else { const d = await res.json(); Toast.show(d.detail || '保存失败', 'error'); }
+      if (res.ok) toast('设置已保存', 'success');
+      else { const d = await res.json(); toast(d.detail || '保存失败', 'error'); }
+    });
+    document.getElementById('btn-test-sms').addEventListener('click', async () => {
+      const phone = prompt('输入接收测试短信的手机号：');
+      if (!phone) return;
+      const st = document.getElementById('test-sms-status');
+      st.textContent = '发送中...';
+      try {
+        const res = await API.post('/api/admin/settings/sms/test', { phone });
+        const d = await res.ok ? await res.json() : { detail: (await res.json()).detail };
+        if (res.ok) { st.textContent = `✓ ${d.message || '已发送'}`; st.style.color = 'var(--success, #2e7d32)'; }
+        else { st.textContent = `✗ ${d.detail || '失败'}`; st.style.color = 'var(--danger, #c62828)'; }
+      } catch (e) { st.textContent = `✗ ${e.message || '网络错误'}`; st.style.color = 'var(--danger, #c62828)'; }
     });
   } catch { document.getElementById('settings-content').innerHTML = '<p>加载失败</p>'; }
 }
@@ -994,7 +1094,7 @@ function showAdminChangePasswordDialog(username) {
         return { ok: false, status: res.status, detail: (d && d.detail) || '修改失败' };
       } catch { return { ok: false, status: 0, detail: '网络错误，请重试' }; }
     },
-    onSuccess: () => { close(); Toast.show('密码已修改', 'success'); },
+    onSuccess: () => { close(); toast('密码已修改', 'success'); },
   });
 }
 

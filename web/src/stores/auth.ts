@@ -8,6 +8,8 @@ export interface UserInfo {
   quota_mb?: number;
   used_mb?: number;
   ai_enabled?: boolean;
+  phone?: string;
+  phone_verified?: boolean;
   [k: string]: any;
 }
 
@@ -16,12 +18,15 @@ interface AuthState {
   loading: boolean;
   error: string;
   fetchMe: () => Promise<boolean>;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<{ sms_required?: boolean; phone_masked?: string }>;
+  loginWithSms: (username: string, smsCode: string) => Promise<boolean>;
   register: (p: {
     username: string;
     password: string;
     security_question: string;
     security_answer: string;
+    phone: string;
+    sms_code: string;
   }) => Promise<boolean>;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -46,12 +51,30 @@ export const useAuth = create<AuthState>((set, get) => ({
   login: async (username, password) => {
     set({ error: "", loading: true });
     try {
-      await api.post("/api/auth/login", { username, password });
+      const res: any = await api.post("/api/auth/login", { username, password });
+      // 二阶段：后端要求短信
+      if (res?.sms_required) {
+        set({ loading: false });
+        return { sms_required: true, phone_masked: res.phone_masked };
+      }
+      const ok = await get().fetchMe();
+      if (!ok) throw new Error("登录态校验失败");
+      return { sms_required: false };
+    } catch (e: any) {
+      set({ error: e.message || "登录失败", loading: false });
+      throw e;
+    }
+  },
+
+  loginWithSms: async (username, smsCode) => {
+    set({ error: "", loading: true });
+    try {
+      await api.post("/api/auth/login/verify", { username, sms_code: smsCode });
       const ok = await get().fetchMe();
       if (!ok) throw new Error("登录态校验失败");
       return true;
     } catch (e: any) {
-      set({ error: e.message || "登录失败", loading: false });
+      set({ error: e.message || "验证失败", loading: false });
       return false;
     }
   },
