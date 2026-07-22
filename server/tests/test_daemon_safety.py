@@ -324,3 +324,59 @@ def test_sync_single_delete_success_clears(denv, monkeypatch):
     _patch_sync(denv, monkeypatch, local={}, remote={}, counters=counters)
     _run(denv["sync"].sync_single_file("f.txt", "delete"))
     assert store.get("f.txt") is None
+
+
+# ---------- watcher 事件路径（符号链接硬化） ----------
+
+def test_get_rel_handles_symlinked_watch_dir(denv, tmp_path, monkeypatch):
+    """macOS /tmp→/private/tmp：WATCH_DIR 为链接路径、事件路径为解析路径时不得丢事件。
+
+    daemon-live 通道实测发现的 bug：relative_to 失败 → 全部 watchdog 事件被静默
+    丢弃，删除不传播（被下轮 full_sync 复活）。
+    """
+    from watcher import SyncHandler
+
+    real = tmp_path / "real_watch"
+    real.mkdir()
+    link = tmp_path / "link_watch"
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(real)
+    sub = real / "sub"
+    sub.mkdir()
+    f = sub / "x.txt"
+    f.write_text("x")
+
+    # WATCH_DIR 故意给未解析的链接路径（config 规范化失效时的兜底场景）
+    monkeypatch.setattr(denv["config"], "WATCH_DIR", str(link))
+    handler = SyncHandler(loop=None, queue=None)  # _get_rel 不依赖 loop/queue
+    # 事件路径是 FSEvents 风格的解析后真实路径
+    assert handler._get_rel(str(f)) == str(Path("sub") / "x.txt")
+    # 目录外路径仍返回空
+    outside = tmp_path / "elsewhere.txt"
+    outside.write_text("o")
+    assert handler._get_rel(str(outside)) == ""
+
+
+def test_config_resolves_watch_dir_symlink(tmp_path):
+    """Config 构造即规范化 WATCH_DIR（链接 → 真实路径）。"""
+    real = tmp_path / "cfg_real"
+    real.mkdir()
+    link = tmp_path / "cfg_link"
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(real)
+
+    monkeypatch_env = os.environ.copy()
+    os.environ["WATCH_DIR"] = str(link)
+    try:
+        import importlib
+        import config as dconfig
+        importlib.reload(dconfig)
+        assert Path(dconfig.config.WATCH_DIR) == real.resolve()
+    finally:
+        os.environ.clear()
+        os.environ.update(monkeypatch_env)
+        import importlib
+        import config as dconfig
+        importlib.reload(dconfig)

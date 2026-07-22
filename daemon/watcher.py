@@ -64,8 +64,14 @@ class SyncHandler(FileSystemEventHandler):
             self._push(new_rel, "upload")
 
     def _get_rel(self, abs_path: str) -> str:
+        """事件绝对路径 → 监控目录相对路径。
+
+        两侧都解析符号链接：FSEvents 回传解析后路径（/private/tmp/...），
+        而 WATCH_DIR 可能以链接形式给出（/tmp/...）；config 已规范化 WATCH_DIR，
+        此处再对事件路径解析，双向兜底，避免 relative_to 失败丢事件。
+        """
         try:
-            return str(Path(abs_path).relative_to(config.WATCH_DIR))
+            return str(Path(abs_path).resolve().relative_to(Path(config.WATCH_DIR).resolve()))
         except ValueError:
             return ""
 

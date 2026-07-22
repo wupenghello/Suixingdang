@@ -10,8 +10,14 @@ class Config:
     ALLOW_HTTP = os.getenv("ALLOW_HTTP", "") == "1"
     # 设备访问令牌（在 Web 设置页或管理后台创建，可吊销）
     TOKEN = os.getenv("DAEMON_TOKEN", "")
-    # 要同步的本地目录
-    WATCH_DIR = os.getenv("WATCH_DIR", str(Path.home() / "suixingdang-sync"))
+    # 要同步的本地目录。
+    # 规范化为真实路径：macOS 上 /tmp → /private/tmp 等符号链接场景下，
+    # watchdog(FSEvents) 回传解析后路径，若此处保留链接路径，relative_to 会
+    # 全部失败 → 事件静默丢弃、删除不传播。expanduser 兼容 ~ 写法。
+    WATCH_DIR = str(
+        Path(os.getenv("WATCH_DIR", str(Path.home() / "suixingdang-sync")))
+        .expanduser().resolve()
+    )
     # 排除的文件名/目录模式
     EXCLUDE_PATTERNS = [
         ".DS_Store", ".git", "__pycache__", "node_modules",
