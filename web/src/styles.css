@@ -32,6 +32,21 @@
   --color-user-bubble: #f2f3f5;
   --color-ai-bubble: #f0f5ff;
 
+  /* 文件类型语义色 · 移植自 server/app/web/admin/assets/tokens.css
+     仅用于文件类型图标着色；类型区分同时依赖扩展名文本 label（色觉无障碍） */
+  --color-type-pdf: #f53f3f;
+  --color-type-doc: #3370ff;
+  --color-type-xls: #00b42a;
+  --color-type-ppt: #ff7d00;
+  --color-type-md: #1f2329;
+  --color-type-img: #00b42a;
+  --color-type-video: #b37feb;
+  --color-type-audio: #b37feb;
+  --color-type-archive: #86909c;
+  --color-type-code: #86909c;
+  --color-type-text: #86909c;
+  --color-type-other: #86909c;
+
   --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 
@@ -69,6 +84,18 @@ body {
 }
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* 统一图标精灵：fill/stroke/线宽/线帽由 class 兜底（<Icon> 组件同时设尺寸属性） */
+.sx-ico {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 /* ---------- 组件原语（全局 class） ---------- */
@@ -165,10 +192,14 @@ body {
 }
 
 .row-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 6px;
   padding: 2px 6px;
   font-size: 13px;
-  transition: background 0.12s;
+  color: var(--color-ink-muted);
+  transition: background 0.12s, color 0.12s;
 }
 .row-btn:hover {
   background: var(--color-surface-active);

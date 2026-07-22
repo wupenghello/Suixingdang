@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../stores/auth";
 import { api } from "../api/client";
 import { formatSize } from "./ui";
+import { Icon } from "./Icon";
 
 export interface NavItem {
   key: string;
@@ -11,12 +12,12 @@ export interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { key: "files", label: "文件库", icon: "🗂", hash: "#/files" },
-  { key: "chat", label: "AI 助手", icon: "✦", hash: "#/chat" },
-  { key: "notes", label: "笔记", icon: "📝", hash: "#/notes" },
-  { key: "transfer", label: "传输助手", icon: "🪄", hash: "#/transfer" },
-  { key: "trash", label: "回收站", icon: "🗑", hash: "#/trash" },
-  { key: "settings", label: "设置", icon: "⚙️", hash: "#/settings" },
+  { key: "files", label: "文件库", icon: "folder", hash: "#/files" },
+  { key: "chat", label: "AI 助手", icon: "sparkles", hash: "#/chat" },
+  { key: "notes", label: "笔记", icon: "note", hash: "#/notes" },
+  { key: "transfer", label: "传输助手", icon: "package", hash: "#/transfer" },
+  { key: "trash", label: "回收站", icon: "trash", hash: "#/trash" },
+  { key: "settings", label: "设置", icon: "settings", hash: "#/settings" },
 ];
 
 /** hash 路由当前段（#/files/... → files）。 */
@@ -84,9 +85,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 {active && (
                   <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r bg-primary" />
                 )}
-                <span className={`text-[15px] ${active ? "" : "opacity-80 group-hover:opacity-100"}`}>
-                  {item.icon}
-                </span>
+                <Icon
+                  name={item.icon}
+                  size={16}
+                  className={active ? "text-primary" : "opacity-80 group-hover:opacity-100"}
+                />
                 {item.label}
               </button>
             );
@@ -130,9 +133,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 {(user?.username || "?").slice(0, 1).toUpperCase()}
               </span>
               <span className="text-[13px] text-ink-secondary">{user?.username}</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" className="text-ink-muted">
-                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-              </svg>
+              <Icon name="chevron-down" size={12} className="text-ink-muted" />
             </button>
             {menuOpen && (
               <>

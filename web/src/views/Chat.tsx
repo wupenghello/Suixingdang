@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { sseStream } from "../lib/sse";
 import { Markdown } from "../components/Markdown";
 import { Spinner, toast } from "../components/ui";
+import { Icon } from "../components/Icon";
 import { useAuth } from "../stores/auth";
 
 interface ToolChip {
@@ -211,8 +212,8 @@ export function ChatView() {
         <div className="mx-auto max-w-[760px] space-y-5">
           {messages.length === 0 && (
             <div className="flex flex-col items-center gap-4 pt-20">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-active text-2xl text-white shadow-2">
-                ✦
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-active text-white shadow-2">
+                <Icon name="sparkles" size={28} />
               </div>
               <div className="text-center">
                 <div className="text-[17px] font-semibold">
@@ -252,7 +253,7 @@ export function ChatView() {
                           <Spinner className="h-3 w-3" />
                         ) : (
                           <span className={t.status === "ok" ? "text-success" : "text-danger"}>
-                            {t.status === "ok" ? "✓" : "✕"}
+                            <Icon name={t.status === "ok" ? "check" : "x"} size={12} />
                           </span>
                         )}
                         {t.tool}
@@ -281,7 +282,7 @@ export function ChatView() {
                 {m.confirm && !m.confirm.resolved && (
                   <div className="w-full rounded-lg border border-warning/40 bg-warning/[0.06] p-3.5">
                     <div className="mb-1 flex items-center gap-2 text-[13px] font-medium text-warning">
-                      ⚠️ 需要确认
+                      <Icon name="triangle-alert" size={14} />需要确认
                     </div>
                     <div className="mb-3 text-[12.5px] leading-relaxed text-ink-secondary">
                       {m.confirm.message}
@@ -326,8 +327,8 @@ export function ChatView() {
             }}
           />
           {busy ? (
-            <button className="btn-ghost !px-4 !py-2.5" onClick={stop} title="停止生成">
-              ■
+            <button className="btn-ghost !px-4 !py-2.5 inline-flex items-center justify-center" onClick={stop} title="停止生成" aria-label="停止生成">
+              <Icon name="square" size={14} />
             </button>
           ) : (
             <button className="btn-primary !px-4 !py-2.5" onClick={() => send()} disabled={!input.trim()}>

@@ -41,3 +41,5 @@ jobs:
       - name: 类型检查 + 生产构建
         run: npm run build
         working-directory: web
+      - name: 图标系统一致性校验（三端 sprite parity + 无 emoji 残留）
+        run: node scripts/check-icons.mjs

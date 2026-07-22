@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { ConfirmDialog, EmptyState, Spinner } from "../components/ui";
+import { Icon } from "../components/Icon";
 // toast 实际导出在 stores/toast（ui.tsx 未再导出，与 Files.tsx 的既有写法不同）
 import { toast } from "../stores/toast";
 import { Markdown } from "../components/Markdown";
@@ -273,7 +274,7 @@ export function NotesView() {
             全部笔记 <span className="text-[12px] font-normal text-ink-muted">({visible.length})</span>
           </div>
           <button className="btn-primary !px-3 !py-1.5 !text-[12.5px]" onClick={newNote}>
-            ＋ 新建笔记
+            <Icon name="plus" size={14} className="mr-1" />新建笔记
           </button>
         </div>
 
@@ -308,12 +309,12 @@ export function NotesView() {
             </div>
           ) : visible.length === 0 ? (
             <EmptyState
-              icon="📝"
+              icon="note"
               title={filterTag ? `没有带「${filterTag}」标签的笔记` : "还没有笔记"}
               hint={filterTag ? "换个标签，或新建一篇笔记。" : "点右上角「新建笔记」，随手记录，自动归档。"}
               action={
                 !filterTag ? (
-                  <button className="btn-primary" onClick={newNote}>＋ 新建第一篇笔记</button>
+                  <button className="btn-primary" onClick={newNote}><Icon name="plus" size={14} className="mr-1" />新建第一篇笔记</button>
                 ) : undefined
               }
             />
@@ -338,7 +339,7 @@ export function NotesView() {
                       <span className={`truncate text-[13.5px] font-medium ${active ? "text-primary" : ""}`}>
                         {n.name}
                       </span>
-                      {n.pinned && <span className="shrink-0 text-[11px]">⭐</span>}
+                      {n.pinned && <Icon name="star" size={12} className="shrink-0 text-warning" />}
                     </div>
                     {(n.summary || n.snippet) && (
                       <p className="mt-1 line-clamp-2 text-[12px] leading-snug text-ink-muted">
@@ -352,8 +353,8 @@ export function NotesView() {
                         </span>
                       ))}
                       {(n.ai_tags || []).map((t) => (
-                        <span key={`a-${t}`} className="rounded bg-primary-soft px-1.5 py-px text-[10.5px] text-primary">
-                          ✦ {t}
+                        <span key={`a-${t}`} className="inline-flex items-center rounded bg-primary-soft px-1.5 py-px text-[10.5px] text-primary">
+                          <Icon name="sparkles" size={10} className="mr-0.5" />{t}
                         </span>
                       ))}
                       {iso && (
@@ -373,10 +374,10 @@ export function NotesView() {
         {!editorOpen ? (
           <div className="flex h-full items-center justify-center">
             <EmptyState
-              icon="📝"
+              icon="note"
               title="选择一篇笔记开始编辑"
               hint="从左侧列表打开，或新建一篇。支持 Markdown 语法与预览。"
-              action={<button className="btn-primary" onClick={newNote}>＋ 新建笔记</button>}
+              action={<button className="btn-primary" onClick={newNote}><Icon name="plus" size={14} className="mr-1" />新建笔记</button>}
             />
           </div>
         ) : (
@@ -390,14 +391,14 @@ export function NotesView() {
                 title="保存（Ctrl/Cmd+S）"
               >
                 {saving && <Spinner className="mr-1.5 h-3.5 w-3.5 border-white border-t-transparent" />}
-                💾 保存
+                <Icon name="save" size={14} className="mr-1.5" />保存
               </button>
               <button
                 className={`btn-ghost !px-3.5 !py-1.5 !text-[12.5px] ${preview ? "!border-primary !bg-primary-soft !text-primary" : ""}`}
                 onClick={() => setPreview((v) => !v)}
                 disabled={loadingContent}
               >
-                {preview ? "✏️ 编辑" : "👁 预览"}
+                <Icon name={preview ? "pencil" : "eye"} size={14} className="mr-1.5" />{preview ? "编辑" : "预览"}
               </button>
               <button
                 className="btn-ghost !px-3.5 !py-1.5 !text-[12.5px]"
@@ -405,8 +406,8 @@ export function NotesView() {
                 disabled={enhancing || loadingContent}
                 title="调用 AI 生成摘要与建议标签"
               >
-                {enhancing ? <Spinner className="mr-1.5 h-3.5 w-3.5" /> : null}
-                {enhancing ? "AI 整理中…" : "✨ AI 整理"}
+                {enhancing ? <Spinner className="mr-1.5 h-3.5 w-3.5" /> : <Icon name="sparkles" size={14} className="mr-1.5" />}
+                {enhancing ? "AI 整理中…" : "AI 整理"}
               </button>
               <div className="flex-1" />
               {dirty && (
@@ -417,11 +418,12 @@ export function NotesView() {
               )}
               {fileId && (
                 <button
-                  className="row-btn text-[14px] hover:!text-danger"
+                  className="row-btn inline-flex items-center justify-center hover:!text-danger"
                   title="删除笔记（移入回收站）"
+                  aria-label="删除笔记"
                   onClick={() => setDel(true)}
                 >
-                  🗑
+                  <Icon name="trash" size={16} />
                 </button>
               )}
             </div>

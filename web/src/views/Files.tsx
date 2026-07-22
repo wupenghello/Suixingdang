@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Dialog, ConfirmDialog, EmptyState, FileIcon, Spinner, formatSize, toast } from "../components/ui";
+import { Icon } from "../components/Icon";
 import { formatDateTime } from "../lib/format";
 
 interface FileItem {
@@ -194,7 +195,7 @@ export function FilesView() {
             </span>
           )}
           <button className="btn-primary" onClick={() => fileInput.current?.click()}>
-            ⬆ 上传文件
+            <Icon name="upload" size={14} className="mr-1.5" />上传文件
           </button>
           <input
             ref={fileInput}
@@ -225,7 +226,7 @@ export function FilesView() {
             hint="拖拽文件到此处，或点击右上角上传。也可以让 AI 助手帮你整理。"
             action={
               <button className="btn-primary" onClick={() => fileInput.current?.click()}>
-                ⬆ 上传第一个文件
+                <Icon name="upload" size={14} className="mr-1.5" />上传第一个文件
               </button>
             }
           />
@@ -247,9 +248,11 @@ export function FilesView() {
                       className="flex items-center gap-2.5 text-left"
                       onClick={() => (f.is_dir ? load(f.path) : openPreview(f))}
                     >
-                      <span className="text-[17px]">{f.is_dir ? "📁" : <FileIcon name={f.name} />}</span>
+                      <span className="flex items-center">
+                        {f.is_dir ? <Icon name="folder" size={17} className="text-ink-secondary" /> : <FileIcon name={f.name} />}
+                      </span>
                       <span className="max-w-[380px] truncate text-[13.5px] hover:text-primary">{f.name}</span>
-                      {f.pinned && <span className="text-[11px]">⭐</span>}
+                      {f.pinned && <Icon name="star" size={12} className="shrink-0 text-warning" />}
                     </button>
                   </td>
                   <td className="border-b border-line-light py-2.5 text-[12.5px] text-ink-muted">
@@ -261,19 +264,20 @@ export function FilesView() {
                   <td className="border-b border-line-light py-2.5">
                     {!f.is_dir && (
                       <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                        <button className="row-btn" onClick={() => openPreview(f)} title="预览">👁</button>
-                        <button className="row-btn" onClick={() => download(f)} title="下载">⬇</button>
+                        <button className="row-btn inline-flex items-center justify-center" onClick={() => openPreview(f)} title="预览" aria-label="预览"><Icon name="eye" size={15} /></button>
+                        <button className="row-btn inline-flex items-center justify-center" onClick={() => download(f)} title="下载" aria-label="下载"><Icon name="download" size={15} /></button>
                         <button
-                          className="row-btn"
+                          className="row-btn inline-flex items-center justify-center"
                           title="重命名"
+                          aria-label="重命名"
                           onClick={() => {
                             setRename(f);
                             setRenameTo(f.name);
                           }}
                         >
-                          ✏️
+                          <Icon name="pencil" size={15} />
                         </button>
-                        <button className="row-btn hover:!text-danger" title="删除" onClick={() => setDel(f)}>🗑</button>
+                        <button className="row-btn inline-flex items-center justify-center hover:!text-danger" title="删除" aria-label="删除" onClick={() => setDel(f)}><Icon name="trash" size={15} /></button>
                       </div>
                     )}
                   </td>
@@ -329,7 +333,7 @@ export function FilesView() {
           <div className="py-6 text-center text-[13px] text-ink-muted">
             该类型不支持在线预览
             <div className="mt-3">
-              <button className="btn-primary" onClick={() => download(preview.file)}>⬇ 下载文件</button>
+              <button className="btn-primary" onClick={() => download(preview.file)}><Icon name="download" size={14} className="mr-1.5" />下载文件</button>
             </div>
           </div>
         )}

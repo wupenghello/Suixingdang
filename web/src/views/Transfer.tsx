@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { ConfirmDialog, EmptyState, FileIcon, Spinner, formatSize } from "../components/ui";
+import { Icon } from "../components/Icon";
 // toast 实际导出在 stores/toast（ui.tsx 未再导出，与 Files.tsx 的既有写法不同）
 import { toast } from "../stores/toast";
 import { formatDateTime, relativeTime } from "../lib/format";
@@ -160,7 +161,7 @@ export function TransferView() {
               disabled={!!uploading}
               onClick={() => fileInput.current?.click()}
             >
-              {uploading ? <Spinner className="h-4 w-4" /> : "📎"}
+              {uploading ? <Spinner className="h-4 w-4" /> : <Icon name="paperclip" size={16} />}
             </button>
             <button className="btn-primary !px-4 !py-2.5" onClick={sendText} disabled={!input.trim() || sending}>
               {sending && <Spinner className="mr-1.5 border-white border-t-transparent" />}
@@ -194,9 +195,9 @@ export function TransferView() {
             </div>
           ) : messages.length === 0 ? (
             <EmptyState
-              icon="🪄"
+              icon="package"
               title="传输助手还是空的"
-              hint="在上方发一条文字，或用 📎 传一个文件——随手存，随时取，跨设备同步。"
+              hint="在上方发一条文字，或点附件按钮传一个文件——随手存，随时取，跨设备同步。"
             />
           ) : (
             <div className="space-y-6">
@@ -217,7 +218,7 @@ export function TransferView() {
                       >
                         {m.type === "text" ? (
                           <>
-                            <span className="mt-0.5 text-[16px]">💬</span>
+                            <Icon name="message" size={16} className="mt-0.5 text-ink-muted" />
                             <div className="min-w-0 flex-1">
                               <div className="whitespace-pre-wrap break-words text-[13.5px] leading-relaxed">
                                 {m.content}
@@ -226,21 +227,21 @@ export function TransferView() {
                           </>
                         ) : (
                           <>
-                            <span className="mt-0.5 text-[16px]"><FileIcon name={m.file?.name || ""} /></span>
+                            <span className="mt-0.5"><FileIcon name={m.file?.name || ""} size={16} /></span>
                             <div className="min-w-0 flex-1">
                               {m.file ? (
                                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                                   <span className="max-w-[380px] truncate text-[13.5px] font-medium">{m.file.name}</span>
                                   <span className="text-[12px] text-ink-muted">{formatSize(m.file.size)}</span>
                                   {m.file.guard_status === "warning" && (
-                                    <span className="rounded bg-warning/[0.1] px-1.5 py-0.5 text-[11px] text-warning">⚠ 安全提示</span>
+                                    <span className="inline-flex items-center gap-1 rounded bg-warning/[0.1] px-1.5 py-0.5 text-[11px] text-warning"><Icon name="triangle-alert" size={11} />安全提示</span>
                                   )}
                                   <a
                                     className="text-[12.5px] font-medium text-primary transition-colors hover:text-primary-hover hover:underline"
                                     href={`/api/files/download?path=${encodeURIComponent(m.file.path)}`}
                                     download={m.file.name}
                                   >
-                                    ⬇ 下载
+                                    <Icon name="download" size={12} className="mr-1" />下载
                                   </a>
                                 </div>
                               ) : (
@@ -254,11 +255,12 @@ export function TransferView() {
                             {relativeTime(m.created_at)}
                           </span>
                           <button
-                            className="row-btn opacity-0 transition-opacity group-hover:opacity-100 hover:!text-danger"
+                            className="row-btn inline-flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 hover:!text-danger"
                             title="删除"
+                            aria-label="删除"
                             onClick={() => setDel(m)}
                           >
-                            🗑
+                            <Icon name="trash" size={15} />
                           </button>
                         </div>
                       </div>

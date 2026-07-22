@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuth } from "../stores/auth";
 import { api } from "../api/client";
 import { Spinner, toast } from "../components/ui";
+import { Icon } from "../components/Icon";
 
 type Mode = "login" | "register" | "forgot1" | "forgot2";
 
@@ -160,8 +161,8 @@ export function LoginView() {
               </button>
             </>
           ) : (
-            <button className="text-ink-muted transition-colors hover:text-primary" onClick={() => switchMode("login")}>
-              ← 返回登录
+            <button className="inline-flex items-center text-ink-muted transition-colors hover:text-primary" onClick={() => switchMode("login")}>
+              <Icon name="arrow-left" size={13} className="mr-1" />返回登录
             </button>
           )}
         </div>

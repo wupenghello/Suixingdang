@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { useToast } from "../stores/toast";
+import { Icon } from "./Icon";
 
 export { toast } from "../stores/toast";
 
@@ -15,7 +16,7 @@ export function Spinner({ className = "" }: { className?: string }) {
 }
 
 export function EmptyState({
-  icon = "🗂",
+  icon = "folder",
   title,
   hint,
   action,
@@ -26,8 +27,8 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-      <div className="text-4xl opacity-70">{icon}</div>
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+      <Icon name={icon} size={36} className="text-ink-muted opacity-70" />
       <div className="text-[15px] font-medium text-ink-secondary">{title}</div>
       {hint && <div className="max-w-sm text-[13px] text-ink-muted">{hint}</div>}
       {action && <div className="mt-2">{action}</div>}
@@ -82,9 +83,7 @@ export function Dialog({
             className="rounded-sm p-1 text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
             aria-label="关闭"
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <Icon name="x" size={16} />
           </button>
         </div>
         <div className="px-5 py-4">{children}</div>
@@ -141,7 +140,11 @@ export function ToastViewport() {
     error: "border-l-4 border-l-danger",
     info: "border-l-4 border-l-primary",
   };
-  const kindIcon: Record<string, string> = { success: "✓", error: "✕", info: "ℹ" };
+  const kindIcon: Record<string, React.ReactNode> = {
+    success: <Icon name="circle-check" size={15} className="text-success" />,
+    error: <Icon name="circle-x" size={15} className="text-danger" />,
+    info: <Icon name="info" size={15} className="text-primary" />,
+  };
   return (
     <div className="pointer-events-none fixed right-4 top-4 z-[60] flex w-80 flex-col gap-2">
       {toasts.map((t) => (
@@ -151,7 +154,7 @@ export function ToastViewport() {
           className={`pointer-events-auto cursor-pointer rounded-md bg-surface px-4 py-3 shadow-2 animate-[slideIn_.2s_ease-out] ${kindStyle[t.kind]}`}
         >
           <div className="flex items-start gap-2.5">
-            <span className="mt-0.5 text-[13px] font-bold text-ink-muted">{kindIcon[t.kind]}</span>
+            <span className="mt-0.5 shrink-0">{kindIcon[t.kind]}</span>
             <span className="flex-1 text-[13px] leading-relaxed text-ink">{t.text}</span>
           </div>
         </div>
@@ -162,19 +165,65 @@ export function ToastViewport() {
 
 /* ---------- 按钮样式（全局 class，见 styles.css 追加） ---------- */
 
-/* ---------- 文件图标 ---------- */
+/* ---------- 文件图标（线性 file-* + --type-* 语义色着色） ---------- */
 
-const EXT_ICON: Record<string, string> = {
-  pdf: "📕", doc: "📘", docx: "📘", xls: "📗", xlsx: "📗", ppt: "📙", pptx: "📙",
-  md: "📝", txt: "📝", rst: "📝", csv: "📊", json: "🧾", yaml: "🧾", yml: "🧾",
-  png: "🖼", jpg: "🖼", jpeg: "🖼", gif: "🖼", webp: "🖼", svg: "🖼",
-  mp3: "🎵", wav: "🎵", mp4: "🎬", mov: "🎬", zip: "🗜", rar: "🗜", "7z": "🗜",
-  py: "🐍", js: "📜", ts: "📜", html: "🌐", sql: "🗄",
+type FileKind = { icon: string; color: string };
+
+const EXT_KIND: Record<string, FileKind> = {
+  pdf: { icon: "file-text", color: "var(--color-type-pdf)" },
+  doc: { icon: "file-text", color: "var(--color-type-doc)" },
+  docx: { icon: "file-text", color: "var(--color-type-doc)" },
+  xls: { icon: "file-spreadsheet", color: "var(--color-type-xls)" },
+  xlsx: { icon: "file-spreadsheet", color: "var(--color-type-xls)" },
+  csv: { icon: "file-spreadsheet", color: "var(--color-type-xls)" },
+  ppt: { icon: "file-presentation", color: "var(--color-type-ppt)" },
+  pptx: { icon: "file-presentation", color: "var(--color-type-ppt)" },
+  md: { icon: "file-text", color: "var(--color-type-md)" },
+  txt: { icon: "file-text", color: "var(--color-type-md)" },
+  rst: { icon: "file-text", color: "var(--color-type-md)" },
+  png: { icon: "file-image", color: "var(--color-type-img)" },
+  jpg: { icon: "file-image", color: "var(--color-type-img)" },
+  jpeg: { icon: "file-image", color: "var(--color-type-img)" },
+  gif: { icon: "file-image", color: "var(--color-type-img)" },
+  webp: { icon: "file-image", color: "var(--color-type-img)" },
+  svg: { icon: "file-image", color: "var(--color-type-img)" },
+  mp3: { icon: "file-audio", color: "var(--color-type-audio)" },
+  wav: { icon: "file-audio", color: "var(--color-type-audio)" },
+  mp4: { icon: "file-video", color: "var(--color-type-video)" },
+  mov: { icon: "file-video", color: "var(--color-type-video)" },
+  zip: { icon: "file-archive", color: "var(--color-type-archive)" },
+  rar: { icon: "file-archive", color: "var(--color-type-archive)" },
+  "7z": { icon: "file-archive", color: "var(--color-type-archive)" },
+  py: { icon: "file-code", color: "var(--color-type-code)" },
+  js: { icon: "file-code", color: "var(--color-type-code)" },
+  ts: { icon: "file-code", color: "var(--color-type-code)" },
+  html: { icon: "file-code", color: "var(--color-type-code)" },
+  sql: { icon: "file-code", color: "var(--color-type-code)" },
+  json: { icon: "file-code", color: "var(--color-type-text)" },
+  yaml: { icon: "file-code", color: "var(--color-type-text)" },
+  yml: { icon: "file-code", color: "var(--color-type-text)" },
 };
+const DEFAULT_KIND: FileKind = { icon: "file", color: "var(--color-type-other)" };
 
-export function FileIcon({ name, className = "" }: { name: string; className?: string }) {
+export function FileIcon({
+  name,
+  size = 17,
+  className = "",
+}: {
+  name: string;
+  size?: number;
+  className?: string;
+}) {
   const ext = (name.split(".").pop() || "").toLowerCase();
-  return <span className={`select-none ${className}`}>{EXT_ICON[ext] || "📄"}</span>;
+  const kind = EXT_KIND[ext] || DEFAULT_KIND;
+  return (
+    <Icon
+      name={kind.icon}
+      size={size}
+      className={className}
+      style={{ color: kind.color }}
+    />
+  );
 }
 
 export function formatSize(bytes: number): string {
