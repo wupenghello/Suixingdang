@@ -44,11 +44,11 @@ test("注册 → 上传 → 列表 → 回收站 → 登出", async ({ page }) =
   await expect(page.getByText("已移入回收站")).toBeVisible();
 
   // 回收站可见
-  await page.getByText("回收站", { exact: true }).first().click();
+  await page.getByRole("button", { name: "回收站" }).click();
   await expect(page.getByText("e2e-note.txt").first()).toBeVisible({ timeout: 10_000 });
 
   // 恢复
-  await page.locator("tr,div", { hasText: "e2e-note.txt" }).getByText("恢复").first().click();
+  await page.locator("tr", { hasText: "e2e-note.txt" }).getByTitle("恢复到原位置").click();
 
   // 登出
   await page.locator("header").getByText(USERNAME).click();
