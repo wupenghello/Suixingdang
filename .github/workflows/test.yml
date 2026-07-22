@@ -2,6 +2,8 @@ name: 测试
 
 on:
   pull_request:
+  push:
+    branches: [develop, main]
 
 jobs:
   test:
@@ -45,3 +47,23 @@ jobs:
           BASE: origin/${{ github.base_ref }}
         if: github.event_name == 'pull_request'
         continue-on-error: true
+
+  webapp:
+    name: 新前端（S3：React+TS 构建 + 单测）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+      - name: 装依赖
+        run: npm ci --no-audit --no-fund
+        working-directory: web
+      - name: 跑前端单测（vitest）
+        run: npx vitest run
+        working-directory: web
+      - name: 类型检查 + 生产构建
+        run: npm run build
+        working-directory: web

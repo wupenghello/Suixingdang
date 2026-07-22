@@ -21,7 +21,7 @@ from ..core.security import (
 )
 from ..config import settings
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # ---- 请求/响应模型 ----

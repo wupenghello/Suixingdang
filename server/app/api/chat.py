@@ -14,7 +14,7 @@ from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 class ChatRequest(BaseModel):
@@ -88,9 +88,9 @@ def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
     _rate_limit(db, user.id)
     history = brain.chat_history_for_llm(user.id, limit=5)
 
-    def event_generator():
+    async def event_generator():
         try:
-            for item in brain.chat_stream(user.id, req.message, history=history):
+            async for item in brain.chat_stream(user.id, req.message, history=history):
                 yield {"event": "message", "data": json.dumps(item, ensure_ascii=False)}
         except Exception:
             logger.exception("agent chat_stream failed for user %s", user.id)

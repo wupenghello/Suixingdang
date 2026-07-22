@@ -19,6 +19,8 @@ venv/
 
 # Node / 本地截图脚本（仅本地开发用，不入库）
 node_modules/
+# 新前端构建产物（CI/部署时构建，不入库）
+web/dist/
 # 锚定仓库根：根 package.json(playwright 截图脚本)不入库；server/package.json 是正式前端工具链，须入库供 CI 使用
 /package.json
 /package-lock.json

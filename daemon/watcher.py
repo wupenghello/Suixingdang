@@ -1,9 +1,16 @@
-"""守护进程主程序：watchdog 监听文件夹 + 定时全量同步。"""
+"""守护进程主程序 v2：watchdog 监听 + 单 asyncio 事件循环。
+
+v1→v2 修复：
+- 双事件循环（watchdog 循环 + 轮询线程各自 asyncio.run）→ 单循环，
+  watchdog 线程事件经 call_soon_threadsafe 桥接进主循环，消除并发竞态
+- 事件防抖 0.5s（同文件短时间多次变化合并）
+- 轮询全量同步作为兜底（POLL_INTERVAL）
+- import threading 移到模块顶部（原在 __main__ 内，被导入调用会 NameError）
+"""
 
 import asyncio
-import time
-import signal
 import sys
+import time
 from pathlib import Path
 
 from watchdog.observers import Observer
@@ -14,31 +21,14 @@ from sync import full_sync, sync_single_file, _is_excluded
 
 
 class SyncHandler(FileSystemEventHandler):
-    """文件变化事件处理器。"""
+    """watchdog 线程 → asyncio 主循环的事件桥（防抖在消费端做）。"""
 
-    def __init__(self):
-        self.debounce = {}  # 防抖：同一文件短时间内多次变化只处理一次
-        self.loop = asyncio.new_event_loop()
+    def __init__(self, loop: asyncio.AbstractEventLoop, queue: asyncio.Queue):
+        self._loop = loop
+        self._queue = queue
 
-    def _schedule(self, rel_path: str, action: str):
-        """防抖调度：500ms 后执行。"""
-        now = time.time()
-        self.debounce[rel_path] = (now, action)
-        # 在独立的线程中运行异步同步
-        asyncio.run_coroutine_threadsafe(
-            self._debounced_sync(rel_path), self.loop
-        )
-
-    async def _debounced_sync(self, rel_path: str):
-        await asyncio.sleep(0.5)
-        entry = self.debounce.get(rel_path)
-        if entry:
-            _, action = entry
-            del self.debounce[rel_path]
-            try:
-                await sync_single_file(rel_path, action)
-            except Exception as e:
-                print(f"  [同步错误] {rel_path}: {e}")
+    def _push(self, rel: str, action: str):
+        self._loop.call_soon_threadsafe(self._queue.put_nowait, (rel, action))
 
     def on_created(self, event):
         if event.is_directory:
@@ -46,14 +36,14 @@ class SyncHandler(FileSystemEventHandler):
         rel = self._get_rel(event.src_path)
         if rel and not _is_excluded(Path(rel)):
             print(f"  [新增] {rel}")
-            self._schedule(rel, "upload")
+            self._push(rel, "upload")
 
     def on_modified(self, event):
         if event.is_directory:
             return
         rel = self._get_rel(event.src_path)
         if rel and not _is_excluded(Path(rel)):
-            self._schedule(rel, "upload")
+            self._push(rel, "upload")
 
     def on_deleted(self, event):
         if event.is_directory:
@@ -61,7 +51,7 @@ class SyncHandler(FileSystemEventHandler):
         rel = self._get_rel(event.src_path)
         if rel and not _is_excluded(Path(rel)):
             print(f"  [删除] {rel}")
-            self._schedule(rel, "delete")
+            self._push(rel, "delete")
 
     def on_moved(self, event):
         if event.is_directory:
@@ -69,25 +59,85 @@ class SyncHandler(FileSystemEventHandler):
         old_rel = self._get_rel(event.src_path)
         new_rel = self._get_rel(event.dest_path)
         if old_rel:
-            self._schedule(old_rel, "delete")
+            self._push(old_rel, "delete")
         if new_rel and not _is_excluded(Path(new_rel)):
-            self._schedule(new_rel, "upload")
+            self._push(new_rel, "upload")
 
     def _get_rel(self, abs_path: str) -> str:
+        """事件绝对路径 → 监控目录相对路径。
+
+        两侧都解析符号链接：FSEvents 回传解析后路径（/private/tmp/...），
+        而 WATCH_DIR 可能以链接形式给出（/tmp/...）；config 已规范化 WATCH_DIR，
+        此处再对事件路径解析，双向兜底，避免 relative_to 失败丢事件。
+        """
         try:
-            return str(Path(abs_path).relative_to(config.WATCH_DIR))
+            return str(Path(abs_path).resolve().relative_to(Path(config.WATCH_DIR).resolve()))
         except ValueError:
             return ""
 
 
-async def poll_loop():
-    """定时全量同步，作为 watchdog 的补充。"""
+async def _consumer(queue: asyncio.Queue, debounce: float = 0.5):
+    """防抖消费：0.5s 窗口内同文件多次事件合并为最后一次动作。"""
+    pending: dict[str, tuple[float, str]] = {}
+    while True:
+        try:
+            rel, action = await asyncio.wait_for(queue.get(), timeout=1.0)
+            pending[rel] = (time.time(), action)
+        except asyncio.TimeoutError:
+            pass
+        now = time.time()
+        due = [r for r, (ts, _a) in pending.items() if now - ts >= debounce]
+        for rel in due:
+            _ts, action = pending.pop(rel)
+            try:
+                await sync_single_file(rel, action)
+            except Exception as e:
+                print(f"  [同步错误] {rel}: {e}")
+
+
+async def _poll_loop():
+    """定时全量同步兜底（含重试队列处理）。"""
     while True:
         await asyncio.sleep(config.POLL_INTERVAL)
         try:
             await full_sync()
         except Exception as e:
             print(f"  [全量同步错误] {e}")
+
+
+async def _amain():
+    print("=" * 50)
+    print("随行档 - 家里守护进程 v2")
+    print(f"  服务器: {config.SERVER_URL}")
+    print(f"  监控目录: {config.WATCH_DIR}")
+    print(f"  同步模式: {config.SYNC_MODE}")
+    print(f"  轮询间隔: {config.POLL_INTERVAL}s")
+    print(f"  状态库: {config.STATE_DB}")
+    print("=" * 50)
+
+    print("\n[启动] 执行初始全量同步...")
+    try:
+        await full_sync()
+    except Exception as e:
+        print(f"  初始同步失败（将稍后重试）: {e}")
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    handler = SyncHandler(loop, queue)
+
+    observer = Observer()
+    observer.schedule(handler, config.WATCH_DIR, recursive=True)
+    observer.start()
+    print(f"\n[监听中] 正在监控 {config.WATCH_DIR}")
+
+    try:
+        await asyncio.gather(_consumer(queue), _poll_loop())
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print("\n[停止] 正在关闭...")
+    finally:
+        observer.stop()
+        observer.join()
+    print("[已停止]")
 
 
 def main():
@@ -99,41 +149,18 @@ def main():
         print("=" * 50)
         sys.exit(1)
 
-    print("=" * 50)
-    print("随行档 - 家里守护进程")
-    print(f"  服务器: {config.SERVER_URL}")
-    print(f"  监控目录: {config.WATCH_DIR}")
-    print(f"  同步模式: {config.SYNC_MODE}")
-    print(f"  轮询间隔: {config.POLL_INTERVAL}s")
-    print("=" * 50)
+    if config.SERVER_URL.startswith("http://") and not config.ALLOW_HTTP:
+        print("=" * 50)
+        print("错误: SERVER_URL 使用明文 http，设备令牌将明文传输。")
+        print("请改用 https；如确需在可信内网使用 http，显式设置 ALLOW_HTTP=1。")
+        print("=" * 50)
+        sys.exit(1)
 
-    # 启动时先做一次全量同步
-    print("\n[启动] 执行初始全量同步...")
-    asyncio.run(full_sync())
-
-    # 启动 watchdog 监听
-    observer = Observer()
-    handler = SyncHandler()
-    observer.schedule(handler, config.WATCH_DIR, recursive=True)
-    observer.start()
-    print(f"\n[监听中] 正在监控 {config.WATCH_DIR}")
-
-    # 启动定时全量同步
-    poll_thread = threading.Thread(
-        target=lambda: asyncio.run(poll_loop()), daemon=True
-    )
-    poll_thread.start()
-
-    # 运行 asyncio 事件循环（处理 watchdog 触发的同步）
     try:
-        handler.loop.run_forever()
+        asyncio.run(_amain())
     except KeyboardInterrupt:
-        print("\n[停止] 正在关闭...")
-        observer.stop()
-    observer.join()
-    print("[已停止]")
+        pass
 
 
 if __name__ == "__main__":
-    import threading
     main()

@@ -20,11 +20,15 @@
 # 跑后端测试(最快)
 cd server && .venv/bin/python -m pytest -q
 
-# 跑前端单测(改前端工具函数时必须)
+# 跑旧前端单测(改 server/app/web 工具函数时必须)
 cd server && npm test
+
+# 跑新前端单测 + 构建(改 web/ 时必须)
+cd web && npx vitest run && npm run build
 
 # 或起本地服务手动点一点(Ctrl+C 退出)
 ./start.sh   # 用户端 http://localhost:8899 ,管理端 http://localhost:8900
+# 新前端本地: cd web && npm run dev → http://localhost:5173/next/(代理 /api → 8899)
 ```
 
 ### 2. 提交并推送
@@ -67,7 +71,27 @@ curl -s https://你的域名/api/health    # 返回 {"status":"ok"...}
 
 ### 改了静态资源注意
 
-前端用缓存破坏(`?v=<build>`),改 `server/app/web/assets/` 下的静态文件后,必须同步升级 `server/app/web/index.html` 与 `server/app/web/admin/index.html` 中对应 `<script>` / `<link>` 的 `?v=` 值,否则用户浏览器会缓存旧版。CI 的 cache-busting 检查会校验此项。
+旧前端（`server/app/web/`）用缓存破坏（`?v=<build>`），改其静态文件后必须同步升级 `index.html` / `admin/index.html` 中的 `?v=` 值，CI 的 cache-busting 检查会校验。
+
+新前端（`web/`，v2.1 重构后）用 Vite 内容 hash 文件名，**无需手动升版本号**；改 `web/` 后跑 `./scripts/build_web.sh`（单测 + 构建），产物 `web/dist/` 由 FastAPI 以 `/next/*` 提供。灰度验证完毕切换默认入口前，旧前端保持可用。
+
+---
+
+## 场景 D:v2.1 重构后的新事项
+
+**数据库迁移（自动）**：启动时 Alembic 自动升级到 head。存量库（有业务表但无 `alembic_version`）会被自动 stamp 接管，无需手工操作。新增/修改表结构走标准流程：
+
+```bash
+cd server
+../.venv/bin/alembic revision --autogenerate -m "说明"   # 生成迁移(对临时空库差异)
+../.venv/bin/alembic upgrade head                        # 本地应用
+```
+
+**worker 服务**：compose 新增 `worker`（与 server 同镜像，跑 `python -m app.worker`，消费 jobs 表：回收站清理、索引重建等后台任务）。服务器上 `docker compose up -d` 会自动拉起。
+
+**新前端部署**：CI 的 `webapp` job 验证构建；生产部署前在本地或 CI 跑 `./scripts/build_web.sh`，把 `web/dist/` 同步到部署机（随仓库或产物分发皆可，FastAPI 检测到即挂载 `/next/*`）。
+
+**切换 PostgreSQL（可选终局）**：`.env` 设 `DATABASE_URL=postgresql+psycopg://suixingdang:suixingdang@db:5432/suixingdang`，然后 `docker compose --profile pg up -d`（自动起 pgvector/pg16 容器）。SQLite 仍是零配置默认。
 
 ---
 

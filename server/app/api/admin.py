@@ -10,9 +10,10 @@ from ..db.models import User, File, FileGroup, AccessToken, AccessLog, SystemSet
 from ..core.security import hash_password, generate_token_hash, encrypt_api_key, decrypt_api_key, validate_password, verify_password
 from ..core import storage, indexer
 from ..config import settings
+from ..services import trash as trash_service
 from .auth import get_current_admin, _log, _bump_password_version, _limiter_key, _set_user_password
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 class CreateUserRequest(BaseModel):
@@ -224,24 +225,9 @@ def admin_trash_stats(db: Session = Depends(get_db), admin=Depends(get_current_a
 
 @router.post("/trash/purge")
 def admin_trash_purge(request: Request, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
-    """手动触发全局回收站过期清理。"""
+    """手动触发全局回收站过期清理（实现收敛至 services/trash.py）。"""
     retention_days = get_trash_retention_days(db)
-    cutoff = datetime.utcnow() - timedelta(days=retention_days)
-    expired = db.query(File).filter(
-        File.deleted_at.isnot(None), File.deleted_at <= cutoff,
-        File.locked_at.is_(None),
-    ).all()
-    purged = 0
-    for f in expired:
-        storage.delete_file(f.owner_id, f.path)
-        try:
-            indexer.remove_from_index(f.owner_id, f.path)
-        except Exception:
-            pass
-        db.delete(f)
-        purged += 1
-    if purged:
-        db.commit()
+    purged = trash_service.purge_expired(db, user_id=None, write_access_log=False)
     _log(db, None, "admin_trash_purge", f"管理员清理回收站过期文件 {purged} 个", request)
     return {"purged": purged, "retention_days": retention_days}
 

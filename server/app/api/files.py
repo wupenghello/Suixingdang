@@ -15,10 +15,12 @@ from ..db.models import File as FileModel, FileGroup, SyncEvent, AccessLog, User
 from ..core import storage, indexer, guard
 from ..core.llm_service import chat_complete
 from ..config import settings
+from ..services.ingest import ingest_file, IngestError
+from ..services import trash as trash_service
 from .auth import get_current_user, get_current_session, _log, verify_stepup_password
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/files", tags=["files"])
+router = APIRouter(prefix="/files", tags=["files"])
 
 
 # 笔记正文节选缓存：file_id -> (content_hash, modified_ts, snippet)。
@@ -178,78 +180,16 @@ async def upload_file(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    # 校验分组归属
-    if group_id:
-        grp = db.query(FileGroup).filter_by(id=group_id, owner_id=user.id).first()
-        if not grp:
-            raise HTTPException(404, "分组不存在")
     rel_path = f"{directory}/{file.filename}" if directory else file.filename
-
-    # Guard
-    status, reason = guard.check_filename(rel_path)
-    if status == "blocked":
-        raise HTTPException(403, f"Guard 拦截: {reason}")
-
-    # 配额预估
-    _check_quota(db, user, 0)  # 先检查是否有配额（size 未知时放宽）
-
-    meta = storage.save_fileobj(user.id, rel_path, file.file, source=source)
-
-    # 配额精确检查
-    _check_quota(db, user, meta["size"])
-
-    # 自动去重：相同 content_hash 的活跃文件不重复入库（回收站文件不参与去重）
-    dup = db.query(FileModel).filter(
-        FileModel.owner_id == user.id,
-        FileModel.content_hash == meta["content_hash"],
-        FileModel.path != meta["path"],
-        FileModel.deleted_at.is_(None),
-    ).first()
-    if dup:
-        storage.delete_file(user.id, rel_path)
-        raise HTTPException(409, f"文件内容已存在（重复）: {dup.path}")
-
-    c_status, c_reason = guard.check_content(user.id, rel_path, direction="upload")
-    if c_status == "blocked" and not skip_guard:
-        storage.delete_file(user.id, rel_path)
-        raise HTTPException(403, f"Guard 拦截: {c_reason}")
-
-    final_status = c_status if c_status != "safe" else status
-    final_reason = c_reason if c_reason else reason
-    existing = db.query(FileModel).filter(
-        FileModel.owner_id == user.id, FileModel.path == meta["path"],
-        FileModel.deleted_at.is_(None),
-    ).first()
-    if existing:
-        existing.size = meta["size"]
-        existing.content_hash = meta["content_hash"]
-        existing.modified_at = datetime.utcnow()
-        existing.guard_status = final_status
-        existing.guard_reason = final_reason
-        existing.group_id = group_id or None
-        f = existing
-    else:
-        # 该路径曾有文件但被软删除（deleted_at 非空），恢复同名新文件时需新建记录
-        f = FileModel(
-            owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
-            content_hash=meta["content_hash"], mime_type=meta["mime_type"],
-            source=source, guard_status=final_status, guard_reason=final_reason,
-            group_id=group_id or None,
-        )
-        db.add(f)
-    db.commit()
-    db.refresh(f)
-
     try:
-        indexer.index_file(user.id, f.id, rel_path)
-    except Exception:
-        pass
-
-    db.add(SyncEvent(user_id=user.id, file_id=f.id, file_name=rel_path, direction="upload", status="completed"))
-    db.commit()
-    db.add(AccessLog(user_id=user.id, action="file_upload", detail=rel_path))
-    db.commit()
-
+        outcome = ingest_file(
+            db, user, rel_path, fileobj=file.file, source=source,
+            skip_content_guard=skip_guard, group_id=group_id,
+            access_action="file_upload",
+        )
+    except IngestError as e:
+        raise HTTPException(e.status, e.message, headers=e.headers or None)
+    f = outcome.file
     return {
         "id": f.id, "path": f.path, "name": f.name, "size": f.size,
         "guard_status": f.guard_status, "guard_reason": f.guard_reason,
@@ -265,14 +205,9 @@ def create_note(
 ):
     """以笔记形式创建文件（写入文本内容落盘为 .md 文件），不必上传。
 
-    与上传走同一入库流程：配额、Guard（文件名 + 内容）、去重、索引、同步事件。
+    与上传走同一入库管道（services/ingest.py）：分组校验、配额、Guard（文件名 + 内容）、
+    去重、索引、同步事件。路由层只保留笔记特有逻辑：文件名规范化、内容校验、编辑定位。
     """
-    # 校验分组归属
-    if req.group_id:
-        grp = db.query(FileGroup).filter_by(id=req.group_id, owner_id=user.id).first()
-        if not grp:
-            raise HTTPException(404, "分组不存在")
-
     # 笔记文件名：仅取文件名部分（禁止穿越），无扩展名则补 .md
     raw_name = (req.name or "").strip().replace("\\", "/").split("/")[-1].strip()
     if not raw_name:
@@ -283,29 +218,12 @@ def create_note(
         raw_name = raw_name + ".md"
     rel_path = f"{req.directory}/{raw_name}" if req.directory else raw_name
 
-    # Guard - 文件名
-    status, reason = guard.check_filename(rel_path)
-    if status == "blocked":
-        raise HTTPException(403, f"Guard 拦截: {reason}")
-
     content = req.content or ""
     if not content.strip():
         raise HTTPException(400, "内容不能为空")
     content_bytes = content.encode("utf-8")
     if len(content_bytes) > 5 * 1024 * 1024:
         raise HTTPException(400, "笔记内容不能超过 5MB")
-
-    # 配额预检：笔记字节数已知，直接按真实大小预估，避免写盘后才超配额
-    _check_quota(db, user, len(content_bytes))
-
-    meta = storage.save_file(user.id, rel_path, content_bytes, source="note")
-
-    # 配额精确检查
-    try:
-        _check_quota(db, user, meta["size"])
-    except HTTPException:
-        storage.delete_file(user.id, rel_path)
-        raise
 
     # 编辑模式：定位当前用户持有的该笔记（用于原地更新 / 重命名）
     editing = None
@@ -315,80 +233,17 @@ def create_note(
             FileModel.deleted_at.is_(None),
         ).first()
 
-    # 自动去重（回收站文件不参与去重；编辑时排除自身，避免重命名误报）
-    dup_q = db.query(FileModel).filter(
-        FileModel.owner_id == user.id,
-        FileModel.content_hash == meta["content_hash"],
-        FileModel.path != meta["path"],
-        FileModel.deleted_at.is_(None),
-    )
-    if editing:
-        dup_q = dup_q.filter(FileModel.id != editing.id)
-    dup = dup_q.first()
-    if dup:
-        storage.delete_file(user.id, rel_path)
-        raise HTTPException(409, f"文件内容已存在（重复）: {dup.path}")
-
-    # Guard - 内容
-    c_status, c_reason = guard.check_content(user.id, rel_path, direction="upload")
-    if c_status == "blocked":
-        storage.delete_file(user.id, rel_path)
-        raise HTTPException(403, f"Guard 拦截: {c_reason}")
-
-    final_status = c_status if c_status != "safe" else status
-    final_reason = c_reason if c_reason else reason
-    if editing:
-        # 原地更新：重命名时 path 改变，需删除旧物理文件与旧索引条目
-        old_path = editing.path
-        editing.path = meta["path"]
-        editing.name = meta["name"]
-        editing.size = meta["size"]
-        editing.content_hash = meta["content_hash"]
-        editing.modified_at = datetime.utcnow()
-        editing.guard_status = final_status
-        editing.guard_reason = final_reason
-        editing.group_id = req.group_id or None
-        f = editing
-        if old_path != meta["path"]:
-            storage.delete_file(user.id, old_path)
-            try:
-                indexer.remove_from_index(user.id, old_path)
-            except Exception:
-                pass
-    else:
-        existing = db.query(FileModel).filter(
-            FileModel.owner_id == user.id, FileModel.path == meta["path"],
-            FileModel.deleted_at.is_(None),
-        ).first()
-        if existing:
-            existing.size = meta["size"]
-            existing.content_hash = meta["content_hash"]
-            existing.modified_at = datetime.utcnow()
-            existing.guard_status = final_status
-            existing.guard_reason = final_reason
-            existing.group_id = req.group_id or None
-            f = existing
-        else:
-            # 该路径曾有文件但被软删除，恢复同名新笔记时需新建记录
-            f = FileModel(
-                owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
-                content_hash=meta["content_hash"], mime_type=meta["mime_type"],
-                source="note", guard_status=final_status, guard_reason=final_reason,
-                group_id=req.group_id or None,
-            )
-            db.add(f)
-    db.commit()
-    db.refresh(f)
-
     try:
-        indexer.index_file(user.id, f.id, rel_path)
-    except Exception:
-        pass
-
-    db.add(SyncEvent(user_id=user.id, file_id=f.id, file_name=rel_path, direction="upload", status="completed"))
-    db.add(AccessLog(user_id=user.id, action="file_note", detail=rel_path))
-    db.commit()
-
+        outcome = ingest_file(
+            db, user, rel_path, data=content_bytes, source="note",
+            group_id=req.group_id,
+            exclude_file_id=editing.id if editing else "",
+            update_file_id=editing.id if editing else "",
+            access_action="file_note",
+        )
+    except IngestError as e:
+        raise HTTPException(e.status, e.message, headers=e.headers or None)
+    f = outcome.file
     return {
         "id": f.id, "path": f.path, "name": f.name, "size": f.size,
         "guard_status": f.guard_status, "guard_reason": f.guard_reason,
@@ -1250,28 +1105,9 @@ def _keyword_search(db: Session, user_id: str, q: str, limit: int) -> list:
 def _purge_expired(db: Session, user_id: str, retention_days: int) -> int:
     """物理清除某用户超过保留期的回收站文件。返回清除条数。
 
-    已锁存(locked_at 非空)的文件一律跳过——用户主动保护的文件不受自动清理影响。
+    实现收敛至 services/trash.py（原 main.py/admin.py 各有一份拷贝）。
     """
-    cutoff = datetime.utcnow() - timedelta(days=retention_days)
-    expired = db.query(FileModel).filter(
-        FileModel.owner_id == user_id,
-        FileModel.deleted_at.isnot(None),
-        FileModel.deleted_at <= cutoff,
-        FileModel.locked_at.is_(None),
-    ).all()
-    purged = 0
-    for f in expired:
-        storage.delete_file(user_id, f.path)
-        try:
-            indexer.remove_from_index(user_id, f.path)
-        except Exception:
-            pass
-        db.delete(f)
-        purged += 1
-    if purged:
-        db.add(AccessLog(user_id=user_id, action="file_purge", detail=f"回收站过期清理 {purged} 个文件"))
-        db.commit()
-    return purged
+    return trash_service.purge_expired(db, user_id=user_id, retention_days=retention_days)
 
 
 @router.get("/trash")
@@ -1415,12 +1251,7 @@ def trash_purge_one(file_id: str = Query(...), db: Session = Depends(get_db), us
     ).first()
     if not f:
         raise HTTPException(404, "回收站中不存在该文件")
-    storage.delete_file(user.id, f.path)
-    try:
-        indexer.remove_from_index(user.id, f.path)
-    except Exception:
-        pass
-    db.delete(f)
+    trash_service.purge_file(db, user.id, f)
     db.add(AccessLog(user_id=user.id, action="file_purge", detail=f"彻底删除 {f.path}"))
     db.commit()
     return {"message": "已彻底删除", "file_id": file_id}

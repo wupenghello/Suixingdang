@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 
 from ..db.models import File as FileModel, SyncEvent, get_db
 from ..core import storage, indexer, guard
+from ..services.ingest import ingest_file, IngestError
 from .auth import get_current_device_user
 
-router = APIRouter(prefix="/api/sync", tags=["sync"])
+router = APIRouter(prefix="/sync", tags=["sync"])
 
 
 @router.post("/upload")
@@ -21,77 +22,34 @@ async def sync_upload(
     db: Session = Depends(get_db),
     user=Depends(get_current_device_user),
 ):
-    # 文件名检查（落盘前）
-    status, reason = guard.check_filename(relative_path)
-    if status == "blocked":
-        db.add(SyncEvent(user_id=user.id, file_name=relative_path, direction="home_to_server", status="failed", detail=f"Guard拦截: {reason}"))
-        db.commit()
-        raise HTTPException(403, f"Guard 拦截: {reason}")
+    """守护进程上传。走统一入库管道（services/ingest.py）：
+    - 冲突检测（base_hash 与服务器 hash 不一致 → 409 + X-Server-Hash）
+    - 去重统一排除回收站文件（修复：软删文件曾阻塞同步）
+    - 重复内容 skip 而非报错（dedup="skip"）
+    - 同步通道历史不检查配额，保持 check_quota_flag=False
+    """
+    try:
+        outcome = ingest_file(
+            db, user, relative_path, fileobj=file.file, source=source,
+            base_hash=base_hash, direction="home_to_server",
+            event_direction="home_to_server", dedup="skip",
+            check_quota_flag=False,
+        )
+    except IngestError as e:
+        if e.code.startswith("GUARD_"):
+            db.add(SyncEvent(user_id=user.id, file_name=relative_path,
+                             direction="home_to_server", status="failed", detail=e.message))
+            db.commit()
+        raise HTTPException(e.status, e.message, headers=e.headers or None)
 
-    # 冲突检测：客户端提供 base_hash 且服务器已有该文件时，
-    # 若 base_hash 与服务器当前 content_hash 不一致，说明两端都修改过，返回 409。
-    if base_hash:
-        pre_existing = db.query(FileModel).filter_by(owner_id=user.id, path=relative_path).first()
-        if pre_existing and pre_existing.content_hash and pre_existing.content_hash != base_hash:
-            raise HTTPException(
-                409,
-                detail=f"同步冲突：服务器端的文件已被修改（server_hash={pre_existing.content_hash[:16]}, base_hash={base_hash[:16]})",
-                headers={"X-Server-Hash": pre_existing.content_hash or ""},
-            )
-
-    meta = storage.save_fileobj(user.id, relative_path, file.file, source=source)
-
-    # 内容检查（落盘后：文件已在磁盘上才能扫描，否则 check_content 永远返回 safe）
-    c_status, c_reason = guard.check_content(user.id, relative_path, direction="home_to_server")
-    if c_status == "blocked":
-        storage.delete_file(user.id, relative_path)
-        db.add(SyncEvent(user_id=user.id, file_name=relative_path, direction="home_to_server", status="failed", detail=f"Guard拦截: {c_reason}"))
-        db.commit()
-        raise HTTPException(403, f"Guard 拦截: {c_reason}")
-    final_status = c_status if c_status != "safe" else status
-    final_reason = c_reason if c_reason else reason
-
-    # 自动去重：守护进程上传时，若服务器已有相同内容的文件则跳过
-    dup = db.query(FileModel).filter(
-        FileModel.owner_id == user.id,
-        FileModel.content_hash == meta["content_hash"],
-        FileModel.path != meta["path"],
-    ).first()
-    if dup:
-        storage.delete_file(user.id, relative_path)
+    if outcome.deduplicated:
         db.add(SyncEvent(user_id=user.id, file_name=relative_path,
                          direction="home_to_server", status="completed",
-                         detail=f"跳过上传: 内容已存在 {dup.path}"))
+                         detail=f"跳过上传: 内容已存在 {outcome.file.path}"))
         db.commit()
-        return {"status": "ok", "path": dup.path, "guard_status": final_status, "deduplicated": True}
-
-    existing = db.query(FileModel).filter_by(owner_id=user.id, path=meta["path"]).first()
-    if existing:
-        existing.size = meta["size"]
-        existing.content_hash = meta["content_hash"]
-        existing.modified_at = datetime.utcnow()
-        existing.source = source
-        existing.guard_status = final_status
-        existing.guard_reason = final_reason
-        f = existing
-    else:
-        f = FileModel(
-            owner_id=user.id, path=meta["path"], name=meta["name"], size=meta["size"],
-            content_hash=meta["content_hash"], mime_type=meta["mime_type"],
-            source=source, guard_status=final_status, guard_reason=final_reason,
-        )
-        db.add(f)
-    db.commit()
-    db.refresh(f)
-
-    try:
-        indexer.index_file(user.id, f.id, relative_path)
-    except Exception:
-        pass
-
-    db.add(SyncEvent(user_id=user.id, file_id=f.id, file_name=relative_path, direction="home_to_server", status="completed"))
-    db.commit()
-    return {"status": "ok", "path": meta["path"], "guard_status": final_status}
+        return {"status": "ok", "path": outcome.file.path,
+                "guard_status": outcome.guard_status, "deduplicated": True}
+    return {"status": "ok", "path": outcome.file.path, "guard_status": outcome.guard_status}
 
 
 @router.get("/download")
