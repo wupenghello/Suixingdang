@@ -107,6 +107,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
+          command_timeout: 30m
           script: |
             set -e
             cd ${{ secrets.DEPLOY_DIR || '~' }}
@@ -115,6 +116,19 @@ jobs:
             cp /tmp/suixingdang-deploy/docker-compose.yml docker-compose.yml
             cp /tmp/suixingdang-deploy/Caddyfile Caddyfile
             rm -rf /tmp/suixingdang-deploy
+            # 防 OOM：小内存 VPS 上 server+worker（均加载 chromadb）同时启动的
+            # 内存峰值曾触发 OOM killer 杀掉本 SSH 会话（deploy 以 137 失败）。
+            # 无交换分区时补 2G swap（幂等；非 root / 磁盘不足则跳过不阻塞部署）。
+            if ! swapon --show=NAME --noheadings 2>/dev/null | grep -q .; then
+              if fallocate -l 2G /swapfile 2>/dev/null && chmod 600 /swapfile \
+                  && mkswap /swapfile >/dev/null && swapon /swapfile; then
+                grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+                echo 'swap 2G enabled'
+              else
+                echo 'WARN: swap setup skipped (need root / free disk)' >&2
+              fi
+            fi
+            free -m
             docker compose pull
             docker compose up -d
             # Caddyfile 变更 up -d 感知不到（bind mount 内容不计入 compose 配置
@@ -122,4 +136,13 @@ jobs:
             docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
             docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
             docker compose ps
+            # 健康检查：等新镜像 server 就绪（Alembic 自动迁移 + chromadb 冷启动
+            # 需几秒）。输出含 version，可在日志确认部署到的版本号；超时则 job 失败
+            # 并附 server 日志，避免"CI 绿了但服务没起来"的静默失败。
+            ok=0
+            for i in $(seq 1 20); do
+              if curl -fsS http://127.0.0.1:8000/api/health; then ok=1; echo; break; fi
+              sleep 3
+            done
+            [ "$ok" = 1 ] || { echo 'ERROR: /api/health 60s 内未就绪' >&2; docker compose logs --tail=50 server >&2; exit 1; }
             docker image prune -f || true
